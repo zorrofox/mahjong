@@ -55,7 +55,7 @@ function renderRooms(rooms) {
 
     // Show the current player's chip balance (if the room has cumulative scores)
     const scores = room.cumulative_scores || {};
-    const myChips = scores[PLAYER_ID];
+    const myChips = scores[playerId];
     const chipsCell = myChips !== undefined
       ? `<span style="color:var(--accent);font-weight:700">${myChips}</span>`
       : '–';
