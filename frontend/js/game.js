@@ -299,16 +299,16 @@ function handleGameState(state) {
         const newMeld = currMelds[currMelds.length - 1];
         if (newMeld && newMeld.length >= 3) {
           if (newMeld[0] === newMeld[1]) {
-            getSpeech()?.speak(newMeld.length >= 4 ? '杠' : '碰');
+            getSpeech()?.speak(newMeld.length >= 4 ? '杠' : '碰', true);
           } else {
-            getSpeech()?.speak('吃');
+            getSpeech()?.speak('吃', true);
           }
         }
       } else if (currMelds.length === prevMelds.length) {
         // Check for extend-pung → kong (same meld count, but one meld grew to 4)
         currMelds.forEach((meld, mi) => {
           if (prevMelds[mi] && meld.length === 4 && prevMelds[mi].length === 3) {
-            getSpeech()?.speak('杠');
+            getSpeech()?.speak('杠', true);
           }
         });
       }
