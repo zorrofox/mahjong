@@ -56,6 +56,14 @@ majiang/
 │   ├── js/
 │   │   ├── lobby.js                 # 大厅逻辑：轮询房间列表
 │   │   └── game.js                  # 游戏逻辑：WebSocket 客户端、渲染
+│   ├── tiles/                       # Cangjie6 港式麻将 SVG 牌面（42 张）
+│   │   ├── BAMBOO_1.svg .. BAMBOO_9.svg
+│   │   ├── CIRCLES_1.svg .. CIRCLES_9.svg
+│   │   ├── CHARACTERS_1.svg .. CHARACTERS_9.svg
+│   │   ├── EAST.svg SOUTH.svg WEST.svg NORTH.svg
+│   │   ├── RED.svg GREEN.svg WHITE.svg
+│   │   ├── FLOWER_1.svg .. FLOWER_4.svg
+│   │   └── SEASON_1.svg .. SEASON_4.svg
 │   └── tests/                       # 前端单元测试（Vitest）
 │       ├── game.test.js             # 45 tests
 │       └── lobby.test.js            # 19 tests
@@ -199,23 +207,40 @@ drawing → discarding → claiming → (下一轮 drawing)
 └──────────────────────────────────────┘
 ```
 
-牌面显示映射（`tileToDisplay()`）：
+**牌面渲染系统**：
 
-| 牌型 | 主字（`.tile-main`） | 副字（`.tile-sub`） | 颜色 |
-|---|---|---|---|
-| BAMBOO_1..9 | 一～九 | 条 | 墨绿 |
-| CIRCLES_1..9 | 一～九 | 饼 | 深红 |
-| CHARACTERS_1..9 | 一～九 | 萬 | 藏青 |
-| EAST/SOUTH/WEST/NORTH | 東南西北 | — | 深色 |
-| RED/GREEN/WHITE | 中/發/白 | — | 各异 |
-| FLOWER_1..4 | 梅蘭菊竹 | — | 紫色 |
-| SEASON_1..4 | 春夏秋冬 | — | 橙色 |
+牌面使用 Wikimedia Commons **Cangjie6 斜视 3D SVG** 图片（CC BY-SA 4.0），存放于 `frontend/tiles/`，由 `TILE_SVG_MAP` 常量映射：
+
+```js
+const TILE_SVG_MAP = {
+  BAMBOO_1: 'tiles/BAMBOO_1.svg',   // 索子 1–9
+  CIRCLES_1: 'tiles/CIRCLES_1.svg', // 筒子 1–9
+  CHARACTERS_1: 'tiles/CHARACTERS_1.svg', // 万子 1–9
+  EAST: 'tiles/EAST.svg',  // 风牌
+  RED: 'tiles/RED.svg',    // 字牌（中/發/白）
+  FLOWER_1: 'tiles/FLOWER_1.svg',   // 花牌
+  SEASON_1: 'tiles/SEASON_1.svg',   // 季牌
+  // ...共 42 张
+};
+```
+
+`makeTileEl()` 根据 `TILE_SVG_MAP` 生成 `<img class="tile-img">` 标签加载 SVG；SVG 图片自带象牙底面、3D 立体边框和传统图案（斜视角度展示条/饼/万/风字牌面）。`TILE_MAP` 保留文字映射表（供排序、标签显示等逻辑使用），与渲染分离。
+
+| 牌型 | `TILE_MAP` 文字标签 | 渲染方式 |
+|---|---|---|
+| BAMBOO_1..9 | 一～九（B1..B9） | `tiles/BAMBOO_*.svg` 图片 |
+| CIRCLES_1..9 | 一～九（C1..C9） | `tiles/CIRCLES_*.svg` 图片 |
+| CHARACTERS_1..9 | 一～九（M1..M9） | `tiles/CHARACTERS_*.svg` 图片 |
+| EAST/SOUTH/WEST/NORTH | 東南西北 | `tiles/*.svg` 图片 |
+| RED/GREEN/WHITE | 中/發/白 | `tiles/*.svg` 图片 |
+| FLOWER_1..4 / SEASON_1..4 | 梅蘭菊竹/春夏秋冬 | `tiles/*.svg` 图片 |
 
 **牌面视觉风格**：
-- 象牙骨色渐变背景 + 3D 浮雕边框（亮色上/左 + 暗色下/右）模拟实体麻将牌质感
-- 背面牌采用 45° 条纹图案
-- 字体：Noto Serif SC（Google Fonts）提供传统宋/楷体汉字渲染
-- 手牌 44×62px / 弃牌 26×36px / 声索弹窗 56×78px，各区域独立缩放
+- Cangjie6 斜视 3D 风格：展示牌面正面 + 侧面，象牙底色，真实传统港式麻将质感
+- 背面牌（对手手牌）：纯 CSS 45° 蓝色条纹，无图片
+- 手牌 44×62px / 弃牌 26×36px / 对手 24×33px / 声索弹窗 70×98px
+- hover 效果：`filter: drop-shadow`（正确作用于透明背景图片）
+- selected 效果：金色 `drop-shadow` + `outline` 轮廓
 
 **WebSocket 断线重连**：2 秒后自动重连。
 
@@ -233,10 +258,11 @@ drawing → discarding → claiming → (下一轮 drawing)
 | `api/websocket.py` | 806 | WebSocket 处理 |
 | `api/routes.py` | 102 | REST 接口 |
 | `main.py` | 54 | 应用入口 |
-| `frontend/js/game.js` | 919 | 游戏客户端 |
+| `frontend/js/game.js` | 948 | 游戏客户端（含 TILE_SVG_MAP + Cangjie6 渲染） |
 | `frontend/js/lobby.js` | 177 | 大厅客户端 |
-| `frontend/css/style.css` | 785 | 样式表 |
-| **业务代码合计** | **~4,790** | |
+| `frontend/css/style.css` | 753 | 样式表 |
+| `frontend/tiles/` | 42 SVG | Cangjie6 港式麻将牌面图片 |
+| **业务代码合计** | **~4,757** | |
 | `backend/tests/` | ~1,540 | 后端单元测试（237 tests） |
 | `frontend/tests/` | ~550 | 前端单元测试（64 tests） |
 | `tests/integration/` | ~1,120 | 集成测试（48 tests） |
@@ -1001,6 +1027,217 @@ payload = {
 
 ---
 
+### 功能增强 3：Cangjie6 港式麻将 SVG 牌面（UI 视觉升级）
+
+**背景**：初版牌面使用纯 CSS + 汉字文本渲染（象牙底色 + 3D 浮雕边框），视觉效果与真实港式麻将差距较大。后续迭代中逐步尝试手绘内联 SVG（条子竹节、饼子同心圆），但与参考图片（维基百科 MJTiles_Fullset.png）仍有较大差距。
+
+**最终方案**：换用 Wikimedia Commons **Cangjie6 斜视 3D SVG 牌面**（全套 42 张，CC BY-SA 4.0 授权）。
+
+**资产获取方式**：
+
+由于 Wikimedia `upload.wikimedia.org` 存在限速（HTTP 429），改从 `perthmahjongsoc/mahjong-tiles-svg` GitHub 仓库获取：
+
+1. `git clone --depth 1` 仓库（文件为 Git LFS 指针）
+2. 读取各指针文件中的 `oid sha256:` 字段
+3. 调用 GitHub LFS Batch API 批量获取真实文件下载链接
+4. 一次性下载全部 42 张 SVG（0 失败）
+
+```python
+LFS_API = "https://github.com/perthmahjongsoc/mahjong-tiles-svg.git/info/lfs/objects/batch"
+# POST payload: {"operation": "download", "objects": [{oid, size}, ...]}
+```
+
+仓库目录结构映射到游戏牌名：
+
+| 仓库目录 | 文件（Unicode） | 游戏键名 |
+|---|---|---|
+| `索/` | 🀐–🀘 | `BAMBOO_1–9` |
+| `筒/` | 🀙–🀡 | `CIRCLES_1–9` |
+| `萬/` | 🀇–🀏 | `CHARACTERS_1–9` |
+| `番/` | 🀀–🀆 | `EAST/SOUTH/WEST/NORTH/RED/GREEN/WHITE` |
+| `花/` | 🀢–🀩 | `FLOWER_1–4 / SEASON_1–4` |
+
+**代码改动**：
+
+**1. `frontend/js/game.js`**
+- 新增 `TILE_SVG_MAP`（42 个键值对）
+- `makeTileEl()` 改为生成 `<img class="tile-img" src="tiles/{KEY}.svg">`，加载失败时回退文字
+- 删除旧的 `_makeBamboo1SVG`、`_makeBambooSVG`、`_makeCircleSVG`（约 250 行内联 SVG 生成器）
+- Bug：改动期间出现两处 `makeTileEl` 函数声明（JS 后者优先，旧版生效），导致白底消失；修复方案：用 Python 脚本精确删除旧函数声明（188–434 行）
+
+**2. `frontend/css/style.css`**
+- `.tile` 去掉象牙色渐变背景、斜角边框、`box-shadow`（Cangjie6 SVG 自带 3D 效果）
+- 新增 `.tile-img { object-fit: contain }`
+- hover 改为 `filter: drop-shadow`；selected 改为金色 `drop-shadow` + `outline`
+- `.tile-back`（背面牌）保留纯 CSS 蓝色斜纹，补回显式 `border`
+
+**3. `frontend/tiles/`**（新增目录）
+- 42 张 Cangjie6 斜视 3D SVG 文件，以游戏键名命名（`BAMBOO_1.svg` 等）
+
+**视觉效果**：港式传统麻将斜视 3D 风格，象牙底面，竹节/圆圈/万字等图案清晰，与 Wikimedia 参考图片一致。
+
+**修改文件**：
+
+| 文件 | 改动 |
+|---|---|
+| `frontend/js/game.js` | 新增 `TILE_SVG_MAP`；`makeTileEl()` 改用 `<img>`；删除 ~250 行 SVG 生成器 |
+| `frontend/css/style.css` | 去除手绘牌面 CSS；新增图片填充规则；更新 hover/selected 效果 |
+| `frontend/tiles/` | 新增目录，存放 42 张 Cangjie6 SVG |
+
+---
+
+### 功能增强 4：胡牌番数详情（Han Breakdown）
+
+**背景**：胡牌后仅显示"赢了"和筹码变动，玩家无法了解本局达成的番型及对应番数，缺乏传统麻将的计番乐趣。
+
+**实现的番型**（港式规则简化版）：
+
+| 番型 | 番数 | 触发条件 |
+|---|---|---|
+| 基本分 | +1 | 始终计入 |
+| 自摸 | +1 | 非荣和（自己摸牌胡） |
+| 无花 | +1 | 无花牌/季牌 |
+| 门清 | +1 | 无任何副露（碰/吃/杠） |
+| 平胡 | +1 | 四副全顺子 + 对子为 2–8 + 门清 |
+| 断幺 | +1 | 全部牌为 2–8，无幺九风字 |
+| 混幺九 | +2 | 每副及对子均含幺九或风字牌 |
+| 七对 | +3 | 七个不同对子（特殊牌型） |
+| 碰碰胡 | +3 | 四副全刻子 |
+| 混一色 | +3 | 纯一花色 + 风字牌 |
+| 清一色 | +7 | 纯一花色，无风字 |
+| 字一色 | +7 | 全风牌或字牌 |
+| 小三元 | +5 | 两副字牌刻子 + 对子为第三种字牌 |
+| 大三元 | +8 | 三副字牌（中/發/白）刻子 |
+| 小四喜 | +6 | 三副风牌刻子 + 对子为第四种风牌 |
+| 大四喜 | +13 | 四副风牌（东南西北）刻子 |
+
+**示例输出**（平胡自摸门清无花）：
+
+```
+番数详情 / Fan Breakdown
+基本分  Base              +1
+自摸    Tsumo             +1
+无花    No Bonus Tiles    +1
+门清    Concealed Hand    +1
+平胡    Ping Hu           +1
+断幺    All Simples       +1
+合计: 6 番
+```
+
+**核心实现（`backend/game/hand.py`）**：
+
+新增两个函数：
+
+`decompose_winning_hand(concealed_tiles)` — 将手牌拆解为 `(pair, groups)` 结构：
+- 支持七对特殊牌型
+- 使用与 `is_winning_hand` 相同的回溯算法，返回实际分组而非 True/False
+- 返回 `{'pair': str, 'groups': [{'type': 'pung'|'chow', 'tiles': [...]}], 'seven_pairs': bool}`
+
+`calculate_han(concealed_tiles, declared_melds, flowers, ron)` — 计算番型：
+- 接受手牌（含胡牌，不含花牌）、副露、花牌、是否荣和
+- 内部调用 `decompose_winning_hand` 获取完整牌型结构
+- 对 16 种番型逐一检测，互斥番型自然不会同时触发
+- 返回 `{'breakdown': [{'name_cn', 'name_en', 'fan'}, ...], 'total': int}`
+
+**数据流**：
+
+```
+declare_win() / _resolve_claims()
+    └── _finalize_win(player_idx, winning_tile, ron)
+            └── calculate_han(player.hand_without_bonus(),
+                              player.melds, player.flowers, ron)
+                    → self.han_breakdown, self.han_total
+
+_handle_game_over()
+    └── payload["han_breakdown"] = gs.han_breakdown
+        payload["han_total"]    = gs.han_total
+
+前端 handleGameOver(msg)
+    └── showGameOverModal(..., msg.han_breakdown, msg.han_total)
+            └── 渲染 .han-section 番型表格
+```
+
+**修改文件**：
+
+| 文件 | 改动 |
+|---|---|
+| `backend/game/hand.py` | 新增 `decompose_winning_hand()`、`calculate_han()` 及辅助常量/函数 |
+| `backend/game/game_state.py` | 新增 `self.han_breakdown`、`self.han_total` 字段；`_finalize_win()` 调用 `calculate_han()` |
+| `backend/api/websocket.py` | `game_over` payload 新增 `han_breakdown`、`han_total` 字段 |
+| `frontend/game.html` | 游戏结束弹窗新增 `#han-breakdown-section` 番型表格区块 |
+| `frontend/js/game.js` | `handleGameOver()` 透传番型数据；`showGameOverModal()` 渲染番型表格 |
+| `frontend/css/style.css` | 新增 `.han-section`、`.han-table`、`.han-total-row` 样式；弹窗改为可滚动（`max-height: 90vh`） |
+
+---
+
+### 功能增强 5：番数驱动的筹码结算（含庄家与杠规则）
+
+**背景**：功能增强 4 实现了番数展示，但筹码结算仍沿用旧的任意分值系统（基础 8 分 + 副露加分），与番数完全脱钩。本次将两者打通，并补充传统港式庄家双倍与杠钱规则。
+
+**计分公式**：
+
+```
+unit = min(CHIP_CAP, 2 ^ (han_total - 1))    CHIP_CAP = 64（7 番封顶）
+
+1番 → 1 chip   2番 → 2   3番 → 4   4番 → 8   5番 → 16   6番 → 32   7番+ → 64
+```
+
+**庄家规则**（player 0 固定为庄家）：
+- 庄家付/收均为 **2×unit**，闲家付/收为 **1×unit**
+
+**自摸（tsumo）结算**：
+
+| 胡牌者 | 庄家付 | 每位闲家付 | 胡牌者总收 |
+|---|---|---|---|
+| 闲家 | 2×unit | 1×unit | 4×unit |
+| 庄家 | — | 2×unit（×3人） | 6×unit |
+
+**荣和（ron）结算**：
+
+- 放炮者独付全额（相当于自摸时三人合计应付之和）
+- 闲家胡：放炮者付 (2+1+1)×unit = **4×unit**
+- 庄家胡：放炮者付 (2+2+2)×unit = **6×unit**
+- 若庄家放炮给闲家：庄家作为放炮者独付 **4×unit**
+
+**杠钱（kong payment）**：
+- 每次杠即时结算，其余三家各付 **1 筹码** 给杠家（与最终番数无关）
+- `record_kong_payment(konger_idx)` 将转账记入 `gs.kong_chip_transfers`
+- 在 `_handle_game_over()` 优先于胡牌结算一并应用
+
+**数据流（完整）**：
+
+```
+claim_kong() / _resolve_claims() 中的 kong 分支
+    └── record_kong_payment(konger_idx)
+            → kong_chip_transfers[konger] += 3
+            → kong_chip_transfers[other]  -= 1  (×3)
+
+_finalize_win(player_idx, winning_tile, ron)
+    ├── calculate_han(...)  → han_breakdown, han_total
+    └── player.score = han_total        ← 用于游戏结束界面"本局得分"列
+
+_handle_game_over()
+    ├── 应用 kong_chip_transfers（杠钱）
+    ├── unit = min(64, 2^(han_total-1))
+    ├── Ron:  discarder_pay = Σ _pay(i) for i ≠ winner
+    └── Tsumo: each loser pays _pay(loser_idx)
+            _pay(i) = 2×unit if i == dealer_idx else 1×unit
+```
+
+**删除旧系统**：
+- `_calculate_score()` 方法从 `game_state.py` 中删除
+- 旧测试类 `TestCalculateScore`（6 个测试）替换为 `TestHanBasedScore`（3 个新测试，验证 `player.score == han_total`、`record_kong_payment` 累加逻辑、`dealer_idx` 默认值）
+
+**修改文件**：
+
+| 文件 | 改动 |
+|---|---|
+| `backend/game/game_state.py` | 新增 `dealer_idx`、`kong_chip_transfers` 字段；新增 `record_kong_payment()`；在 `claim_kong()` 和 `_resolve_claims()` 中调用；删除 `_calculate_score()`；`_finalize_win()` 设 `player.score = han_total` |
+| `backend/api/websocket.py` | 新增 `CHIP_CAP = 64` 常量；`_handle_game_over()` 完全重写结算逻辑（杠钱先行 + 番数计算） |
+| `backend/tests/test_game_state.py` | `TestCalculateScore` → `TestHanBasedScore`，新增 3 个测试 |
+
+---
+
 ## 测试体系
 
 ### 运行方式
@@ -1060,8 +1297,8 @@ pytest -v
 |---|---|---|
 | 状态持久化 | 纯内存，重启丢失 | 接入 Redis 或 SQLite |
 | 玩家认证 | 无，player_id 自生成 | 加入 JWT/Session |
-| 计分系统 | 跨局累计筹码结算（自摸/荣和零和结算，初始 1000 筹码）| 完整番种计算（清一色、字一色等高级番型加倍） |
+| 计分系统 | 番数驱动结算（unit=2^(n-1)，庄家双倍，杠钱即时，详见功能增强 5） | 天胡/地胡等特殊牌型；庄家轮换；番型加倍上限调整 |
 | AI 强度 | 启发式贪心 | 蒙特卡洛或规则引擎 |
 | 移动端适配 | 桌面优先（1024px+） | 触屏手势支持 |
-| 测试覆盖 | 349 tests，含声索窗口 + 手牌排序 + 副露胡牌 + 重开局集成测试 | E2E 浏览器测试（Playwright） |
+| 测试覆盖 | 346 tests，含声索窗口 + 手牌排序 + 副露胡牌 + 重开局 + 番数/杠钱集成测试 | E2E 浏览器测试（Playwright） |
 | 多语言 | 界面为中英混合 | i18n 国际化 |

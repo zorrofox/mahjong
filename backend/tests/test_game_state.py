@@ -528,45 +528,37 @@ class TestFlowerCollection:
 # Score calculation tests
 # ---------------------------------------------------------------------------
 
-class TestCalculateScore:
-    def test_base_score(self):
+class TestHanBasedScore:
+    """Scoring is now han-based. player.score == han_total after a win."""
+
+    def test_player_score_equals_han_total_after_win(self):
+        """After declare_win, player.score reflects the han count."""
         gs = make_dealt_game()
+        # Build a minimal winning hand (平胡 all chows, concealed, no flowers)
+        gs.players[0].hand = [
+            "BAMBOO_1", "BAMBOO_2", "BAMBOO_3",
+            "CIRCLES_4", "CIRCLES_5", "CIRCLES_6",
+            "CHARACTERS_7", "CHARACTERS_8", "CHARACTERS_9",
+            "BAMBOO_4", "BAMBOO_5", "BAMBOO_6",
+            "EAST", "EAST",
+        ]
         gs.players[0].melds = []
         gs.players[0].flowers = []
-        score = gs._calculate_score(0, "BAMBOO_1", ron=True)
-        assert score == 8  # base only
+        gs.phase = "discarding"
+        gs.current_turn = 0
+        gs.declare_win(0)
+        assert gs.players[0].score == gs.han_total
+        assert gs.han_total >= 1  # at least base 1 fan
 
-    def test_self_draw_bonus(self):
+    def test_kong_chip_transfers_accumulate(self):
+        """record_kong_payment credits konger +3 and debits each other -1."""
         gs = make_dealt_game()
-        gs.players[0].melds = []
-        gs.players[0].flowers = []
-        score = gs._calculate_score(0, "BAMBOO_1", ron=False)
-        assert score == 12  # base 8 + tsumo 4
+        assert gs.kong_chip_transfers == {}
+        gs.record_kong_payment(0)
+        assert gs.kong_chip_transfers[gs.players[0].id] == 3
+        for i in range(1, 4):
+            assert gs.kong_chip_transfers[gs.players[i].id] == -1
 
-    def test_pung_meld_bonus(self):
+    def test_dealer_idx_default(self):
         gs = make_dealt_game()
-        gs.players[0].melds = [["BAMBOO_1", "BAMBOO_1", "BAMBOO_1"]]
-        gs.players[0].flowers = []
-        score = gs._calculate_score(0, "BAMBOO_1", ron=True)
-        assert score == 12  # base 8 + pung 4
-
-    def test_honor_pung_bonus(self):
-        gs = make_dealt_game()
-        gs.players[0].melds = [["EAST", "EAST", "EAST"]]
-        gs.players[0].flowers = []
-        score = gs._calculate_score(0, "BAMBOO_1", ron=True)
-        assert score == 16  # base 8 + pung 4 + honor 4
-
-    def test_flower_bonus(self):
-        gs = make_dealt_game()
-        gs.players[0].melds = []
-        gs.players[0].flowers = ["FLOWER_1", "SEASON_2"]
-        score = gs._calculate_score(0, "BAMBOO_1", ron=True)
-        assert score == 12  # base 8 + 2 flowers * 2
-
-    def test_kong_bonus(self):
-        gs = make_dealt_game()
-        gs.players[0].melds = [["BAMBOO_1"] * 4]
-        gs.players[0].flowers = []
-        score = gs._calculate_score(0, "BAMBOO_1", ron=True)
-        assert score == 14  # base 8 + kong 6
+        assert gs.dealer_idx == 0

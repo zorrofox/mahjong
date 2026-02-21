@@ -21,6 +21,7 @@ from .hand import (
     can_pung,
     can_kong,
     can_chow,
+    calculate_han,
 )
 
 logger = logging.getLogger(__name__)
@@ -111,10 +112,20 @@ class GameState:
         # Format: {"player_idx": int, "type": "win"|"pung"|"kong"|"chow", "tiles": list[str]}
         self._best_claim: Optional[dict] = None
 
+        # Dealer index (player 0 is always dealer in current implementation)
+        self.dealer_idx: int = 0
+
         # Game result
         self.winner: Optional[str] = None  # player id of the winner
         self.win_ron: Optional[bool] = None  # True = discard win, False = self-draw
         self.win_discarder_idx: Optional[int] = None  # index of the discarder for ron wins
+        self.han_breakdown: list[dict] = []   # [{'name_cn','name_en','fan'}, ...]
+        self.han_total: int = 0
+
+        # Accumulated chip transfers from kong declarations during the hand.
+        # Applied at game end alongside the win payment.
+        # Keys are player_id strings; values are net chip deltas (can be negative).
+        self.kong_chip_transfers: dict[str, int] = {}
 
         logger.info("GameState created: room=%s players=%s", room_id, player_ids)
 
@@ -199,8 +210,7 @@ class GameState:
             # Add the claimed tile to the winner's hand, then finalize
             claimer.hand.append(discard_tile)
             self._finalize_win(claimer_idx, discard_tile, ron=True)
-            score = self._calculate_score(claimer_idx, discard_tile, ron=True)
-            claimer.score += score
+            # player.score is set inside _finalize_win (= han_total)
 
         elif claim_type in ("pung", "kong"):
             # Form the meld
@@ -215,6 +225,8 @@ class GameState:
             claimer.melds.append(meld)
 
             if claim_type == "kong":
+                # Record kong chip payment before drawing
+                self.record_kong_payment(claimer_idx)
                 # Draw replacement tile from back of wall
                 replacement = self._draw_from_back()
                 if replacement is not None:
@@ -269,6 +281,29 @@ class GameState:
             "Player %s wins! Room=%s tile=%s ron=%s",
             self.winner, self.room_id, winning_tile, ron
         )
+        # Calculate Han breakdown
+        player = self.players[player_idx]
+        concealed = player.hand_without_bonus()
+        result = calculate_han(concealed, player.melds, player.flowers, ron)
+        self.han_breakdown = result['breakdown']
+        self.han_total = result['total']
+        # Store han total as the round score for display (replaces old _calculate_score)
+        player.score = self.han_total
+
+    def record_kong_payment(self, konger_idx: int) -> None:
+        """
+        Record an immediate kong payment: each of the other 3 players pays 1 chip
+        to the konger.  Accumulated in kong_chip_transfers; applied at hand end.
+        """
+        konger_id = self.players[konger_idx].id
+        self.kong_chip_transfers[konger_id] = (
+            self.kong_chip_transfers.get(konger_id, 0) + 3
+        )
+        for i, p in enumerate(self.players):
+            if i != konger_idx:
+                self.kong_chip_transfers[p.id] = (
+                    self.kong_chip_transfers.get(p.id, 0) - 1
+                )
 
     def _open_claim_window(self) -> None:
         """Open a claim window for all players except the discarder."""
@@ -464,6 +499,8 @@ class GameState:
             else:
                 self.phase = "ended"
                 return True
+            # Record kong chip payment (each other player pays 1 chip)
+            self.record_kong_payment(player_idx)
             # Player stays in discarding phase to discard again
             return True
 
@@ -638,14 +675,13 @@ class GameState:
             }
 
         self._finalize_win(player_idx, winning_tile, ron)
-        score = self._calculate_score(player_idx, winning_tile, ron)
-        player.score += score
+        # player.score is set inside _finalize_win (= han_total)
 
         return {
             "winner": player.id,
             "winning_tile": winning_tile,
             "ron": ron,
-            "score": score,
+            "score": player.score,   # = han_total (set by _finalize_win)
             "hand": player.hand_without_bonus(),
             "melds": player.melds,
             "pending": False,
@@ -669,43 +705,7 @@ class GameState:
         self._skipped_claims.add(player_idx)
         self._check_claim_window_closed()
 
-    def _calculate_score(
-        self, winner_idx: int, winning_tile: str, ron: bool
-    ) -> int:
-        """
-        Calculate a basic score for the winner.
-
-        This is a simplified scoring model:
-          - Base: 8 points
-          - +4 per pung/kong meld
-          - +2 per chow meld
-          - +4 if self-draw (tsumo)
-          - +2 per flower/season collected
-          - +4 per honor tile pung (wind/dragon)
-
-        Returns:
-            Total score for the winning hand.
-        """
-        from .tiles import is_honor_tile  # local import to avoid circular
-        player = self.players[winner_idx]
-        score = 8  # base
-
-        for meld in player.melds:
-            if len(meld) == 4:  # kong
-                score += 6
-            elif len(set(meld)) == 1:  # pung
-                score += 4
-                if is_honor_tile(meld[0]):
-                    score += 4
-            else:  # chow
-                score += 2
-
-        if not ron:
-            score += 4  # self-draw bonus
-
-        score += len(player.flowers) * 2
-
-        return score
+    # _calculate_score removed: chip settlement is now han-based (see websocket._handle_game_over)
 
     def get_available_actions(self, player_idx: int) -> list[str]:
         """

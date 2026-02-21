@@ -355,85 +355,49 @@ html, body {
   vertical-align: middle;
 }
 
-/* ---------- TILES - Traditional Mahjong Style ---------- */
+/* ---------- TILES - Cangjie6 Oblique SVG Images ---------- */
+/*
+ * Tile images are Wikimedia Commons Cangjie6 oblique illustrations.
+ * They render their own 3D tile body, edges, and artwork.
+ * CSS only handles sizing, layout, hover/selected effects.
+ */
 .tile {
   display: inline-flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 1px;
   width: 36px;
   height: 50px;
-  /* Ivory bone background with gradient for depth */
-  background: linear-gradient(150deg, #fffef5 0%, #f7f2e2 55%, #ede4c4 100%);
-  /* Bevel: bright top-left, dark bottom-right */
-  border-top:    2px solid #fff8e8;
-  border-left:   2px solid #fff5e0;
-  border-right:  2px solid #9a7e38;
-  border-bottom: 3px solid #9a7e38;
-  border-radius: 3px;
-  box-shadow: 2px 3px 6px rgba(0,0,0,0.45);
+  overflow: visible; /* allow oblique SVG to render outside bounds */
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
   cursor: default;
   user-select: none;
   flex-shrink: 0;
-  transition: transform 0.1s, box-shadow 0.1s;
+  transition: transform 0.12s, filter 0.12s;
   position: relative;
 }
 
-/* Inner characters */
+/* Image fills the tile span */
+.tile-img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+/* Text fallback (used when image is missing) */
 .tile-main {
-  font-size: 1.25em;
-  line-height: 1.05;
-  font-weight: 900;
-  font-family: 'Noto Serif SC', 'Source Han Serif CN', 'SimSun', 'STSong', 'KaiTi', serif;
-}
-.tile-sub {
-  font-size: 0.55em;
+  font-size: 1.1em;
   line-height: 1;
-  font-weight: 700;
-  opacity: 0.82;
-  font-family: 'Noto Serif SC', 'Source Han Serif CN', 'SimSun', 'STSong', 'KaiTi', serif;
+  font-weight: 900;
+  font-family: 'Noto Serif SC', 'Source Han Serif CN', 'SimSun', serif;
+  color: #222;
 }
 
-/* Tile in discard pile (smaller) */
-.discard-pile .tile {
-  width: 26px;
-  height: 36px;
-  border-top-width:    1px;
-  border-left-width:   1px;
-  border-right-width:  1px;
-  border-bottom-width: 2px;
-  gap: 0;
-  box-shadow: 1px 2px 3px rgba(0,0,0,0.4);
-}
-.discard-pile .tile .tile-main { font-size: 1em; }
-.discard-pile .tile .tile-sub  { font-size: 0.48em; }
-
-/* Tile in hand (bottom area) */
-.my-hand .tile {
-  width: 44px;
-  height: 62px;
-  cursor: pointer;
-}
-.my-hand .tile .tile-main { font-size: 1.55em; }
-.my-hand .tile .tile-sub  { font-size: 0.62em; }
-
-.my-hand .tile:hover {
-  transform: translateY(-6px);
-  box-shadow: 3px 8px 14px rgba(0,0,0,0.55);
-}
-
-.my-hand .tile.selected {
-  background: linear-gradient(150deg, #fff8b0 0%, #ffe44a 60%, #f0c428 100%);
-  border-top-color:    #ffee80;
-  border-left-color:   #ffee80;
-  border-right-color:  #9a7800;
-  border-bottom-color: #9a7800;
-  transform: translateY(-10px);
-  box-shadow: 3px 10px 18px rgba(0,0,0,0.6);
-}
-
-/* Face-down tile — diagonal stripe pattern */
+/* Face-down tile — diagonal stripe pattern (no image) */
 .tile-back {
   background:
     repeating-linear-gradient(
@@ -443,54 +407,58 @@ html, body {
       #2a52a8 4px,
       #2a52a8 9px
     );
-  border-top-color:    #4a6ad0;
-  border-left-color:   #4a6ad0;
+  border: 2px solid #4a6ad0;
   border-right-color:  #0e2050;
   border-bottom-color: #0e2050;
+  border-width: 2px 2px 3px 2px;
+  border-radius: 3px;
   cursor: default;
+}
+
+/* Tile in discard pile (smaller) */
+.discard-pile .tile {
+  width: 26px;
+  height: 36px;
+}
+
+/* Tile in hand (bottom area) */
+.my-hand .tile {
+  width: 44px;
+  height: 62px;
+  cursor: pointer;
+}
+
+.my-hand .tile:hover {
+  transform: translateY(-6px);
+  filter: drop-shadow(3px 8px 8px rgba(0,0,0,0.55));
+}
+
+/* Selected tile: lift + gold glow outline */
+.my-hand .tile.selected {
+  transform: translateY(-10px);
+  filter: drop-shadow(3px 10px 10px rgba(0,0,0,0.6))
+          drop-shadow(0 0 7px rgba(255,220,0,0.95));
+  outline: 2px solid #ffe066;
+  outline-offset: 1px;
+  border-radius: 2px;
 }
 
 /* Opponent hand tiles */
 .opponent-hand .tile {
   width: 24px;
   height: 33px;
-  border-top-width:    1px;
-  border-left-width:   1px;
-  border-right-width:  1px;
-  border-bottom-width: 2px;
-  gap: 0;
-  box-shadow: 1px 2px 3px rgba(0,0,0,0.4);
 }
-.opponent-hand .tile .tile-main { font-size: 0.95em; }
-.opponent-hand .tile .tile-sub  { font-size: 0.46em; }
 
-/* Claim overlay tile */
+/* Claim overlay tile (larger) */
 .claim-tile-display .tile {
-  width: 56px;
-  height: 78px;
+  width: 70px;
+  height: 98px;
 }
-.claim-tile-display .tile .tile-main { font-size: 2em; }
-.claim-tile-display .tile .tile-sub  { font-size: 0.75em; }
-
-/* Tile color variants */
-.tile-bamboo    .tile-main { color: #1a5c1a; }
-.tile-bamboo    .tile-sub  { color: #1a5c1a; }
-.tile-circles   .tile-main { color: #8b1414; }
-.tile-circles   .tile-sub  { color: #8b1414; }
-.tile-characters .tile-main { color: #14148b; }
-.tile-characters .tile-sub  { color: #14148b; }
-.tile-wind      .tile-main { color: #1a1a1a; }
-.tile-dragon    .tile-main { color: #1a1a1a; }
-.tile-red       .tile-main { color: #cc0000; font-weight: 900; }
-.tile-green     .tile-main { color: #007a00; font-weight: 900; }
-.tile-white     .tile-main { color: #5570a0; }
-.tile-flower    .tile-main { color: #8b1a8b; }
-.tile-season    .tile-main { color: #a85000; }
 
 /* Meld group */
 .meld-group {
   display: inline-flex;
-  gap: 1px;
+  gap: 0;
   margin-right: 4px;
   border: 1px solid rgba(255,255,255,0.2);
   border-radius: 4px;
@@ -515,7 +483,7 @@ html, body {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 3px;
+  gap: 0;
   max-height: 80px;
   overflow-x: auto;
   padding: 2px 4px 4px;
@@ -694,8 +662,10 @@ html, body {
   border-radius: 12px;
   padding: 2.5rem;
   text-align: center;
-  max-width: 420px;
-  width: 90%;
+  max-width: 500px;
+  width: 92%;
+  max-height: 90vh;
+  overflow-y: auto;
   box-shadow: 0 8px 40px rgba(0,0,0,0.8);
 }
 
@@ -727,6 +697,50 @@ html, body {
 .scores-table td { color: var(--text-light); }
 .scores-table tr.winner-row td { color: #ffd700; font-weight: bold; }
 
+/* ---------- Han Breakdown Table ---------- */
+.han-section {
+  margin: 0.8rem 0 1rem;
+  text-align: left;
+}
+.han-section.hidden { display: none; }
+
+.han-section-title {
+  font-size: 0.82rem;
+  color: var(--accent);
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  margin-bottom: 0.35rem;
+  text-transform: uppercase;
+}
+
+.han-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+.han-table td {
+  padding: 0.28rem 0.5rem;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  color: var(--text-light);
+}
+
+.han-table td:last-child {
+  text-align: right;
+  font-weight: 700;
+  color: #f0d060;
+  min-width: 3ch;
+}
+
+.han-table tfoot .han-total-row td {
+  border-top: 1px solid rgba(255,255,255,0.2);
+  border-bottom: none;
+  padding-top: 0.45rem;
+  font-weight: 900;
+  color: var(--accent);
+}
+
+/* ---------- Modal Actions ---------- */
 .modal-actions {
   margin-top: 1.5rem;
   display: flex;

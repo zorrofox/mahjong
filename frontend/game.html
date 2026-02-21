@@ -406,6 +406,20 @@
       <div class="winner-name">Winner: <strong id="winner-name">–</strong></div>
 
       <div id="round-number-label" style="font-size:0.85rem;color:var(--text-muted);margin-bottom:0.5rem;"></div>
+      <!-- Fan breakdown (populated by JS when winner exists) -->
+      <div id="han-breakdown-section" class="han-section hidden">
+        <div class="han-section-title">番数详情 / Fan Breakdown</div>
+        <table class="han-table">
+          <tbody id="han-body"></tbody>
+          <tfoot>
+            <tr class="han-total-row">
+              <td>合计 / Total</td>
+              <td id="han-total">–</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
       <table class="scores-table">
         <thead>
           <tr><th>玩家 / Player</th><th>本局得分 / Round</th><th>累计筹码 / Chips</th></tr>

@@ -311,3 +311,242 @@ def _is_seven_pairs(tiles: list[str]) -> bool:
         return False
     counts = Counter(tiles)
     return len(counts) == 7 and all(v == 2 for v in counts.values())
+
+
+# ============================================================
+# Han (番) Calculation
+# ============================================================
+
+_DRAGONS = frozenset({'RED', 'GREEN', 'WHITE'})
+_WINDS   = frozenset({'EAST', 'SOUTH', 'WEST', 'NORTH'})
+_HONORS  = _DRAGONS | _WINDS
+
+
+def _h_is_honor(tile: str) -> bool:
+    return tile in _HONORS
+
+
+def _h_is_dragon(tile: str) -> bool:
+    return tile in _DRAGONS
+
+
+def _h_is_wind(tile: str) -> bool:
+    return tile in _WINDS
+
+
+def _h_is_terminal(tile: str) -> bool:
+    n = get_number(tile)
+    return n is not None and n in (1, 9)
+
+
+def _h_is_terminal_or_honor(tile: str) -> bool:
+    return _h_is_terminal(tile) or _h_is_honor(tile)
+
+
+def _h_is_simple(tile: str) -> bool:
+    """Suited tile with number 2-8 (no terminals, no honors)."""
+    n = get_number(tile)
+    return n is not None and 2 <= n <= 8
+
+
+def _extract_groups_rec(tiles: list[str], groups: list) -> bool:
+    """Recursively extract melds, appending to groups. Returns True if successful."""
+    if not tiles:
+        return True
+    tile = tiles[0]
+    # Try pung
+    if tiles.count(tile) >= 3:
+        remaining = _remove_tiles(tiles, [tile, tile, tile])
+        groups.append({'type': 'pung', 'tiles': [tile, tile, tile]})
+        if _extract_groups_rec(remaining, groups):
+            return True
+        groups.pop()
+    # Try chow (tile must be lowest)
+    if is_suit_tile(tile):
+        suit = get_suit(tile)
+        num = get_number(tile)
+        n1 = f"{suit}_{num + 1}"
+        n2 = f"{suit}_{num + 2}"
+        if num <= 7 and n1 in tiles and n2 in tiles:
+            remaining = _remove_tiles(tiles, [tile, n1, n2])
+            groups.append({'type': 'chow', 'tiles': [tile, n1, n2]})
+            if _extract_groups_rec(remaining, groups):
+                return True
+            groups.pop()
+    return False
+
+
+def decompose_winning_hand(concealed_tiles: list[str]) -> Optional[dict]:
+    """
+    Find one valid decomposition of the concealed part of a winning hand.
+
+    Args:
+        concealed_tiles: Tiles in the player's concealed hand (must exclude bonus tiles).
+                         Length = 14 - 3 * n_declared_melds.
+
+    Returns dict with:
+        'pair': str              - the pair tile string
+        'groups': list of {'type': 'pung'|'chow', 'tiles': [str, str, str]}
+        'seven_pairs': bool
+        'all_pairs': list[str]   - only present when seven_pairs=True
+    Returns None if no valid decomposition exists.
+    """
+    hand = sorted([t for t in concealed_tiles if not is_flower_tile(t)])
+
+    # Seven pairs (only when 14 concealed tiles)
+    if len(hand) == 14 and _is_seven_pairs(hand):
+        counts = Counter(hand)
+        return {
+            'pair': sorted(counts.keys())[0],
+            'groups': [],
+            'seven_pairs': True,
+            'all_pairs': sorted(counts.keys()),
+        }
+
+    for pair_tile in find_pairs(hand):
+        remaining = _remove_tiles(hand, [pair_tile, pair_tile])
+        groups: list = []
+        if _extract_groups_rec(remaining, groups):
+            return {
+                'pair': pair_tile,
+                'groups': groups,
+                'seven_pairs': False,
+            }
+    return None
+
+
+def calculate_han(
+    concealed_tiles: list[str],
+    declared_melds: list[list[str]],
+    flowers: list[str],
+    ron: bool,
+) -> dict:
+    """
+    Calculate Han (番) breakdown for a winning hand.
+
+    Args:
+        concealed_tiles: All tiles in the player's concealed hand including the
+                         winning tile (no bonus tiles). Length = 14 - 3*len(declared_melds).
+        declared_melds:  Declared meld groups (each 3 or 4 tiles).
+        flowers:         Bonus tiles already collected.
+        ron:             True if won by discard (荣和), False if self-draw (自摸).
+
+    Returns:
+        {
+            'breakdown': [{'name_cn': str, 'name_en': str, 'fan': int}, ...],
+            'total': int,
+        }
+    """
+    breakdown: list[dict] = []
+
+    def add(name_cn: str, name_en: str, fan: int) -> None:
+        breakdown.append({'name_cn': name_cn, 'name_en': name_en, 'fan': fan})
+
+    # Decompose the concealed hand
+    decomp = decompose_winning_hand(concealed_tiles)
+    if decomp is None:
+        add('基本分', 'Base', 1)
+        return {'breakdown': breakdown, 'total': 1}
+
+    seven_pairs   = decomp['seven_pairs']
+    pair_tile     = decomp['pair']
+    concl_groups  = decomp['groups']   # list of {'type', 'tiles'}
+
+    # Normalise declared melds to the same format (take first 3 tiles for kongs)
+    def _dtype(meld: list[str]) -> str:
+        return 'pung' if (len(meld) >= 3 and meld[0] == meld[1]) else 'chow'
+
+    decl_groups = [{'type': _dtype(m), 'tiles': m[:3]} for m in declared_melds]
+    all_groups  = concl_groups + decl_groups     # combined meld list (up to 4)
+
+    # All structural tiles (concealed + declared, no bonus tiles)
+    all_tiles: list[str] = list(concealed_tiles)
+    for m in declared_melds:
+        all_tiles.extend(m[:3])
+    all_tiles = [t for t in all_tiles if not is_flower_tile(t)]
+
+    # ── Always ──────────────────────────────────────────────
+    add('基本分', 'Base', 1)
+
+    if not ron:
+        add('自摸', 'Tsumo (Self-draw)', 1)
+
+    if not flowers:
+        add('无花', 'No Bonus Tiles', 1)
+
+    if not declared_melds:
+        add('门清', 'Concealed Hand', 1)
+
+    # ── Seven Pairs ─────────────────────────────────────────
+    if seven_pairs:
+        add('七对', 'Seven Pairs', 3)
+        # Flush checks still apply
+        suits = {get_suit(t) for t in all_tiles if get_suit(t)}
+        has_honors = any(_h_is_honor(t) for t in all_tiles)
+        if not has_honors:
+            if len(suits) == 1:
+                add('清一色', 'Full Flush', 7)
+        else:
+            if not suits:
+                add('字一色', 'All Honors', 7)
+            elif len(suits) == 1:
+                add('混一色', 'Half Flush', 3)
+        total = sum(x['fan'] for x in breakdown)
+        return {'breakdown': breakdown, 'total': total}
+
+    # ── Structural ──────────────────────────────────────────
+    n_groups     = len(all_groups)
+    all_pungs    = n_groups == 4 and all(g['type'] == 'pung' for g in all_groups)
+    all_chows    = n_groups == 4 and all(g['type'] == 'chow' for g in all_groups)
+
+    if all_pungs:
+        add('碰碰胡', 'All Pungs', 3)
+
+    if (all_chows
+            and not declared_melds
+            and _h_is_simple(pair_tile)):
+        add('平胡', 'Ping Hu (All Sequences)', 1)
+
+    if all(_h_is_simple(t) for t in all_tiles):
+        add('断幺', 'All Simples', 1)
+
+    # 混幺九: every group AND pair contains a terminal or honor
+    if (all_groups
+            and all(any(_h_is_terminal_or_honor(t) for t in g['tiles']) for g in all_groups)
+            and _h_is_terminal_or_honor(pair_tile)):
+        add('混幺九', 'Mixed Terminals & Honors', 2)
+
+    # ── Suit / Color ────────────────────────────────────────
+    suits       = {get_suit(t) for t in all_tiles if get_suit(t)}
+    has_honors  = any(_h_is_honor(t) for t in all_tiles)
+
+    if not has_honors:
+        if len(suits) == 1:
+            add('清一色', 'Full Flush', 7)
+    else:
+        if not suits:
+            add('字一色', 'All Honors', 7)
+        elif len(suits) == 1:
+            add('混一色', 'Half Flush', 3)
+
+    # ── Dragon / Wind Combinations ──────────────────────────
+    pung_tiles   = {g['tiles'][0] for g in all_groups if g['type'] == 'pung'}
+    dragon_pungs = pung_tiles & _DRAGONS
+    wind_pungs   = pung_tiles & _WINDS
+
+    if len(dragon_pungs) == 3:
+        add('大三元', 'Big Three Dragons', 8)
+    elif len(dragon_pungs) == 2:
+        remaining_dragon = _DRAGONS - dragon_pungs
+        if pair_tile in remaining_dragon:
+            add('小三元', 'Small Three Dragons', 5)
+
+    if len(wind_pungs) == 4:
+        add('大四喜', 'Big Four Winds', 13)
+    elif len(wind_pungs) == 3:
+        remaining_wind = _WINDS - wind_pungs
+        if pair_tile in remaining_wind:
+            add('小四喜', 'Small Four Winds', 6)
+
+    total = sum(x['fan'] for x in breakdown)
+    return {'breakdown': breakdown, 'total': total}

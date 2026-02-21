@@ -4,7 +4,7 @@
 
 A browser-based multiplayer Mahjong game. Supports 1–4 human players per room; empty seats are filled by AI.
 
-![Python](https://img.shields.io/badge/Python-3.11-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-0.111-green) ![Tests](https://img.shields.io/badge/tests-349%20passed-brightgreen)
+![Python](https://img.shields.io/badge/Python-3.11-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-0.111-green) ![Tests](https://img.shields.io/badge/tests-349%20passed-brightgreen) ![Tiles](https://img.shields.io/badge/tiles-Cangjie6%20SVG-orange)
 
 ---
 
@@ -16,8 +16,9 @@ A browser-based multiplayer Mahjong game. Supports 1–4 human players per room;
 - 声索优先级：胡 > 碰/杠 > 吃
 - 自摸与荣和均支持
 - 声索窗口 30 秒倒计时，归零自动跳过
-- 跨局累计筹码结算（传统零和规则：自摸三家付、荣和放炮全包，初始 1000 筹码）
-- 传统麻将牌视觉风格：汉字数字（一～九）+ 花色名（萬/条/饼），象牙骨色 3D 浮雕牌面
+- **番数驱动筹码结算**：`unit = 2^(番数-1)`（7番封顶 64 单位）；庄家付/收双倍；荣和放炮全包；杠即时结算（各家付 1 筹码）；跨局累计，初始 1000 筹码
+- **胡牌番数详情**：游戏结束时展示本局达成的番型列表及合计番数（支持 16 种港式番型）
+- **港式麻将牌面**：Wikimedia Commons Cangjie6 斜视 3D SVG（全套 42 张，含花牌季牌），传统象牙底面配色
 - 手牌自动整理（条 → 饼 → 萬 → 风/字/花季）
 - 游戏结束后支持一键重开局（保留原房间人类玩家，筹码持续累计）
 - 响应式绿毡牌桌界面
@@ -42,11 +43,12 @@ uvicorn main:app --reload --port 8000
 
 ```
 ├── backend/
-│   ├── game/          # 游戏引擎（牌型、胡牌、状态机、AI）
+│   ├── game/          # 游戏引擎（牌型、胡牌、状态机、AI、番数计算）
 │   ├── api/           # FastAPI 路由 + WebSocket 处理
 │   └── tests/         # 后端单元测试（237 tests）
 ├── frontend/
 │   ├── js/            # 大厅 + 游戏客户端
+│   ├── tiles/         # Cangjie6 港式麻将 SVG 牌面（42 张）
 │   └── tests/         # 前端单元测试（64 tests）
 └── tests/
     └── integration/   # REST + WebSocket 集成测试（48 tests）
@@ -85,8 +87,41 @@ pytest -v
 | 后端 | Python 3.11 + FastAPI 0.111 + Uvicorn |
 | 实时通信 | WebSocket（Starlette 内置） |
 | 前端 | 原生 HTML5 + CSS3 + JavaScript |
-| 字体 | Noto Serif SC（Google Fonts，传统汉字渲染） |
+| 牌面图片 | Wikimedia Commons Cangjie6 SVG（CC BY-SA 4.0） |
 | 测试 | pytest + Vitest |
+
+---
+
+## 番数与结算 / Han & Chip Settlement
+
+胡牌时自动计算番型，番数直接驱动筹码结算。
+
+**番型（港式规则，支持 16 种）**：
+
+| 番型 | 番数 |
+|---|---|
+| 基本分 | +1 |
+| 自摸 / 无花 / 门清 | 各 +1 |
+| 平胡 / 断幺 | 各 +1 |
+| 混幺九 | +2 |
+| 七对 / 碰碰胡 / 混一色 | 各 +3 |
+| 小三元 | +5 |
+| 小四喜 | +6 |
+| 清一色 / 字一色 | 各 +7 |
+| 大三元 | +8 |
+| 大四喜 | +13 |
+
+**筹码结算公式**：
+
+```
+unit = min(64, 2^(番数-1))    每番翻倍，7番封顶 64 单位
+
+自摸：闲家赢 = 庄付 2u + 闲×2 各付 1u = 4u 总收
+      庄家赢 = 三闲各付 2u = 6u 总收
+荣和：放炮者独付全额（等于自摸三人合计）
+      闲家赢 4u，庄家赢 6u
+杠钱：每次杠立即结算，三家各付 1 筹码给杠家（固定，与番数无关）
+```
 
 ---
 
@@ -108,6 +143,6 @@ pytest -v
 |---|---|
 | `{"type": "game_state", "state": {...}}` | 完整游戏状态（含 `cumulative_scores`、`round_number`） |
 | `{"type": "claim_window", "tile": "...", "actions": [...], "timeout": 30}` | 声索窗口，含倒计时秒数 |
-| `{"type": "game_over", "winner_id": "...", "cumulative_scores": {...}, "round_number": N}` | 游戏结束，含累计筹码结算结果 |
+| `{"type": "game_over", ..., "han_breakdown": [...], "han_total": N, "cumulative_scores": {...}}` | 游戏结束，含番型详情与番数驱动结算后的累计筹码 |
 
 详细文档见 [CLAUDE.md](CLAUDE.md)。

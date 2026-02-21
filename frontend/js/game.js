@@ -116,14 +116,35 @@ function tileToDisplay(tileStr) {
   if (!tileStr) return { text: '?', label: '?', cls: '' };
   const info = TILE_MAP[tileStr];
   if (info) return info;
-  // Fallback: use raw string truncated
   return { text: tileStr.slice(0, 3), label: tileStr, cls: '' };
 }
 
+/* ============================================================
+   TILE IMAGE MAP  (Wikimedia Cangjie6 oblique SVG tiles)
+   Files are in frontend/tiles/{TILE_KEY}.svg
+   ============================================================ */
+const TILE_SVG_MAP = (() => {
+  const m = {};
+  ['BAMBOO','CIRCLES','CHARACTERS'].forEach(suit => {
+    for (let i = 1; i <= 9; i++) m[`${suit}_${i}`] = `tiles/${suit}_${i}.svg`;
+  });
+  ['EAST','SOUTH','WEST','NORTH','RED','GREEN','WHITE'].forEach(k => { m[k] = `tiles/${k}.svg`; });
+  ['FLOWER_1','FLOWER_2','FLOWER_3','FLOWER_4',
+   'SEASON_1','SEASON_2','SEASON_3','SEASON_4'].forEach(k => { m[k] = `tiles/${k}.svg`; });
+  return m;
+})();
+
+/* ============================================================
+   REMOVED: inline SVG generators (_makeBamboo1SVG, _makeBambooSVG, _makeCircleSVG)
+   All tile rendering now uses <img> tags pointing to Cangjie6 oblique SVG files.
+   ============================================================ */
+
 /**
  * Build a tile DOM element.
- * @param {string} tileStr
- * @param {object} options – { clickable, selected, small, faceDown }
+ * Uses Cangjie6 oblique SVG images from frontend/tiles/.
+ * Falls back to text if image is missing.
+ * @param {string} tileStr  e.g. "BAMBOO_1", "EAST", "RED"
+ * @param {object} options  { clickable, selected, faceDown }
  */
 function makeTileEl(tileStr, options = {}) {
   const el = document.createElement('span');
@@ -135,13 +156,21 @@ function makeTileEl(tileStr, options = {}) {
     return el;
   }
 
-  const info = tileToDisplay(tileStr);
-  el.classList.add(...info.cls.split(' ').filter(Boolean));
+  const info    = tileToDisplay(tileStr);
+  const svgPath = TILE_SVG_MAP[tileStr];
 
-  if (info.sub) {
-    el.innerHTML = `<span class="tile-main">${escapeHtml(info.text)}</span><span class="tile-sub">${escapeHtml(info.sub)}</span>`;
+  if (svgPath) {
+    const img = document.createElement('img');
+    img.src = svgPath;
+    img.alt = info.label || tileStr;
+    img.classList.add('tile-img');
+    img.onerror = () => {
+      el.removeChild(img);
+      el.innerHTML = `<span class="tile-main">${escapeHtml(info.text || tileStr)}</span>`;
+    };
+    el.appendChild(img);
   } else {
-    el.innerHTML = `<span class="tile-main">${escapeHtml(info.text)}</span>`;
+    el.innerHTML = `<span class="tile-main">${escapeHtml(info.text || tileStr)}</span>`;
   }
 
   el.title = info.label || tileStr;
@@ -279,7 +308,14 @@ function handleClaimWindow(msg) {
 
 function handleGameOver(msg) {
   const winnerName = msg.winner_id || `Player ${msg.winner_idx + 1}`;
-  showGameOverModal(winnerName, msg.scores || {}, msg.cumulative_scores || {}, msg.round_number);
+  showGameOverModal(
+    winnerName,
+    msg.scores || {},
+    msg.cumulative_scores || {},
+    msg.round_number,
+    msg.han_breakdown || [],
+    msg.han_total || 0
+  );
   setStatus(`Game over! Winner: ${winnerName}`, 'success');
   disableAllActionButtons();
 }
@@ -788,11 +824,14 @@ function hideClaimOverlay() {
 /* ============================================================
    GAME OVER MODAL
    ============================================================ */
-function showGameOverModal(winnerName, scores, cumulativeScores, roundNumber) {
+function showGameOverModal(winnerName, scores, cumulativeScores, roundNumber, hanBreakdown, hanTotal) {
   const modal     = document.getElementById('game-over-modal');
   const winnerEl  = document.getElementById('winner-name');
   const scoresEl  = document.getElementById('scores-body');
   const roundEl   = document.getElementById('round-number-label');
+  const hanSect   = document.getElementById('han-breakdown-section');
+  const hanBody   = document.getElementById('han-body');
+  const hanTotalEl = document.getElementById('han-total');
 
   if (!modal) return;
 
@@ -802,14 +841,27 @@ function showGameOverModal(winnerName, scores, cumulativeScores, roundNumber) {
     roundEl.textContent = `第 ${roundNumber} 局 / Round ${roundNumber}`;
   }
 
+  // ── Fan (Han) breakdown table ──────────────────────────────
+  if (hanSect && hanBody && hanBreakdown && hanBreakdown.length > 0) {
+    hanBody.innerHTML = '';
+    hanBreakdown.forEach(item => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${escapeHtml(item.name_cn)} <span style="color:var(--text-muted);font-size:0.8em">${escapeHtml(item.name_en)}</span></td><td>+${item.fan}</td>`;
+      hanBody.appendChild(tr);
+    });
+    if (hanTotalEl) hanTotalEl.textContent = `${hanTotal} 番`;
+    hanSect.classList.remove('hidden');
+  } else if (hanSect) {
+    hanSect.classList.add('hidden');
+  }
+
+  // ── Chip scores table ──────────────────────────────────────
   scoresEl.innerHTML = '';
-  // Sort by cumulative chips descending for the leaderboard view
   const allPids = Object.keys(cumulativeScores || scores);
   allPids.sort((a, b) => ((cumulativeScores || {})[b] ?? 0) - ((cumulativeScores || {})[a] ?? 0));
   allPids.forEach(pid => {
     const roundScore = scores[pid] ?? 0;
     const chips = (cumulativeScores || {})[pid] ?? '–';
-    const isWinner = pid === winnerName ? ' class="winner-row"' : '';
     const tr = document.createElement('tr');
     if (pid === winnerName) tr.classList.add('winner-row');
     tr.innerHTML = `<td>${escapeHtml(pid)}</td><td>${roundScore}</td><td>${chips}</td>`;
@@ -915,5 +967,5 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // Allow unit testing in Node/Vitest
 if (typeof globalThis !== 'undefined' && typeof window === 'undefined') {
-  globalThis._mahjongTestExports = { getHandTiles, getHandCount, tileToDisplay, formatPhase, autoSelectChow, escapeHtml, TILE_MAP, sortHandTiles };
+  globalThis._mahjongTestExports = { getHandTiles, getHandCount, tileToDisplay, formatPhase, autoSelectChow, escapeHtml, TILE_MAP, sortHandTiles, TILE_SVG_MAP };
 }

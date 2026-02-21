@@ -57,6 +57,10 @@ _ai = AIPlayer()
 # Claim-window timeout in seconds (shown as countdown in the UI)
 CLAIM_TIMEOUT = 30.0
 
+# Maximum chip unit per hand (caps at 64 = 7 fan). Each fan doubles the unit:
+# 1 fan → 1 chip, 2 → 2, 3 → 4, 4 → 8, 5 → 16, 6 → 32, 7+ → 64.
+CHIP_CAP = 64
+
 # AI action delay range (seconds) – makes AI feel natural
 AI_DELAY_MIN = 0.5
 AI_DELAY_MAX = 1.0
@@ -457,35 +461,67 @@ async def _handle_game_over(room_id: str) -> None:
             winner_idx = i
 
     # ----------------------------------------------------------------
-    # Chip settlement (traditional Mahjong rules, zero-sum)
+    # Chip settlement — Han-based, zero-sum
     # ----------------------------------------------------------------
-    # win_score = the in-game points earned by the winner this hand.
-    # Self-draw (自摸): each of the other 3 players pays win_score chips.
-    # Discard win (荣和/放炮全包): only the discarder pays 3 × win_score.
-    # Draw (流局 / no winner): no chip transfer.
+    # unit = min(CHIP_CAP, 2^(han_total-1))  →  1 fan=1, 2=2, 3=4 … 7+=64
+    #
+    # Dealer (player 0 / gs.dealer_idx) always pays/receives 2× unit;
+    # non-dealers pay/receive 1× unit.
+    #
+    # Self-draw (自摸):
+    #   Non-dealer wins: dealer pays 2×unit, each non-dealer pays 1×unit  → winner +4×unit
+    #   Dealer wins:     each non-dealer pays 2×unit                       → winner +6×unit
+    #
+    # Ron (荣和, discard win):
+    #   Discarder pays the combined tsumo amount (sum of what all losers would owe).
+    #   Non-dealer wins: 2+1+1 = 4×unit from discarder
+    #   Dealer wins:     2+2+2 = 6×unit from discarder
+    #
+    # Kong payments (杠钱):
+    #   Each kong declaration costs each non-konger 1 chip immediately.
+    #   Accumulated in gs.kong_chip_transfers; applied first below.
+    #
+    # Draw (流局): no chip transfer.
     # ----------------------------------------------------------------
-    if winner_idx is not None:
-        win_score = gs.players[winner_idx].score
-        if win_score > 0:
-            if gs.win_ron and gs.win_discarder_idx is not None:
-                # Discard win – discarder pays triple
-                discarder_id = gs.players[gs.win_discarder_idx].id
-                room.cumulative_scores[winner_id] = (
-                    room.cumulative_scores.get(winner_id, INITIAL_CHIPS) + win_score * 3
-                )
-                room.cumulative_scores[discarder_id] = (
-                    room.cumulative_scores.get(discarder_id, INITIAL_CHIPS) - win_score * 3
-                )
-            elif gs.win_ron is False:
-                # Self-draw – each loser pays once
-                for i, p in enumerate(gs.players):
-                    if i != winner_idx:
-                        room.cumulative_scores[winner_id] = (
-                            room.cumulative_scores.get(winner_id, INITIAL_CHIPS) + win_score
-                        )
-                        room.cumulative_scores[p.id] = (
-                            room.cumulative_scores.get(p.id, INITIAL_CHIPS) - win_score
-                        )
+
+    # 1. Apply accumulated kong chip transfers
+    for pid, delta in gs.kong_chip_transfers.items():
+        room.cumulative_scores[pid] = (
+            room.cumulative_scores.get(pid, INITIAL_CHIPS) + delta
+        )
+
+    # 2. Han-based win payment
+    if winner_idx is not None and gs.han_total > 0:
+        unit = min(CHIP_CAP, 2 ** (gs.han_total - 1))
+        dealer_idx = gs.dealer_idx
+
+        def _pay(payer_idx: int) -> int:
+            """Return chip payment amount for a loser at payer_idx."""
+            return 2 * unit if payer_idx == dealer_idx else unit
+
+        if gs.win_ron and gs.win_discarder_idx is not None:
+            # Ron: discarder alone pays the full combined tsumo amount
+            full = sum(
+                _pay(i) for i in range(len(gs.players)) if i != winner_idx
+            )
+            discarder_id = gs.players[gs.win_discarder_idx].id
+            room.cumulative_scores[winner_id] = (
+                room.cumulative_scores.get(winner_id, INITIAL_CHIPS) + full
+            )
+            room.cumulative_scores[discarder_id] = (
+                room.cumulative_scores.get(discarder_id, INITIAL_CHIPS) - full
+            )
+        elif gs.win_ron is False:
+            # Tsumo: each loser pays their own share
+            for i, p in enumerate(gs.players):
+                if i != winner_idx:
+                    pay = _pay(i)
+                    room.cumulative_scores[winner_id] = (
+                        room.cumulative_scores.get(winner_id, INITIAL_CHIPS) + pay
+                    )
+                    room.cumulative_scores[p.id] = (
+                        room.cumulative_scores.get(p.id, INITIAL_CHIPS) - pay
+                    )
 
     payload = {
         "type": "game_over",
@@ -494,6 +530,8 @@ async def _handle_game_over(room_id: str) -> None:
         "scores": scores,
         "cumulative_scores": dict(room.cumulative_scores),
         "round_number": room.round_number,
+        "han_breakdown": gs.han_breakdown if gs else [],
+        "han_total": gs.han_total if gs else 0,
     }
     await _broadcast(room_id, payload)
     await _broadcast_room_update()
