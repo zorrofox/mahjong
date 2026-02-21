@@ -1620,6 +1620,71 @@ pytest -v
 
 ---
 
+## 功能增强：中文语音音效
+
+### 技术方案
+
+使用浏览器内置 **Web Speech API**（`speechSynthesis`），实现零音频文件、零后端改动、零外部依赖的中文语音播报。所有语音在运行时由系统 TTS 引擎实时合成，首次加载即可使用。
+
+**浏览器支持**：Chrome / Edge（内置高质量普通话）、Safari（macOS/iOS 系统语音）、Firefox（取决于系统中文语音包）。无中文语音时静默降级。
+
+### 新文件 `frontend/js/speech.js`
+
+`SpeechEngine` 类：
+
+```js
+// 自动选择最佳中文语音（zh-CN > zh-TW/zh-HK > 任意 zh）
+// 无中文语音时 #voice 为 null，所有 speak() 静默
+
+speak(text, priority = false)   // priority=true 打断当前语音
+speakTile(tileStr, priority = false)  // 查表并播报牌名
+enable() / disable() / isEnabled()   // 开关（持久化至 localStorage）
+```
+
+**牌名映射表（`TILE_SPEECH`）**：
+
+| 牌类 | 念法示例 |
+|---|---|
+| 条子 BAMBOO_1–9 | 一条 … 九条 |
+| 饼子 CIRCLES_1–9 | 一饼 … 九饼 |
+| 万字 CHARACTERS_1–9 | 一万 … 九万 |
+| 风牌 | 东风 / 南风 / 西风 / 北风 |
+| 字牌 | 中 / 发 / 白板 |
+| 花牌 | 梅花 / 兰花 / 菊花 / 竹子 |
+| 季牌 | 春 / 夏 / 秋 / 冬 |
+
+**防堆积机制**：非优先语音在 `speechSynthesis.speaking || pending` 时跳过（防止 AI 快速出牌造成语音队列堆积）；优先语音（碰/吃/杠/胡/流局）直接 `cancel()` 打断当前播报。
+
+### 触发时机
+
+| 游戏事件 | 语音内容 | 优先级 |
+|---|---|---|
+| 任意玩家出牌（含 AI） | 牌名（如"三万"） | 普通 |
+| 我方摸牌 | 牌名 | 普通 |
+| 声索窗口出现 | 可抢牌名 | 普通 |
+| 我方出牌 | 牌名 | **高**（打断） |
+| 我方碰 | "碰！" | **高** |
+| 我方吃 | "吃！" | **高** |
+| 我方杠 | "杠！" | **高** |
+| 我方胡 | "胡！" | **高** |
+| 游戏结束-胡牌 | "胡了！" | **高** |
+| 游戏结束-流局 | "流局" | **高** |
+
+### 修改文件
+
+| 文件 | 改动 |
+|---|---|
+| `frontend/js/speech.js` | **新增**：SpeechEngine 类 + TILE_SPEECH 映射表 |
+| `frontend/js/game.js` | `getSpeech()` 单例 getter；10 处 `speak()`/`speakTile()` 触发点；Topbar 静音按钮事件 |
+| `frontend/game.html` | `<script src="js/speech.js">` 加在 game.js 之前；Topbar 🔊/🔇 切换按钮 |
+| `frontend/css/style.css` | `#btn-speech` 及 `.muted` 样式 |
+
+### 测试兼容性
+
+Node.js / jsdom 无 `speechSynthesis`，`SpeechEngine` 构造函数和所有 `speak()` 调用对 `undefined` 做了防护，现有测试零改动、零回归。
+
+---
+
 ## 已知限制与后续扩展方向
 
 | 项目 | 当前状态 | 可改进方向 |
