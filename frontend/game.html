@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>麻將遊戲 – Game Board</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <style>
+    /* ---- Game page specific layout overrides ---- */
+    body {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* Make the board fill remaining space */
+    .board-wrapper {
+      flex: 1;
+      display: grid;
+      grid-template-areas:
+        ".      top     ."
+        "left   center  right"
+        ".      bottom  .";
+      grid-template-columns: 200px 1fr 200px;
+      grid-template-rows: 150px 1fr 160px;
+      gap: 5px;
+      padding: 5px;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    /* ---- Player areas ---- */
+    #area-top    { grid-area: top;    }
+    #area-left   { grid-area: left;   }
+    #area-right  { grid-area: right;  }
+    #area-bottom { grid-area: bottom; }
+    #area-center { grid-area: center; }
+
+    #area-bottom {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      background: rgba(0,60,0,0.45);
+      border: 2px solid #4a9a4a;
+      border-radius: 8px;
+      padding: 6px;
+      overflow: hidden;
+    }
+
+    #area-top, #area-left, #area-right {
+      background: var(--panel-bg);
+      border: 2px solid rgba(255,255,255,0.12);
+      border-radius: 8px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      padding: 6px;
+      overflow: hidden;
+    }
+
+    /* Center table */
+    #area-center {
+      background: var(--felt);
+      border: 2px solid rgba(255,255,255,0.12);
+      border-radius: 10px;
+      display: flex;
+      flex-direction: column;
+      padding: 8px;
+      gap: 6px;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .center-top-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      flex-shrink: 0;
+    }
+
+    .center-top-row .wall-info {
+      font-size: 0.9rem;
+    }
+
+    .center-top-row .wall-info span {
+      color: var(--text-light);
+      font-weight: bold;
+    }
+
+    .discards-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: 1fr 1fr;
+      gap: 5px;
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .discard-pile {
+      background: rgba(0,0,0,0.2);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 5px;
+      padding: 3px;
+      display: flex;
+      flex-wrap: wrap;
+      align-content: flex-start;
+      gap: 1px;
+      overflow: hidden;
+      min-height: 0;
+    }
+
+    .discard-pile-label {
+      width: 100%;
+      font-size: 0.6rem;
+      color: var(--text-muted);
+      text-align: center;
+      flex-shrink: 0;
+    }
+
+    /* My hand within bottom area */
+    #my-hand-label {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      align-self: flex-start;
+      padding-left: 4px;
+    }
+
+    #my-hand {
+      display: flex;
+      flex-wrap: nowrap;
+      gap: 3px;
+      overflow-x: auto;
+      padding-bottom: 4px;
+      align-items: flex-end;
+      max-width: 100%;
+    }
+
+    #my-melds {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 3px;
+      justify-content: center;
+      max-width: 100%;
+    }
+
+    /* Left/right face-down opponent tiles – orient vertically */
+    #area-left .opponent-hand,
+    #area-right .opponent-hand {
+      flex-direction: row;
+      flex-wrap: wrap;
+      justify-content: center;
+      max-height: 120px;
+      overflow: hidden;
+    }
+
+    /* Action bar: fixed at bottom under the board */
+    #action-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      justify-content: center;
+      align-items: center;
+      background: rgba(0,0,0,0.55);
+      padding: 6px 12px;
+      border-top: 1px solid rgba(255,255,255,0.1);
+      flex-shrink: 0;
+    }
+
+    #action-bar .btn {
+      min-width: 76px;
+      padding: 0.45rem 0.9rem;
+    }
+
+    /* Status bar */
+    #status-bar {
+      text-align: center;
+      padding: 4px 12px;
+      font-size: 0.82rem;
+      background: rgba(0,0,0,0.4);
+      border-top: 1px solid rgba(255,255,255,0.07);
+      min-height: 1.8rem;
+      flex-shrink: 0;
+    }
+
+    /* Topbar */
+    #topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: rgba(0,0,0,0.55);
+      padding: 6px 14px;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+      flex-shrink: 0;
+    }
+
+    #topbar h1 {
+      font-size: 1.05rem;
+      color: var(--accent);
+      letter-spacing: 1px;
+    }
+
+    #topbar .back-link {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 0.82rem;
+    }
+
+    #topbar .back-link:hover { color: var(--text-light); }
+
+    #room-info {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      text-align: center;
+    }
+
+    .conn-status {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+    }
+
+    /* Player labels inside areas */
+    .player-label {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      text-align: center;
+    }
+
+    .player-label .player-name {
+      display: block;
+      color: var(--text-light);
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 160px;
+    }
+
+    .player-label .player-score {
+      color: var(--accent);
+    }
+
+    .active-turn {
+      border-color: var(--accent) !important;
+      box-shadow: 0 0 10px rgba(212,160,23,0.35);
+    }
+
+    /* Responsive */
+    @media (max-width: 1100px) {
+      .board-wrapper {
+        grid-template-columns: 160px 1fr 160px;
+        grid-template-rows: 130px 1fr 150px;
+      }
+    }
+
+    @media (max-width: 860px) {
+      .board-wrapper {
+        grid-template-columns: 110px 1fr 110px;
+        grid-template-rows: 110px 1fr 140px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ====================================================
+       TOP BAR
+  ==================================================== -->
+  <div id="topbar">
+    <h1>麻將遊戲</h1>
+    <div id="room-info">Connecting…</div>
+    <div class="conn-status">
+      <span class="conn-indicator connecting" id="conn-dot"></span>
+      <span id="conn-text">Connecting</span>
+    </div>
+    <a class="back-link" href="index.html">&larr; Back to Lobby</a>
+  </div>
+
+  <!-- ====================================================
+       MAIN BOARD
+  ==================================================== -->
+  <div class="board-wrapper">
+
+    <!-- TOP PLAYER -->
+    <div id="area-top" class="player-area">
+      <div class="player-label" id="top-label">
+        <span class="player-name">–</span>
+        <span class="player-score">Score: 0</span>
+      </div>
+      <div class="opponent-hand" id="top-hand"></div>
+      <div class="opp-melds" id="top-melds" style="display:flex;flex-wrap:wrap;gap:2px;justify-content:center;"></div>
+    </div>
+
+    <!-- LEFT PLAYER -->
+    <div id="area-left" class="player-area">
+      <div class="player-label" id="left-label">
+        <span class="player-name">–</span>
+        <span class="player-score">Score: 0</span>
+      </div>
+      <div class="opponent-hand" id="left-hand"></div>
+      <div class="opp-melds" id="left-melds" style="display:flex;flex-wrap:wrap;gap:2px;justify-content:center;"></div>
+    </div>
+
+    <!-- CENTER TABLE -->
+    <div id="area-center">
+      <div class="center-top-row">
+        <div class="wall-info">Wall: <span id="wall-count">–</span></div>
+        <div id="center-phase" style="color:var(--accent);font-size:0.85rem;"></div>
+        <div id="last-discard" style="font-size:0.8rem;display:flex;align-items:center;gap:4px;"></div>
+      </div>
+
+      <div class="discards-grid">
+        <div class="discard-pile" id="discard-pile-0">
+          <div class="discard-pile-label">P1</div>
+        </div>
+        <div class="discard-pile" id="discard-pile-1">
+          <div class="discard-pile-label">P2</div>
+        </div>
+        <div class="discard-pile" id="discard-pile-2">
+          <div class="discard-pile-label">P3</div>
+        </div>
+        <div class="discard-pile" id="discard-pile-3">
+          <div class="discard-pile-label">P4</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT PLAYER -->
+    <div id="area-right" class="player-area">
+      <div class="player-label" id="right-label">
+        <span class="player-name">–</span>
+        <span class="player-score">Score: 0</span>
+      </div>
+      <div class="opponent-hand" id="right-hand"></div>
+      <div class="opp-melds" id="right-melds" style="display:flex;flex-wrap:wrap;gap:2px;justify-content:center;"></div>
+    </div>
+
+    <!-- BOTTOM – MY HAND -->
+    <div id="area-bottom">
+      <div id="my-hand-label">
+        <span class="player-name" id="my-player-name">Your hand</span>
+        &nbsp;
+        <span class="player-score" id="my-player-score">Score: 0</span>
+      </div>
+      <div class="my-hand" id="my-hand"></div>
+      <div class="my-melds" id="my-melds"></div>
+    </div>
+
+  </div><!-- /board-wrapper -->
+
+  <!-- ====================================================
+       ACTION BUTTONS
+  ==================================================== -->
+  <div id="action-bar">
+    <button class="btn" id="btn-start">Start Game 開始</button>
+    <button class="btn" id="btn-discard" disabled>Discard 打</button>
+    <button class="btn hidden" id="btn-pung"  disabled>Pung 碰</button>
+    <button class="btn hidden" id="btn-chow"  disabled>Chow 吃</button>
+    <button class="btn hidden" id="btn-kong"  disabled>Kong 槓</button>
+    <button class="btn hidden" id="btn-win"   disabled>Win 胡!</button>
+    <button class="btn hidden" id="btn-skip"  disabled>Skip 過</button>
+  </div>
+
+  <!-- ====================================================
+       STATUS BAR
+  ==================================================== -->
+  <div class="status-bar" id="status-bar">Connecting to game server…</div>
+
+  <!-- ====================================================
+       CLAIM WINDOW OVERLAY
+  ==================================================== -->
+  <div class="claim-overlay hidden" id="claim-overlay">
+    <div class="claim-box">
+      <h3>Claim Tile?</h3>
+      <div class="claim-tile-display" id="claim-tile-display"></div>
+      <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:1rem;">
+        Tile: <strong id="claim-tile-name" data-tile=""></strong>
+      </p>
+      <div class="claim-actions" id="claim-actions-btns"></div>
+    </div>
+  </div>
+
+  <!-- ====================================================
+       GAME OVER MODAL
+  ==================================================== -->
+  <div class="modal-overlay hidden" id="game-over-modal">
+    <div class="modal-box">
+      <h2>Game Over!</h2>
+      <div class="winner-name">Winner: <strong id="winner-name">–</strong></div>
+
+      <table class="scores-table">
+        <thead>
+          <tr><th>Player</th><th>Score</th></tr>
+        </thead>
+        <tbody id="scores-body"></tbody>
+      </table>
+
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="btn-close-modal">Close</button>
+        <button class="btn btn-primary"   id="btn-back-lobby">Back to Lobby</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====================================================
+       SCRIPTS
+  ==================================================== -->
+  <script src="js/game.js"></script>
+  <script>
+    /*
+     * Patch renderOpponent to use the dedicated DOM elements
+     * declared in this HTML instead of dynamically creating them.
+     */
+    (function patchRenderOpponent() {
+      const _orig = window.renderOpponent;
+
+      // We override the renderOpponent defined in game.js to target
+      // the pre-built HTML elements.
+      window.renderOpponent = function(player, playerIdx, position, state, discardPile) {
+        const labelEl = document.getElementById(`${position}-label`);
+        const handEl  = document.getElementById(`${position}-hand`);
+        const meldsEl = document.getElementById(`${position}-melds`);
+
+        const areaEl  = document.getElementById(`area-${position}`);
+
+        if (areaEl) {
+          areaEl.classList.toggle('active-turn', state.current_turn === playerIdx);
+        }
+
+        if (labelEl) {
+          labelEl.innerHTML = `<span class="player-name">${escapeHtmlLocal(player.id)}</span>
+            <span class="player-score">Score: ${player.score ?? 0}</span>`;
+        }
+
+        if (handEl) {
+          handEl.innerHTML = '';
+          const tileCount = getHandCount(player);
+          for (let i = 0; i < tileCount; i++) {
+            const el = document.createElement('span');
+            el.className = 'tile tile-back';
+            el.style.width  = position === 'left' || position === 'right' ? '18px' : '20px';
+            el.style.height = position === 'left' || position === 'right' ? '26px' : '28px';
+            handEl.appendChild(el);
+          }
+        }
+
+        if (meldsEl) {
+          meldsEl.innerHTML = '';
+          (player.melds || []).forEach(meld => {
+            const group = document.createElement('span');
+            group.className = 'meld-group';
+            meld.forEach(t => {
+              const te = makeTileEl(t);
+              te.style.width  = '16px';
+              te.style.height = '22px';
+              te.style.fontSize = '0.5rem';
+              group.appendChild(te);
+            });
+            meldsEl.appendChild(group);
+          });
+        }
+      };
+
+      // Also patch renderMyHand to use the pre-built elements
+      window.renderMyHand = function(player, playerIdx, state) {
+        const handEl  = document.getElementById('my-hand');
+        const meldsEl = document.getElementById('my-melds');
+        const nameEl  = document.getElementById('my-player-name');
+        const scoreEl = document.getElementById('my-player-score');
+
+        if (nameEl)  nameEl.textContent  = player.id || 'Your hand';
+        if (scoreEl) scoreEl.textContent = `Score: ${player.score ?? 0}`;
+
+        if (handEl) {
+          handEl.innerHTML = '';
+          getHandTiles(player).forEach(tileStr => {
+            const el = makeTileEl(tileStr, {
+              clickable: true,
+              selected: tileStr === selectedTile
+            });
+            handEl.appendChild(el);
+          });
+        }
+
+        if (meldsEl) {
+          meldsEl.innerHTML = '';
+          (player.melds || []).forEach(meld => {
+            const group = document.createElement('span');
+            group.className = 'meld-group';
+            meld.forEach(t => group.appendChild(makeTileEl(t)));
+            meldsEl.appendChild(group);
+          });
+          (player.flowers || []).forEach(t => {
+            const el = makeTileEl(t);
+            el.style.marginLeft = '3px';
+            meldsEl.appendChild(el);
+          });
+        }
+
+        const bottomArea = document.getElementById('area-bottom');
+        if (bottomArea) {
+          bottomArea.classList.toggle('active-turn', state.current_turn === playerIdx);
+        }
+      };
+
+      function escapeHtmlLocal(str) {
+        if (str == null) return '';
+        return String(str)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;');
+      }
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>麻將遊戲 (Mahjong)</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div class="lobby-container">
+
+    <!-- Header -->
+    <header class="lobby-header">
+      <h1>麻將遊戲 (Mahjong)</h1>
+      <p>Welcome to the online Mahjong lobby</p>
+    </header>
+
+    <!-- Player info -->
+    <div class="player-info-bar">
+      <span>Your Player ID:</span>
+      <span class="pid" id="player-id-display">loading…</span>
+    </div>
+
+    <!-- Room list + create button -->
+    <div class="lobby-actions">
+      <h2>Game Rooms</h2>
+      <button class="btn btn-primary" id="btn-create-room">+ Create Room</button>
+    </div>
+
+    <div class="rooms-table-wrap">
+      <table class="rooms-table">
+        <thead>
+          <tr>
+            <th>Room Name</th>
+            <th>Players</th>
+            <th>Status</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="rooms-tbody">
+          <tr>
+            <td colspan="4" class="no-rooms">Loading rooms…</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="refresh-indicator" id="refresh-time">Auto-refresh every 3 seconds</div>
+
+  </div><!-- /lobby-container -->
+
+  <script src="js/lobby.js"></script>
+</body>
+</html>
