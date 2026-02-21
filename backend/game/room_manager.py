@@ -38,6 +38,7 @@ class Room:
     # Keyed by player_id; values start at INITIAL_CHIPS and are updated after each game.
     cumulative_scores: dict = field(default_factory=dict)
     round_number: int = 0  # how many games have been completed (or started) in this room
+    dealer_idx: int = 0    # seat index of the current dealer; rotates after each hand
 
     @property
     def player_count(self) -> int:
@@ -210,7 +211,7 @@ class RoomManager:
             else:
                 player_ids.append(f"ai_player_{seat_idx}")
 
-        game_state = GameState(room_id=room_id, player_ids=player_ids)
+        game_state = GameState(room_id=room_id, player_ids=player_ids, dealer_idx=room.dealer_idx)
 
         # Mark AI players
         for i, pid in enumerate(player_ids):

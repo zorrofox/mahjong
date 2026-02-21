@@ -78,7 +78,7 @@ class GameState:
     A kong gives the player a replacement tile from the back of the wall.
     """
 
-    def __init__(self, room_id: str, player_ids: list[str]) -> None:
+    def __init__(self, room_id: str, player_ids: list[str], dealer_idx: int = 0) -> None:
         if len(player_ids) != NUM_PLAYERS:
             raise ValueError(f"Mahjong requires exactly {NUM_PLAYERS} players.")
 
@@ -112,8 +112,8 @@ class GameState:
         # Format: {"player_idx": int, "type": "win"|"pung"|"kong"|"chow", "tiles": list[str]}
         self._best_claim: Optional[dict] = None
 
-        # Dealer index (player 0 is always dealer in current implementation)
-        self.dealer_idx: int = 0
+        # Dealer seat index for this hand (rotates across rounds via Room.dealer_idx)
+        self.dealer_idx: int = dealer_idx
 
         # Most recently drawn tile (set by draw_tile() and kong replacement draws).
         # Included in action_required so the frontend can pre-select it.
@@ -338,13 +338,13 @@ class GameState:
     def deal_initial_tiles(self) -> None:
         """
         Deal the initial tiles:
-          - Dealer (player 0) receives 14 tiles.
+          - Dealer (self.dealer_idx) receives 14 tiles.
           - Other players receive 13 tiles each.
 
         After dealing, bonus tiles are auto-collected for all players.
         """
         for player_idx in range(NUM_PLAYERS):
-            count = DEALER_INITIAL_TILES if player_idx == 0 else NON_DEALER_INITIAL_TILES
+            count = DEALER_INITIAL_TILES if player_idx == self.dealer_idx else NON_DEALER_INITIAL_TILES
             for _ in range(count):
                 tile = self._draw_from_front()
                 if tile is not None:
@@ -355,9 +355,9 @@ class GameState:
             self._collect_bonus_tiles(player_idx)
 
         # Dealer starts by discarding (they already have 14 tiles)
-        self.current_turn = 0
+        self.current_turn = self.dealer_idx
         self.phase = "discarding"
-        logger.info("Initial tiles dealt. Room=%s", self.room_id)
+        logger.info("Initial tiles dealt. Room=%s dealer=%d", self.room_id, self.dealer_idx)
 
     def draw_tile(self, player_idx: int) -> Optional[str]:
         """

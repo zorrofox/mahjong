@@ -465,6 +465,16 @@ async def _handle_game_over(room_id: str) -> None:
             winner_idx = i
 
     # ----------------------------------------------------------------
+    # Dealer rotation
+    # ----------------------------------------------------------------
+    # Dealer (庄家) keeps their seat if they win; otherwise passes to the
+    # next seat clockwise.  A draw (no winner) also advances the dealer.
+    if winner_idx is not None and winner_idx == gs.dealer_idx:
+        pass  # dealer wins — 连庄, no rotation
+    else:
+        room.dealer_idx = (gs.dealer_idx + 1) % len(gs.players)
+
+    # ----------------------------------------------------------------
     # Chip settlement — Han-based, zero-sum
     # ----------------------------------------------------------------
     # unit = min(CHIP_CAP, 2^(han_total-1))  →  1 fan=1, 2=2, 3=4 … 7+=64
