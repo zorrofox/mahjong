@@ -10,9 +10,9 @@ const _HANZI = ['一','二','三','四','五','六','七','八','九'];
 const TILE_SPEECH = (() => {
   const m = {};
   for (let i = 1; i <= 9; i++) {
-    m[`BAMBOO_${i}`]     = `${_HANZI[i-1]}条`;
-    m[`CIRCLES_${i}`]   = `${_HANZI[i-1]}饼`;
-    m[`CHARACTERS_${i}`]= `${_HANZI[i-1]}万`;
+    m[`BAMBOO_${i}`]      = `${_HANZI[i-1]}条`;
+    m[`CIRCLES_${i}`]     = `${_HANZI[i-1]}饼`;
+    m[`CHARACTERS_${i}`]  = `${_HANZI[i-1]}万`;
   }
   m['EAST']  = '东风'; m['SOUTH'] = '南风';
   m['WEST']  = '西风'; m['NORTH'] = '北风';
@@ -24,9 +24,6 @@ const TILE_SPEECH = (() => {
   return m;
 })();
 
-/**
- * Return the Chinese spoken text for a tile string, or null if unknown.
- */
 function tileToSpeech(tileStr) {
   return TILE_SPEECH[tileStr] || null;
 }
@@ -35,12 +32,13 @@ function tileToSpeech(tileStr) {
    SpeechEngine class
    ============================================================ */
 class SpeechEngine {
-  #voice    = null;   // selected zh voice; null = no Chinese TTS available
-  #enabled  = true;   // user toggle
+  #voice   = null;
+  #enabled = true;
+  #active  = false;   // true while an utterance is being spoken
+  #queue   = [];      // at most 1 pending action announcement
 
   constructor() {
     this._loadPrefs();
-    // Voices may load asynchronously (especially Chrome)
     if (typeof speechSynthesis !== 'undefined') {
       speechSynthesis.onvoiceschanged = () => this._pickVoice();
       this._pickVoice();
@@ -49,55 +47,91 @@ class SpeechEngine {
 
   /* ---------- Public API ---------- */
 
-  /** Speak text.
-   *  priority=true: cancel any current speech first (for action calls). */
-  speak(text, priority = false) {
+  /**
+   * Speak text with one of three modes:
+   *
+   *   'skip'      (default) — skip if already speaking (tile names from AI discards).
+   *   'queue'               — enqueue to play right after the current utterance ends
+   *                           (opponent 碰/吃/杠 so they follow the tile-name).
+   *   'immediate'           — cancel current speech + clear queue, play now
+   *                           (own 碰/吃/杠/胡, own discard tile name).
+   */
+  speak(text, mode = 'skip') {
     if (!this.#enabled) return;
-    if (typeof speechSynthesis === 'undefined') return;  // Node/jsdom safety
-    if (!this.#voice) return;  // no Chinese voice found
+    if (typeof speechSynthesis === 'undefined') return;
+    if (!this.#voice) return;
 
-    if (priority) {
+    if (mode === 'immediate') {
       speechSynthesis.cancel();
-    } else if (speechSynthesis.speaking || speechSynthesis.pending) {
-      // Avoid piling up AI discard announcements — skip if busy
-      return;
+      this.#queue  = [];
+      this.#active = false;
+      this.#speakNow(text);
+    } else if (mode === 'queue') {
+      if (!this.#active && !speechSynthesis.speaking) {
+        this.#speakNow(text);
+      } else {
+        // Replace any queued action — only keep the most recent
+        this.#queue = [text];
+      }
+    } else {
+      // 'skip': speak only if nothing is playing
+      if (!this.#active && !speechSynthesis.speaking && !speechSynthesis.pending) {
+        this.#speakNow(text);
+      }
     }
-
-    const utt      = new SpeechSynthesisUtterance(text);
-    utt.voice      = this.#voice;
-    utt.lang       = 'zh-CN';
-    utt.rate       = 0.88;  // deliberate pace — prevents robotic clipping
-    utt.pitch      = 1.05;  // very slightly brighter, less flat
-    utt.volume     = 1.0;
-    speechSynthesis.speak(utt);
   }
 
   /** Announce a tile by its key string (e.g. "BAMBOO_3"). */
-  speakTile(tileStr, priority = false) {
+  speakTile(tileStr, mode = 'skip') {
     const text = tileToSpeech(tileStr);
-    if (text) this.speak(text, priority);
+    if (text) this.speak(text, mode);
   }
 
-  enable()   { this.#enabled = true;  this._savePrefs(); }
-  disable()  { this.#enabled = false; speechSynthesis?.cancel(); this._savePrefs(); }
-  isEnabled(){ return this.#enabled; }
-
-  /** true if a Chinese voice was found on this device. */
-  hasVoice() { return this.#voice !== null; }
+  enable()    { this.#enabled = true;  this._savePrefs(); }
+  disable()   {
+    this.#enabled = false;
+    this.#queue   = [];
+    speechSynthesis?.cancel();
+    this._savePrefs();
+  }
+  isEnabled() { return this.#enabled; }
+  hasVoice()  { return this.#voice !== null; }
 
   /* ---------- Private ---------- */
+
+  #speakNow(text) {
+    if (typeof speechSynthesis === 'undefined') return;
+    if (speechSynthesis.state === 'suspended') speechSynthesis.resume?.();
+
+    const utt   = new SpeechSynthesisUtterance(text);
+    utt.voice   = this.#voice;
+    utt.lang    = 'zh-CN';
+    utt.rate    = 0.88;
+    utt.pitch   = 1.05;
+    utt.volume  = 1.0;
+
+    this.#active = true;
+
+    utt.onend = () => {
+      this.#active = false;
+      if (this.#queue.length > 0) {
+        this.#speakNow(this.#queue.shift());
+      }
+    };
+    utt.onerror = () => {
+      this.#active = false;
+      this.#queue  = [];
+    };
+
+    speechSynthesis.speak(utt);
+  }
 
   _pickVoice() {
     if (typeof speechSynthesis === 'undefined') return;
     const voices = speechSynthesis.getVoices();
     if (!voices.length) return;
 
-    // Priority order (best quality first):
-    // 1. Google 普通话 / Google zh-CN  — best quality in Chrome
-    // 2. Any "Neural" or "Natural" zh-CN voice
-    // 3. zh-CN (any)
-    // 4. zh-TW / zh-HK
-    // 5. Any zh voice
+    // Priority: Google zh-CN (best) → other Google zh → Neural zh-CN → plain zh-CN → zh-TW/HK → any zh
     const pref = [
       v => /google/i.test(v.name) && /zh[-_]CN/i.test(v.lang),
       v => /google/i.test(v.name) && /^zh/i.test(v.lang),
@@ -110,7 +144,6 @@ class SpeechEngine {
       const found = voices.find(test);
       if (found) { this.#voice = found; return; }
     }
-    // No Chinese voice — remain null (silent)
   }
 
   _loadPrefs() {

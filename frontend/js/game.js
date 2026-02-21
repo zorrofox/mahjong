@@ -299,16 +299,16 @@ function handleGameState(state) {
         const newMeld = currMelds[currMelds.length - 1];
         if (newMeld && newMeld.length >= 3) {
           if (newMeld[0] === newMeld[1]) {
-            getSpeech()?.speak(newMeld.length >= 4 ? '杠' : '碰', true);
+            getSpeech()?.speak(newMeld.length >= 4 ? '杠' : '碰', 'queue');
           } else {
-            getSpeech()?.speak('吃', true);
+            getSpeech()?.speak('吃', 'queue');
           }
         }
       } else if (currMelds.length === prevMelds.length) {
         // Check for extend-pung → kong (same meld count, but one meld grew to 4)
         currMelds.forEach((meld, mi) => {
           if (prevMelds[mi] && meld.length === 4 && prevMelds[mi].length === 3) {
-            getSpeech()?.speak('杠', true);
+            getSpeech()?.speak('杠', 'queue');
           }
         });
       }
@@ -379,9 +379,9 @@ function handleGameOver(msg) {
   const winnerName = msg.winner_id || `Player ${msg.winner_idx + 1}`;
   // Announce win or draw
   if (msg.winner_idx !== null && msg.winner_idx !== undefined && msg.winner_idx >= 0) {
-    getSpeech()?.speak('胡了！', true);
+    getSpeech()?.speak('胡了！', 'immediate');
   } else {
-    getSpeech()?.speak('流局', true);
+    getSpeech()?.speak('流局', 'immediate');
   }
   showGameOverModal(
     winnerName,
@@ -713,13 +713,13 @@ function sendDiscard() {
     return;
   }
   // Announce the tile being discarded (priority: player action)
-  getSpeech()?.speakTile(selectedTile, true);
+  getSpeech()?.speakTile(selectedTile, 'immediate');
   sendAction('discard', { tile: selectedTile });
   selectedTile = null;
 }
 
 function sendPung() {
-  getSpeech()?.speak('碰！', true);
+  getSpeech()?.speak('碰！', 'immediate');
   sendAction('pung');
   hideClaimOverlay();
 }
@@ -734,7 +734,7 @@ function sendChow() {
   // Try to auto-select a valid chow (adjacent tiles)
   const chowTiles = autoSelectChow(tile, hand);
   if (chowTiles) {
-    getSpeech()?.speak('吃！', true);
+    getSpeech()?.speak('吃！', 'immediate');
     sendAction('chow', { tiles: chowTiles });
     hideClaimOverlay();
   } else {
@@ -781,14 +781,14 @@ function sendKong() {
   if (inClaimWindow) {
     // Claiming a kong from another player's discard.
     // Server uses gs.last_discard when no tile is specified.
-    getSpeech()?.speak('杠！', true);
+    getSpeech()?.speak('杠！', 'immediate');
     sendAction('kong');
     hideClaimOverlay();
     return;
   }
   if (selectedTile) {
     // Extend-pung or concealed kong on the selected tile.
-    getSpeech()?.speak('杠！', true);
+    getSpeech()?.speak('杠！', 'immediate');
     sendAction('kong', { tile: selectedTile });
   } else if (gameState) {
     // Self-drawn kong: auto-detect a 4-of-a-kind in hand.
@@ -797,7 +797,7 @@ function sendKong() {
     hand.forEach(t => counts[t] = (counts[t] || 0) + 1);
     const kongTile = Object.keys(counts).find(t => counts[t] >= 4);
     if (kongTile) {
-      getSpeech()?.speak('杠！', true);
+      getSpeech()?.speak('杠！', 'immediate');
       sendAction('kong', { tile: kongTile });
     } else {
       setStatus('Select a tile for Kong.', 'error');
@@ -808,7 +808,7 @@ function sendKong() {
 }
 
 function sendWin() {
-  getSpeech()?.speak('胡！', true);
+  getSpeech()?.speak('胡！', 'immediate');
   sendAction('win');
   hideClaimOverlay();
 }
