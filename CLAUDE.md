@@ -23,9 +23,13 @@ uvicorn main:app --reload --port 8000
 ```
 majiang/
 ├── CLAUDE.md                        # 本文档
+├── package.json                     # 前端测试依赖（Vitest）
+├── vitest.config.js                 # Vitest 覆盖率配置
 ├── backend/
 │   ├── main.py                      # FastAPI 入口，挂载路由 + 静态文件
 │   ├── requirements.txt             # Python 依赖
+│   ├── requirements-test.txt        # 测试专用依赖（pytest、httpx 等）
+│   ├── pytest.ini                   # pytest 配置（asyncio_mode、覆盖率）
 │   ├── game/
 │   │   ├── __init__.py
 │   │   ├── tiles.py                 # 牌型枚举、144 张牌组、洗牌函数
@@ -33,18 +37,33 @@ majiang/
 │   │   ├── game_state.py            # GameState：牌局状态机、发牌、摸打、申报
 │   │   ├── ai_player.py             # AI：启发式出牌、声索决策
 │   │   └── room_manager.py          # RoomManager：房间生命周期、溢出逻辑
-│   └── api/
-│       ├── __init__.py
-│       ├── routes.py                # REST 接口：列出/创建/加入/开始房间
-│       └── websocket.py             # WebSocket 游戏事件处理、AI 自动操作
-└── frontend/
-    ├── index.html                   # 大厅页：房间列表、创建/加入
-    ├── game.html                    # 游戏页：四方牌桌、手牌、操作按钮
-    ├── css/
-    │   └── style.css                # 绿毡主题样式、响应式布局
-    └── js/
-        ├── lobby.js                 # 大厅逻辑：轮询房间列表
-        └── game.js                  # 游戏逻辑：WebSocket 客户端、渲染
+│   ├── api/
+│   │   ├── __init__.py
+│   │   ├── routes.py                # REST 接口：列出/创建/加入/开始房间
+│   │   └── websocket.py             # WebSocket 游戏事件处理、AI 自动操作
+│   └── tests/                       # 后端单元测试（pytest）
+│       ├── test_tiles.py            # 52 tests
+│       ├── test_hand.py             # 47 tests
+│       ├── test_game_state.py       # 50 tests
+│       ├── test_ai_player.py        # 23 tests
+│       ├── test_room_manager.py     # 28 tests
+│       └── test_routes.py           # 13 tests
+├── frontend/
+│   ├── index.html                   # 大厅页：房间列表、创建/加入
+│   ├── game.html                    # 游戏页：四方牌桌、手牌、操作按钮
+│   ├── css/
+│   │   └── style.css                # 绿毡主题样式、响应式布局
+│   ├── js/
+│   │   ├── lobby.js                 # 大厅逻辑：轮询房间列表
+│   │   └── game.js                  # 游戏逻辑：WebSocket 客户端、渲染
+│   └── tests/                       # 前端单元测试（Vitest）
+│       ├── game.test.js             # 37 tests
+│       └── lobby.test.js            # 19 tests
+└── tests/
+    └── integration/                 # 集成测试（pytest + httpx）
+        ├── conftest.py              # TestClient fixtures
+        ├── test_rest_api.py         # 14 tests
+        └── test_websocket.py        # 9 tests
 ```
 
 ---
@@ -58,6 +77,8 @@ majiang/
 | 状态管理 | 纯内存（dict，无数据库） |
 | 前端 | 原生 HTML5 + CSS3 + JavaScript（无框架） |
 | 服务器 | Uvicorn（ASGI） |
+| 后端测试 | pytest 8 + pytest-cov + pytest-asyncio + httpx |
+| 前端测试 | Vitest 1 + @vitest/coverage-v8 |
 
 ---
 
@@ -204,10 +225,14 @@ drawing → discarding → claiming → (下一轮 drawing)
 | `api/websocket.py` | 664 | WebSocket 处理 |
 | `api/routes.py` | 102 | REST 接口 |
 | `main.py` | 54 | 应用入口 |
-| `frontend/js/game.js` | 821 | 游戏客户端 |
-| `frontend/js/lobby.js` | 172 | 大厅客户端 |
+| `frontend/js/game.js` | 856 | 游戏客户端 |
+| `frontend/js/lobby.js` | 177 | 大厅客户端 |
 | `frontend/css/style.css` | 693 | 样式表 |
-| **合计** | **~4,414** | |
+| **业务代码合计** | **~4,454** | |
+| `backend/tests/` | ~900 | 后端单元测试（233 tests） |
+| `frontend/tests/` | ~350 | 前端单元测试（56 tests） |
+| `tests/integration/` | ~400 | 集成测试（23 tests） |
+| **测试代码合计** | **~1,650** | |
 
 ---
 
@@ -461,6 +486,73 @@ if self.phase == "ended" and ron:
 
 ---
 
+### Bug 7：`autoSelectChow` 标签解析错误导致吃牌自动选择永远失败
+
+**发现时间**：前端单元测试建立后（测试覆盖了该函数）
+**现象**：玩家点击「吃」按钮后，始终提示"无法自动选择吃牌"，无法完成吃牌操作。
+
+**根本原因**：`TILE_MAP` 中数牌标签格式为 `"B5"`（花色字母在前，数字在后），但 `autoSelectChow` 使用 `.slice(0, -1)` 截取数字部分：
+
+```js
+// 错误：
+const num = parseInt(info.label.slice(0, -1)); // "B5".slice(0,-1) = "B" → NaN
+```
+
+`parseInt("B")` 返回 `NaN`，导致后续所有数字比较均失败，函数始终返回 `null`。
+
+**修复方案**：改用 `.slice(1)` 截去首位花色字母，保留数字部分：
+
+```js
+// 修复后：
+const num = parseInt(info.label.slice(1)); // "B5".slice(1) = "5" → 5
+```
+
+**修改文件**：`frontend/js/game.js:615` — `autoSelectChow`
+
+---
+
+## 测试体系
+
+### 运行方式
+
+**后端单元测试 + 覆盖率**
+```bash
+cd backend
+pip install -r requirements-test.txt
+pytest
+# 输出：term-missing 覆盖率表 + htmlcov/ HTML 报告
+```
+
+**前端单元测试 + 覆盖率**
+```bash
+npm install
+npm run test:coverage
+# 输出：term 覆盖率表 + coverage/ HTML 报告
+```
+
+**集成测试**
+```bash
+cd tests/integration
+pip install -r requirements.txt
+pytest -v
+```
+
+### 覆盖率现状
+
+| 模块 | 覆盖率 |
+|---|---|
+| `api/routes.py` | 100% |
+| `game/room_manager.py` | 100% |
+| `game/hand.py` | 97% |
+| `game/tiles.py` | 96% |
+| `game/ai_player.py` | 79% |
+| `game/game_state.py` | 76% |
+| 前端纯函数（branch） | 96.72% |
+
+注：`api/websocket.py` 异步流程通过集成测试覆盖，未计入单元测试覆盖率。
+
+---
+
 ## 已知限制与后续扩展方向
 
 | 项目 | 当前状态 | 可改进方向 |
@@ -470,5 +562,5 @@ if self.phase == "ended" and ron:
 | 计分系统 | 简化版（基础分 + 副加分） | 完整番种计算 |
 | AI 强度 | 启发式贪心 | 蒙特卡洛或规则引擎 |
 | 移动端适配 | 桌面优先（1024px+） | 触屏手势支持 |
-| 测试覆盖 | 无自动化测试 | 为 hand.py/game_state.py 补充单测 |
+| 测试覆盖 | 312 tests，websocket.py 单测待补 | E2E 浏览器测试（Playwright） |
 | 多语言 | 界面为中英混合 | i18n 国际化 |
