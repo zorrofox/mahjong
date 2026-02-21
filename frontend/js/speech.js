@@ -16,7 +16,7 @@ const TILE_SPEECH = (() => {
   }
   m['EAST']  = '东风'; m['SOUTH'] = '南风';
   m['WEST']  = '西风'; m['NORTH'] = '北风';
-  m['RED']   = '中';   m['GREEN'] = '发';  m['WHITE'] = '白板';
+  m['RED']   = '中';   m['GREEN'] = '发';  m['WHITE'] = '白';
   m['FLOWER_1'] = '梅花'; m['FLOWER_2'] = '兰花';
   m['FLOWER_3'] = '菊花'; m['FLOWER_4'] = '竹子';
   m['SEASON_1'] = '春';   m['SEASON_2'] = '夏';
@@ -66,8 +66,8 @@ class SpeechEngine {
     const utt      = new SpeechSynthesisUtterance(text);
     utt.voice      = this.#voice;
     utt.lang       = 'zh-CN';
-    utt.rate       = 1.1;   // slightly faster for mahjong tempo
-    utt.pitch      = 1.0;
+    utt.rate       = 0.88;  // deliberate pace — prevents robotic clipping
+    utt.pitch      = 1.05;  // very slightly brighter, less flat
     utt.volume     = 1.0;
     speechSynthesis.speak(utt);
   }
@@ -92,8 +92,16 @@ class SpeechEngine {
     const voices = speechSynthesis.getVoices();
     if (!voices.length) return;
 
-    // Priority: zh-CN > zh-TW > any zh
+    // Priority order (best quality first):
+    // 1. Google 普通话 / Google zh-CN  — best quality in Chrome
+    // 2. Any "Neural" or "Natural" zh-CN voice
+    // 3. zh-CN (any)
+    // 4. zh-TW / zh-HK
+    // 5. Any zh voice
     const pref = [
+      v => /google/i.test(v.name) && /zh[-_]CN/i.test(v.lang),
+      v => /google/i.test(v.name) && /^zh/i.test(v.lang),
+      v => /(neural|natural)/i.test(v.name) && /zh[-_]CN/i.test(v.lang),
       v => /zh[-_]CN/i.test(v.lang),
       v => /zh[-_]TW/i.test(v.lang) || /zh[-_]HK/i.test(v.lang),
       v => /^zh/i.test(v.lang),
