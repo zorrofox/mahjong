@@ -199,15 +199,21 @@ drawing → discarding → claiming → (下一轮 drawing)
 
 牌面显示映射（`tileToDisplay()`）：
 
-| 牌型 | 显示 | 颜色 |
-|---|---|---|
-| BAMBOO_1..9 | "1B".."9B" | 绿色 |
-| CIRCLES_1..9 | "1C".."9C" | 红色 |
-| CHARACTERS_1..9 | "1M".."9M" | 蓝色 |
-| EAST/SOUTH/WEST/NORTH | 東南西北 | 深色 |
-| RED/GREEN/WHITE | 中/發/白 | 各异 |
-| FLOWER_1..4 | 梅蘭菊竹 | 紫色 |
-| SEASON_1..4 | 春夏秋冬 | 橙色 |
+| 牌型 | 主字（`.tile-main`） | 副字（`.tile-sub`） | 颜色 |
+|---|---|---|---|
+| BAMBOO_1..9 | 一～九 | 条 | 墨绿 |
+| CIRCLES_1..9 | 一～九 | 饼 | 深红 |
+| CHARACTERS_1..9 | 一～九 | 萬 | 藏青 |
+| EAST/SOUTH/WEST/NORTH | 東南西北 | — | 深色 |
+| RED/GREEN/WHITE | 中/發/白 | — | 各异 |
+| FLOWER_1..4 | 梅蘭菊竹 | — | 紫色 |
+| SEASON_1..4 | 春夏秋冬 | — | 橙色 |
+
+**牌面视觉风格**：
+- 象牙骨色渐变背景 + 3D 浮雕边框（亮色上/左 + 暗色下/右）模拟实体麻将牌质感
+- 背面牌采用 45° 条纹图案
+- 字体：Noto Serif SC（Google Fonts）提供传统宋/楷体汉字渲染
+- 手牌 44×62px / 弃牌 26×36px / 声索弹窗 56×78px，各区域独立缩放
 
 **WebSocket 断线重连**：2 秒后自动重连。
 
@@ -225,9 +231,9 @@ drawing → discarding → claiming → (下一轮 drawing)
 | `api/websocket.py` | 664 | WebSocket 处理 |
 | `api/routes.py` | 102 | REST 接口 |
 | `main.py` | 54 | 应用入口 |
-| `frontend/js/game.js` | 856 | 游戏客户端 |
+| `frontend/js/game.js` | 863 | 游戏客户端 |
 | `frontend/js/lobby.js` | 177 | 大厅客户端 |
-| `frontend/css/style.css` | 693 | 样式表 |
+| `frontend/css/style.css` | 760 | 样式表 |
 | **业务代码合计** | **~4,454** | |
 | `backend/tests/` | ~900 | 后端单元测试（233 tests） |
 | `frontend/tests/` | ~350 | 前端单元测试（56 tests） |
@@ -508,6 +514,52 @@ const num = parseInt(info.label.slice(1)); // "B5".slice(1) = "5" → 5
 ```
 
 **修改文件**：`frontend/js/game.js:615` — `autoSelectChow`
+
+---
+
+### Bug 8（UI 重构）：牌面显示为代码字符串而非传统汉字
+
+**发现时间**：用户反馈（UI 可用性问题）
+**现象**：手牌和弃牌区显示的是 `"1B"`、`"3C"`、`"7M"` 等内部代码字符串，而非传统麻将牌样式的汉字，视觉辨识度极差。
+
+**根本原因**：`TILE_MAP` 中数牌的 `text` 字段直接使用阿拉伯数字字符串（`"1"`…`"9"`），花色仅以 `info.suit`（`'B'`/`'C'`/`'M'`）附在数字旁——两者均为英文内部标识符，不具备传统麻将的视觉语意。
+
+**修复方案（三处改动）**：
+
+1. **`TILE_MAP`**：数牌 `text` 改为中文数字（`'一'`…`'九'`），新增 `sub` 字段存储花色名（`'条'`/`'饼'`/`'萬'`）：
+```js
+const HANZI = ['一','二','三','四','五','六','七','八','九'];
+m[`BAMBOO_${i}`]     = { text: HANZI[i-1], sub: '条', ... };
+m[`CIRCLES_${i}`]    = { text: HANZI[i-1], sub: '饼', ... };
+m[`CHARACTERS_${i}`] = { text: HANZI[i-1], sub: '萬', ... };
+```
+
+2. **`makeTileEl`**：改用 `.tile-main` + `.tile-sub` 两层 `<span>` 结构，取代原来的字符串拼接：
+```js
+if (info.sub) {
+  el.innerHTML = `<span class="tile-main">${escapeHtml(info.text)}</span>
+                  <span class="tile-sub">${escapeHtml(info.sub)}</span>`;
+} else {
+  el.innerHTML = `<span class="tile-main">${escapeHtml(info.text)}</span>`;
+}
+```
+
+3. **`style.css`**：全面重设 `.tile` 视觉样式：
+   - 象牙骨色渐变背景：`linear-gradient(150deg, #fffef5, #ede4c4)`
+   - 3D 浮雕边框：亮色上/左（`#fff8e8`）+ 暗色下/右（`#9a7e38`）+ `box-shadow`
+   - 背面牌改为 45° 条纹图案
+   - 各区域（手牌/弃牌/对手/弹窗）独立设置 `.tile-main`/`.tile-sub` 字号
+   - 引入 Noto Serif SC（Google Fonts）字体栈
+
+**修改文件**：
+
+| 文件 | 改动 |
+|---|---|
+| `frontend/js/game.js` | `TILE_MAP`（`text`+`sub`）、`makeTileEl`（HTML 结构） |
+| `frontend/css/style.css` | `.tile`、`.tile-main`、`.tile-sub` 完整重写 |
+| `frontend/game.html` | 新增 Noto Serif SC Google Fonts 链接 |
+| `frontend/index.html` | 同上 |
+| `frontend/tests/game.test.js` | 更新 `tileToDisplay` 断言以匹配新汉字 `text` 值 |
 
 ---
 
