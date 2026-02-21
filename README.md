@@ -15,6 +15,7 @@ A browser-based multiplayer Mahjong game. Supports 1–4 human players per room;
 - AI 自动填补空位，启发式出牌与声索决策
 - 声索优先级：胡 > 碰/杠 > 吃
 - 自摸与荣和均支持
+- 传统麻将牌视觉风格：汉字数字（一～九）+ 花色名（萬/条/饼），象牙骨色 3D 浮雕牌面
 - 响应式绿毡牌桌界面
 
 ---
@@ -80,6 +81,7 @@ pytest -v
 | 后端 | Python 3.11 + FastAPI 0.111 + Uvicorn |
 | 实时通信 | WebSocket（Starlette 内置） |
 | 前端 | 原生 HTML5 + CSS3 + JavaScript |
+| 字体 | Noto Serif SC（Google Fonts，传统汉字渲染） |
 | 测试 | pytest + Vitest |
 
 ---
