@@ -170,3 +170,8 @@ function escapeAttr(str) {
 
 /* ---------- Boot ---------- */
 document.addEventListener('DOMContentLoaded', init);
+
+// Allow unit testing in Node/Vitest
+if (typeof globalThis !== 'undefined' && typeof window === 'undefined') {
+  globalThis._lobbyTestExports = { getStatusClass, formatStatus, escapeHtml, escapeAttr };
+}

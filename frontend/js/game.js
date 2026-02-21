@@ -612,7 +612,7 @@ function autoSelectChow(discardedTile, hand) {
   const info = TILE_MAP[discardedTile];
   if (!info || !info.suit) return null; // only suited tiles
 
-  const num = parseInt(info.label.slice(0, -1));
+  const num = parseInt(info.label.slice(1));
   if (isNaN(num)) return null;
   const suit = info.suit;
 
@@ -849,3 +849,8 @@ document.addEventListener('DOMContentLoaded', () => {
   // Connect WebSocket
   connect();
 });
+
+// Allow unit testing in Node/Vitest
+if (typeof globalThis !== 'undefined' && typeof window === 'undefined') {
+  globalThis._mahjongTestExports = { getHandTiles, getHandCount, tileToDisplay, formatPhase, autoSelectChow, escapeHtml, TILE_MAP };
+}
