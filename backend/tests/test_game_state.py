@@ -338,6 +338,75 @@ class TestDeclareWin:
         with pytest.raises(ValueError, match="Cannot declare win"):
             gs.declare_win(0)
 
+    def test_self_draw_win_with_pung_meld(self):
+        """Player can declare self-draw win when they have claimed melds."""
+        gs = make_dealt_game()
+        # Player 0 has already claimed one pung meld; hand has only 11 tiles
+        gs.players[0].melds = [["EAST", "EAST", "EAST"]]
+        gs.players[0].hand = (
+            ["BAMBOO_1"] * 3
+            + ["BAMBOO_2"] * 3
+            + ["CIRCLES_5"] * 3
+            + ["RED"] * 2
+        )  # 11 tiles + 1 pung meld = winning
+        gs.phase = "discarding"
+        gs.current_turn = 0
+        result = gs.declare_win(0)
+        assert result["winner"] == "p0"
+        assert result["ron"] is False
+        assert gs.phase == "ended"
+
+    def test_self_draw_win_action_offered_with_melds(self):
+        """'win' appears in available actions when player has melds and a winning hand."""
+        gs = make_dealt_game()
+        # One pung meld already claimed; remaining hand wins
+        gs.players[0].melds = [["CIRCLES_9", "CIRCLES_9", "CIRCLES_9"]]
+        gs.players[0].hand = (
+            ["BAMBOO_1"] * 3
+            + ["BAMBOO_2"] * 3
+            + ["CHARACTERS_7"] * 3
+            + ["SOUTH"] * 2
+        )  # 11 tiles + meld → 14 effective
+        gs.phase = "discarding"
+        gs.current_turn = 0
+        actions = gs.get_available_actions(0)
+        assert "win" in actions, f"Expected 'win' in actions, got: {actions}"
+
+    def test_ron_win_with_pung_meld(self):
+        """Player can win by claiming a discard when they already have a meld."""
+        gs = make_dealt_game()
+        # Player 1 has one pung meld; needs one more tile for a complete hand.
+        # Hand has RED (single); discard is RED → pair becomes RED+RED.
+        gs.players[1].melds = [["WEST", "WEST", "WEST"]]
+        gs.players[1].hand = (
+            ["BAMBOO_3"] * 3
+            + ["CIRCLES_1"] * 3
+            + ["CHARACTERS_5"] * 3
+            + ["RED"]  # 10 tiles; discard RED completes RED+RED pair
+        )
+        # Player 0 discards RED so player 1 can ron
+        gs.players[0].hand.append("RED")
+        gs.discard_tile(0, "RED")
+        result = gs.declare_win(1)
+        assert result["winner"] == "p1"
+        assert result["ron"] is True
+
+    def test_ron_win_action_offered_with_melds(self):
+        """'win' appears in claiming-phase actions when player has melds."""
+        gs = make_dealt_game()
+        gs.players[1].melds = [["NORTH", "NORTH", "NORTH"]]
+        # Hand has GREEN (single); discard GREEN completes GREEN+GREEN pair.
+        gs.players[1].hand = (
+            ["BAMBOO_5"] * 3
+            + ["CIRCLES_2"] * 3
+            + ["CHARACTERS_8"] * 3
+            + ["GREEN"]
+        )
+        gs.players[0].hand.append("GREEN")
+        gs.discard_tile(0, "GREEN")
+        actions = gs.get_available_actions(1)
+        assert "win" in actions, f"Expected 'win' in actions, got: {actions}"
+
 
 # ---------------------------------------------------------------------------
 # Kong tests

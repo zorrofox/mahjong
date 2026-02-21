@@ -569,7 +569,8 @@ class GameState:
         if self.phase == "discarding" and player_idx == self.current_turn:
             # Self-draw win: the last tile drawn is in the hand already
             effective_hand = player.hand_without_bonus()
-            if not is_winning_hand(effective_hand):
+            meld_tiles = [t for meld in player.melds for t in meld[:3]]
+            if not is_winning_hand(effective_hand + meld_tiles):
                 raise ValueError(f"Player {player_idx}'s hand is not a winning hand.")
             winning_tile = effective_hand[-1]  # conventionally the last drawn tile
             ron = False
@@ -584,7 +585,8 @@ class GameState:
             # Validate using a temporary copy — do NOT modify the real hand here.
             # _resolve_claims will add the tile and finalize when the window closes.
             effective_hand = player.hand_without_bonus() + [tile]
-            if not is_winning_hand(effective_hand):
+            meld_tiles = [t for meld in player.melds for t in meld[:3]]
+            if not is_winning_hand(effective_hand + meld_tiles):
                 raise ValueError(f"Player {player_idx}'s hand + '{tile}' is not a winning hand.")
 
             winning_tile = tile
@@ -733,7 +735,8 @@ class GameState:
             actions.append("discard")
             # Check self-draw win
             effective_hand = player.hand_without_bonus()
-            if len(effective_hand) == 14 and is_winning_hand(effective_hand):
+            meld_tiles = [t for meld in player.melds for t in meld[:3]]
+            if len(effective_hand) + len(meld_tiles) == 14 and is_winning_hand(effective_hand + meld_tiles):
                 actions.append("win")
             # Check self-drawn kong (4-of-a-kind in hand)
             from collections import Counter
@@ -747,7 +750,8 @@ class GameState:
                 effective_hand = player.hand_without_bonus()
 
                 # Check win
-                test_hand = effective_hand + [tile]
+                meld_tiles = [t for meld in player.melds for t in meld[:3]]
+                test_hand = effective_hand + [tile] + meld_tiles
                 if is_winning_hand(test_hand):
                     actions.append("win")
 
