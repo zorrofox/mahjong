@@ -33,7 +33,9 @@ NUM_PLAYERS = 4
 DEALER_INITIAL_TILES = 14
 NON_DEALER_INITIAL_TILES = 13
 
-MIN_HAN = 3  # Minimum fan required to declare a winning hand (港式规则标准)
+MIN_HAN = 1  # Minimum fan required to declare a winning hand.
+# Standard HK tournament rules use 3, but most casual/home games use 1
+# (any structurally valid hand may win). Set to 3 to enforce the strict rule.
 
 
 @dataclass
