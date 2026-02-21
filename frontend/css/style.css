@@ -512,8 +512,6 @@ html, body {
   max-height: 80px;
   overflow: visible;   /* allow selected tile to rise above the container edge */
   padding: 14px 4px 4px; /* top padding absorbs the selection lift + buffer */
-  position: relative;  /* establish stacking context so child z-index works */
-  z-index: 1;          /* sit above player label (z-index:auto) in same flex parent */
 }
 
 .my-melds {
