@@ -127,11 +127,15 @@ async def _send_action_required(room_id: str, player_idx: int) -> None:
 
     ws = _connections.get(room_id, {}).get(player.id)
     if ws:
-        await _send(ws, {
+        msg: dict = {
             "type": "action_required",
             "player_idx": player_idx,
             "actions": actions,
-        })
+        }
+        # Include the most recently drawn tile so the frontend can pre-select it.
+        if gs.last_drawn_tile and "discard" in actions:
+            msg["drawn_tile"] = gs.last_drawn_tile
+        await _send(ws, msg)
 
 
 async def _send_claim_window(room_id: str, tile: str) -> None:

@@ -280,6 +280,19 @@ html, body {
   color: var(--accent);
 }
 
+.dealer-badge {
+  display: inline-block;
+  margin-left: 5px;
+  padding: 1px 5px;
+  background: #c8960c;
+  color: #1a1a00;
+  font-size: 0.72em;
+  font-weight: 900;
+  border-radius: 3px;
+  vertical-align: middle;
+  letter-spacing: 0.5px;
+}
+
 /* ---------- Area positions ---------- */
 .area-top    { grid-area: top; }
 .area-left   { grid-area: left; flex-direction: row; }

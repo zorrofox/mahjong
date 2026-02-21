@@ -274,6 +274,7 @@ function handleGameState(state) {
   hideClaimOverlay();
   inClaimWindow = false;
   pendingActions = [];
+  selectedTile = null;
 
   renderBoard(state);
   updateActionButtonsForState(state);
@@ -286,6 +287,25 @@ function handleActionRequired(msg) {
 
     if (pendingActions.includes('discard')) {
       setStatus('Your turn — select a tile to discard.', 'info');
+
+      // Auto-select the just-drawn tile when the server tells us which it is.
+      if (msg.drawn_tile) {
+        // Deselect any previous selection first.
+        const prev = document.querySelector('.my-hand .tile.selected');
+        if (prev) prev.classList.remove('selected');
+        selectedTile = null;
+
+        // Find the drawn tile element in the hand and select it.
+        const handEl = document.getElementById('my-hand');
+        if (handEl) {
+          // There may be duplicates; pick the last one (hand is sorted so the
+          // drawn tile is usually at the end before sort, but use dataset match).
+          const tiles = [...handEl.querySelectorAll('.tile[data-tile]')];
+          // Select the last element matching drawn_tile (avoids duplicate ambiguity).
+          const tileEl = tiles.filter(el => el.dataset.tile === msg.drawn_tile).at(-1);
+          if (tileEl) selectTile(msg.drawn_tile, tileEl);
+        }
+      }
     } else {
       setStatus('Your turn — choose an action.', 'info');
     }
@@ -373,7 +393,9 @@ function renderMyHand(player, playerIdx, state) {
 
   if (labelEl) {
     const chips = (state.cumulative_scores || {})[player.id] ?? '–';
-    labelEl.innerHTML = `<span class="player-name">${escapeHtml(player.id)}</span>
+    const isDealer = (state.dealer_idx === playerIdx);
+    const dealerBadge = isDealer ? '<span class="dealer-badge">庄</span>' : '';
+    labelEl.innerHTML = `<span class="player-name">${escapeHtml(player.id)}${dealerBadge}</span>
       <span class="player-score">筹码: ${chips}</span>`;
   }
 
@@ -424,7 +446,9 @@ function renderOpponent(player, playerIdx, position, state, discardPile) {
     area.insertBefore(labelEl, area.firstChild);
   }
   const chips = (state.cumulative_scores || {})[player.id] ?? '–';
-  labelEl.innerHTML = `<span class="player-name">${escapeHtml(player.id)}</span>
+  const isDealer = (state.dealer_idx === playerIdx);
+  const dealerBadge = isDealer ? '<span class="dealer-badge">庄</span>' : '';
+  labelEl.innerHTML = `<span class="player-name">${escapeHtml(player.id)}${dealerBadge}</span>
     <span class="player-score">筹码: ${chips}</span>`;
 
   // Hand (face-down tiles)

@@ -115,6 +115,10 @@ class GameState:
         # Dealer index (player 0 is always dealer in current implementation)
         self.dealer_idx: int = 0
 
+        # Most recently drawn tile (set by draw_tile() and kong replacement draws).
+        # Included in action_required so the frontend can pre-select it.
+        self.last_drawn_tile: Optional[str] = None
+
         # Game result
         self.winner: Optional[str] = None  # player id of the winner
         self.win_ron: Optional[bool] = None  # True = discard win, False = self-draw
@@ -232,6 +236,7 @@ class GameState:
                 if replacement is not None:
                     claimer.hand.append(replacement)
                     self._collect_bonus_tiles(claimer_idx)
+                    self.last_drawn_tile = replacement
                 else:
                     # Wall exhausted — game is a draw
                     self.phase = "ended"
@@ -385,6 +390,7 @@ class GameState:
         player.hand.append(tile)
         self._collect_bonus_tiles(player_idx)
         self.phase = "discarding"
+        self.last_drawn_tile = tile
 
         # Check for self-drawn win
         # (Caller must explicitly call declare_win to confirm)
@@ -496,6 +502,7 @@ class GameState:
             if replacement is not None:
                 player.hand.append(replacement)
                 self._collect_bonus_tiles(player_idx)
+                self.last_drawn_tile = replacement
             else:
                 self.phase = "ended"
                 return True
@@ -814,6 +821,7 @@ class GameState:
             "room_id": self.room_id,
             "phase": self.phase,
             "current_turn": self.current_turn,
+            "dealer_idx": self.dealer_idx,
             "last_discard": self.last_discard,
             "last_discard_player": self.last_discard_player,
             "wall_remaining": len(self.wall),
