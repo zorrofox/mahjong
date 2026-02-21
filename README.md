@@ -4,7 +4,7 @@
 
 A browser-based multiplayer Mahjong game. Supports 1–4 human players per room; empty seats are filled by AI.
 
-![Python](https://img.shields.io/badge/Python-3.11-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-0.111-green) ![Tests](https://img.shields.io/badge/tests-346%20passed-brightgreen)
+![Python](https://img.shields.io/badge/Python-3.11-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-0.111-green) ![Tests](https://img.shields.io/badge/tests-349%20passed-brightgreen)
 
 ---
 

@@ -702,6 +702,63 @@ if not is_winning_hand(effective_hand + meld_tiles):
 
 ---
 
+### Bug 12：胡牌后无法重新开局
+
+**发现时间**：正常游玩（游戏结束后点击"再来一局"时发现）
+**现象**：游戏结束后，没有"再来一局"按钮；即使手动向后端发送 `{"type": "start_game"}`，也会收到 400 错误，因为 `room.status == "ended"` 不是 `"waiting"`。
+
+**根本原因**：
+
+1. `room_manager.start_game()` 要求 `room.status == "waiting"`，但游戏结束后 `_handle_game_over` 将其设为 `"ended"`，没有任何重置路径
+2. 前端 game-over 弹窗只有"Close"和"Back to Lobby"两个按钮，没有"再来一局"按钮
+3. WebSocket 消息处理器没有 `restart_game` 分支
+
+**修复方案（三处改动）**：
+
+**1. `backend/game/room_manager.py` — `start_game`**
+
+允许从 "ended" 状态重启，自动重置 status：
+```python
+if room.status == "ended":
+    room.status = "waiting"  # 允许重启
+if room.status != "waiting":
+    raise ValueError(...)
+```
+
+**2. `backend/api/websocket.py` — 新增 `restart_game` 消息处理**
+
+```python
+if msg_type == "restart_game":
+    if room.status != "ended":
+        await _send(ws, {"type": "error", "message": "Game has not ended yet."})
+        return
+    room_manager.start_game(room_id)  # 内部重置 ended→waiting→playing
+    await _broadcast_game_state(room_id)
+    await _broadcast_room_update()
+    gs = room.game_state
+    if gs.players[gs.current_turn].is_ai:
+        asyncio.create_task(_run_ai_turn(room_id))
+    else:
+        await _send_action_required(room_id, gs.current_turn)
+```
+
+**3. 前端**
+
+- `frontend/game.html`：在 game-over 弹窗中添加"Play Again 再来一局"按钮
+- `frontend/js/game.js`：点击后先关闭弹窗，再通过 WebSocket 发送 `{type: "restart_game"}`
+
+**修改文件**：
+
+| 文件 | 改动 |
+|---|---|
+| `backend/game/room_manager.py` | `start_game` 允许从 "ended" 重启 |
+| `backend/api/websocket.py` | 新增 `restart_game` 消息处理分支 |
+| `frontend/game.html` | 弹窗新增"Play Again 再来一局"按钮 |
+| `frontend/js/game.js` | 按钮点击发送 `restart_game` WS 消息 |
+| `tests/integration/test_websocket.py` | 新增 3 个集成测试（TestRestartGame） |
+
+---
+
 ## 测试体系
 
 ### 运行方式
@@ -764,5 +821,5 @@ pytest -v
 | 计分系统 | 简化版（基础分 + 副加分） | 完整番种计算 |
 | AI 强度 | 启发式贪心 | 蒙特卡洛或规则引擎 |
 | 移动端适配 | 桌面优先（1024px+） | 触屏手势支持 |
-| 测试覆盖 | 346 tests，含声索窗口 + 手牌排序 + 副露胡牌集成测试 | E2E 浏览器测试（Playwright） |
+| 测试覆盖 | 349 tests，含声索窗口 + 手牌排序 + 副露胡牌 + 重开局集成测试 | E2E 浏览器测试（Playwright） |
 | 多语言 | 界面为中英混合 | i18n 国际化 |
