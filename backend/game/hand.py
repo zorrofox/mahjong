@@ -320,6 +320,17 @@ _DRAGONS = frozenset({'RED', 'GREEN', 'WHITE'})
 _WINDS   = frozenset({'EAST', 'SOUTH', 'WEST', 'NORTH'})
 _HONORS  = _DRAGONS | _WINDS
 
+# Seat index → wind tile name
+_WIND_TILES = ['EAST', 'SOUTH', 'WEST', 'NORTH']
+
+# Seat index → set of matching flower/season tile names (本命花)
+_SEAT_FLOWERS: dict[int, frozenset] = {
+    0: frozenset({'FLOWER_1', 'SEASON_1'}),  # East (东)
+    1: frozenset({'FLOWER_2', 'SEASON_2'}),  # South (南)
+    2: frozenset({'FLOWER_3', 'SEASON_3'}),  # West (西)
+    3: frozenset({'FLOWER_4', 'SEASON_4'}),  # North (北)
+}
+
 
 def _h_is_honor(tile: str) -> bool:
     return tile in _HONORS
@@ -419,6 +430,9 @@ def calculate_han(
     declared_melds: list[list[str]],
     flowers: list[str],
     ron: bool,
+    player_seat: int = 0,
+    round_wind_idx: int = 0,
+    ling_shang: bool = False,
 ) -> dict:
     """
     Calculate Han (番) breakdown for a winning hand.
@@ -429,6 +443,9 @@ def calculate_han(
         declared_melds:  Declared meld groups (each 3 or 4 tiles).
         flowers:         Bonus tiles already collected.
         ron:             True if won by discard (荣和), False if self-draw (自摸).
+        player_seat:     Player's seat index (0=East, 1=South, 2=West, 3=North).
+        round_wind_idx:  Current round-wind index (0=East round, 1=South, 2=West, 3=North).
+        ling_shang:      True if the winning tile was drawn as a kong replacement (嶺上開花).
 
     Returns:
         {
@@ -473,7 +490,7 @@ def calculate_han(
     if not flowers:
         add('无花', 'No Bonus Tiles', 1)
 
-    if not declared_melds:
+    if not declared_melds and ron:
         add('门清', 'Concealed Hand', 1)
 
     # ── Seven Pairs ─────────────────────────────────────────
@@ -517,7 +534,7 @@ def calculate_han(
     if (all_groups
             and all(all(_h_is_terminal_or_honor(t) for t in g['tiles']) for g in all_groups)
             and _h_is_terminal_or_honor(pair_tile)):
-        add('混幺九', 'Mixed Terminals & Honors', 2)
+        add('混幺九', 'Mixed Terminals & Honors', 3)
 
     # ── Suit / Color ────────────────────────────────────────
     suits       = {get_suit(t) for t in all_tiles if get_suit(t)}
@@ -550,6 +567,28 @@ def calculate_han(
         remaining_wind = _WINDS - wind_pungs
         if pair_tile in remaining_wind:
             add('小四喜', 'Small Four Winds', 6)
+
+    # ── 嶺上開花 (Ling Shang Kai Hua / Kong Win) ────────────────
+    # Winning by self-draw on a kong replacement tile: +1 fan
+    if ling_shang and not ron:
+        add('嶺上開花', 'Kong Win (Lingshang)', 1)
+
+    # ── 本命花 (Seat Flowers) ──────────────────────────────────
+    # Each flower/season tile matching the player's seat: +1 fan each
+    seat_flower_set = _SEAT_FLOWERS.get(player_seat, frozenset())
+    for f in flowers:
+        if f in seat_flower_set:
+            add('本命花', 'Seat Flower', 1)
+
+    # ── 自风 / 圈风 (Seat Wind Pung / Round Wind Pung) ──────────
+    # Punging the seat-wind tile or the round-wind tile each give +1 fan.
+    # If seat wind == round wind, both bonuses apply (total +2 for that pung).
+    seat_wind_tile  = _WIND_TILES[player_seat  % 4]
+    round_wind_tile = _WIND_TILES[round_wind_idx % 4]
+    if seat_wind_tile in pung_tiles:
+        add('自风碰', 'Seat Wind Pung', 1)
+    if round_wind_tile in pung_tiles:
+        add('圈风碰', 'Round Wind Pung', 1)
 
     total = sum(x['fan'] for x in breakdown)
     return {'breakdown': breakdown, 'total': total}

@@ -82,7 +82,7 @@ class GameState:
     A kong gives the player a replacement tile from the back of the wall.
     """
 
-    def __init__(self, room_id: str, player_ids: list[str], dealer_idx: int = 0) -> None:
+    def __init__(self, room_id: str, player_ids: list[str], dealer_idx: int = 0, round_wind_idx: int = 0) -> None:
         if len(player_ids) != NUM_PLAYERS:
             raise ValueError(f"Mahjong requires exactly {NUM_PLAYERS} players.")
 
@@ -122,6 +122,12 @@ class GameState:
         # Most recently drawn tile (set by draw_tile() and kong replacement draws).
         # Included in action_required so the frontend can pre-select it.
         self.last_drawn_tile: Optional[str] = None
+
+        self.round_wind_idx: int = round_wind_idx  # 0=East, 1=South, 2=West, 3=North
+
+        # True when the last tile drawn came from the back of the wall (kong replacement).
+        # Enables the 嶺上開花 bonus when winning by self-draw on that tile.
+        self.lingshang_pending: bool = False
 
         # Game result
         self.winner: Optional[str] = None  # player id of the winner
@@ -277,6 +283,7 @@ class GameState:
                     claimer.hand.append(replacement)
                     self._collect_bonus_tiles(claimer_idx)
                     self.last_drawn_tile = replacement
+                    self.lingshang_pending = True
                 else:
                     # Wall exhausted — game is a draw
                     self.phase = "ended"
@@ -344,6 +351,7 @@ class GameState:
             self.players[konger_idx].hand.append(replacement)
             self._collect_bonus_tiles(konger_idx)
             self.last_drawn_tile = replacement
+            self.lingshang_pending = True
         else:
             self.phase = "ended"
             return
@@ -366,7 +374,13 @@ class GameState:
         # Calculate Han breakdown
         player = self.players[player_idx]
         concealed = player.hand_without_bonus()
-        result = calculate_han(concealed, player.melds, player.flowers, ron)
+        result = calculate_han(
+            concealed, player.melds, player.flowers, ron,
+            player_seat=player_idx,
+            round_wind_idx=self.round_wind_idx,
+            ling_shang=self.lingshang_pending and not ron,
+        )
+        self.lingshang_pending = False  # consumed
         self.han_breakdown = result['breakdown']
         self.han_total = result['total']
         # Store han total as the round score for display (replaces old _calculate_score)
@@ -486,6 +500,7 @@ class GameState:
         Raises:
             ValueError: If wrong phase, not the player's turn, or tile not in hand.
         """
+        self.lingshang_pending = False  # player chose to discard; no longer ling shang
         if self.phase != "discarding":
             raise ValueError(f"Cannot discard in phase '{self.phase}'.")
         if player_idx != self.current_turn:
@@ -611,6 +626,7 @@ class GameState:
                 player.hand.append(replacement)
                 self._collect_bonus_tiles(player_idx)
                 self.last_drawn_tile = replacement
+                self.lingshang_pending = True
             else:
                 self.phase = "ended"
                 return True
@@ -963,6 +979,7 @@ class GameState:
             "phase": self.phase,
             "current_turn": self.current_turn,
             "dealer_idx": self.dealer_idx,
+            "round_wind_idx": self.round_wind_idx,
             "last_discard": self.last_discard,
             "last_discard_player": self.last_discard_player,
             "wall_remaining": len(self.wall),

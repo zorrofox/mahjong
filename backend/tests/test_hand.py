@@ -342,3 +342,164 @@ class TestSevenPairsWinningHand:
         assert '七对' in names
         fan = next(item['fan'] for item in result['breakdown'] if item['name_cn'] == '七对')
         assert fan == 3
+
+
+# ============================================================
+# Tests for rule fixes #4, #5, #8, #9, #12
+# ============================================================
+
+class TestHunYaoJiuFanValue:
+    """#4: 混幺九 must be worth +3 fan, not +2."""
+
+    def test_hun_yao_jiu_is_3_fan(self):
+        from game.hand import calculate_han
+        # All-pung hand of terminals and honours
+        tiles = (
+            ["BAMBOO_1"] * 3 + ["CIRCLES_9"] * 3 + ["EAST"] * 3
+            + ["NORTH", "NORTH"]
+        )
+        melds = [["CHARACTERS_9", "CHARACTERS_9", "CHARACTERS_9"]]
+        result = calculate_han(tiles, melds, [], ron=True)
+        item = next((x for x in result['breakdown'] if x['name_cn'] == '混幺九'), None)
+        assert item is not None, "混幺九 not found in breakdown"
+        assert item['fan'] == 3
+
+
+class TestMenQingRonOnly:
+    """#5: 门清 bonus applies only to ron wins, not tsumo."""
+
+    _CONCEALED_HAND = [
+        "BAMBOO_2", "BAMBOO_3", "BAMBOO_4",
+        "CIRCLES_5", "CIRCLES_6", "CIRCLES_7",
+        "CHARACTERS_2", "CHARACTERS_3", "CHARACTERS_4",
+        "BAMBOO_6", "BAMBOO_7", "BAMBOO_8",
+        "EAST", "EAST",
+    ]
+
+    def test_men_qing_awarded_on_ron(self):
+        from game.hand import calculate_han
+        result = calculate_han(self._CONCEALED_HAND, [], [], ron=True)
+        names = [x['name_cn'] for x in result['breakdown']]
+        assert '门清' in names
+
+    def test_men_qing_not_awarded_on_tsumo(self):
+        from game.hand import calculate_han
+        result = calculate_han(self._CONCEALED_HAND, [], [], ron=False)
+        names = [x['name_cn'] for x in result['breakdown']]
+        assert '门清' not in names
+        assert '自摸' in names
+
+
+class TestLingShang:
+    """#8: 嶺上開花 — winning on a kong replacement tile gives +1 fan."""
+
+    _WINNING_HAND = [
+        "BAMBOO_1", "BAMBOO_2", "BAMBOO_3",
+        "CIRCLES_4", "CIRCLES_5", "CIRCLES_6",
+        "CHARACTERS_7", "CHARACTERS_8", "CHARACTERS_9",
+        "BAMBOO_4", "BAMBOO_5", "BAMBOO_6",
+        "EAST", "EAST",
+    ]
+
+    def test_ling_shang_adds_1_fan(self):
+        from game.hand import calculate_han
+        result = calculate_han(self._WINNING_HAND, [], [], ron=False, ling_shang=True)
+        names = [x['name_cn'] for x in result['breakdown']]
+        assert '嶺上開花' in names
+        fan = next(x['fan'] for x in result['breakdown'] if x['name_cn'] == '嶺上開花')
+        assert fan == 1
+
+    def test_ling_shang_not_awarded_on_ron(self):
+        from game.hand import calculate_han
+        # ling_shang=True but ron=True → should NOT give the bonus
+        result = calculate_han(self._WINNING_HAND, [], [], ron=True, ling_shang=True)
+        names = [x['name_cn'] for x in result['breakdown']]
+        assert '嶺上開花' not in names
+
+
+class TestSeatFlower:
+    """#9: 本命花 — collecting a matching seat flower gives +1 fan each."""
+
+    _BASE_HAND = [
+        "BAMBOO_2", "BAMBOO_3", "BAMBOO_4",
+        "CIRCLES_5", "CIRCLES_6", "CIRCLES_7",
+        "CHARACTERS_2", "CHARACTERS_3", "CHARACTERS_4",
+        "BAMBOO_5", "BAMBOO_6", "BAMBOO_7",
+        "EAST", "EAST",
+    ]
+
+    def test_seat_flower_awards_1_fan(self):
+        from game.hand import calculate_han
+        # Seat 0 (East); FLOWER_1 is East's seat flower
+        result = calculate_han(self._BASE_HAND, [], ["FLOWER_1"], ron=True, player_seat=0)
+        names = [x['name_cn'] for x in result['breakdown']]
+        assert '本命花' in names
+
+    def test_two_seat_flowers_award_2_fan_total(self):
+        from game.hand import calculate_han
+        result = calculate_han(
+            self._BASE_HAND, [], ["FLOWER_1", "SEASON_1"],
+            ron=True, player_seat=0,
+        )
+        seat_fan = sum(x['fan'] for x in result['breakdown'] if x['name_cn'] == '本命花')
+        assert seat_fan == 2
+
+    def test_non_seat_flower_not_awarded(self):
+        from game.hand import calculate_han
+        # Seat 0 (East); FLOWER_2 belongs to South (seat 1) → no 本命花
+        result = calculate_han(self._BASE_HAND, [], ["FLOWER_2"], ron=True, player_seat=0)
+        names = [x['name_cn'] for x in result['breakdown']]
+        assert '本命花' not in names
+
+
+class TestWindPungs:
+    """#12: 自风碰 and 圈风碰 each give +1 fan."""
+
+    def _make_east_pung_hand(self):
+        """Concealed hand: 3 chows + pung of EAST + pair."""
+        return (
+            ["BAMBOO_2", "BAMBOO_3", "BAMBOO_4"]
+            + ["CIRCLES_5", "CIRCLES_6", "CIRCLES_7"]
+            + ["CHARACTERS_2", "CHARACTERS_3", "CHARACTERS_4"]
+            + ["EAST", "EAST", "EAST"]
+            + ["BAMBOO_5", "BAMBOO_5"]
+        )
+
+    def test_seat_wind_pung_gives_1_fan(self):
+        from game.hand import calculate_han
+        # Seat 0 = East; pung of EAST = seat wind pung
+        result = calculate_han(self._make_east_pung_hand(), [], [], ron=True, player_seat=0)
+        names = [x['name_cn'] for x in result['breakdown']]
+        assert '自风碰' in names
+
+    def test_round_wind_pung_gives_1_fan(self):
+        from game.hand import calculate_han
+        # Round wind = East (idx 0); pung of EAST = round wind pung for any player
+        result = calculate_han(
+            self._make_east_pung_hand(), [], [],
+            ron=True, player_seat=1, round_wind_idx=0,
+        )
+        names = [x['name_cn'] for x in result['breakdown']]
+        assert '圈风碰' in names
+
+    def test_east_player_east_round_gets_double_bonus(self):
+        from game.hand import calculate_han
+        # Seat 0 = East, Round = East → both 自风碰 and 圈风碰
+        result = calculate_han(
+            self._make_east_pung_hand(), [], [],
+            ron=True, player_seat=0, round_wind_idx=0,
+        )
+        names = [x['name_cn'] for x in result['breakdown']]
+        assert '自风碰' in names
+        assert '圈风碰' in names
+
+    def test_non_wind_player_no_seat_bonus(self):
+        from game.hand import calculate_han
+        # Seat 1 = South; pung of EAST ≠ seat wind → no 自风碰
+        result = calculate_han(
+            self._make_east_pung_hand(), [], [],
+            ron=True, player_seat=1, round_wind_idx=1,
+        )
+        names = [x['name_cn'] for x in result['breakdown']]
+        assert '自风碰' not in names
+        assert '圈风碰' not in names

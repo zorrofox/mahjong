@@ -39,6 +39,8 @@ class Room:
     cumulative_scores: dict = field(default_factory=dict)
     round_number: int = 0  # how many games have been completed (or started) in this room
     dealer_idx: int = 0    # seat index of the current dealer; rotates after each hand
+    round_wind_idx: int = 0   # prevailing wind: 0=East, 1=South, 2=West, 3=North
+    dealer_advances: int = 0  # total dealer changes; every 4 advances = one wind round
 
     @property
     def player_count(self) -> int:
@@ -211,7 +213,12 @@ class RoomManager:
             else:
                 player_ids.append(f"ai_player_{seat_idx}")
 
-        game_state = GameState(room_id=room_id, player_ids=player_ids, dealer_idx=room.dealer_idx)
+        game_state = GameState(
+            room_id=room_id,
+            player_ids=player_ids,
+            dealer_idx=room.dealer_idx,
+            round_wind_idx=room.round_wind_idx,
+        )
 
         # Mark AI players
         for i, pid in enumerate(player_ids):

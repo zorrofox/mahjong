@@ -472,7 +472,11 @@ async def _handle_game_over(room_id: str) -> None:
     if winner_idx is not None and winner_idx == gs.dealer_idx:
         pass  # dealer wins — 连庄, no rotation
     else:
-        room.dealer_idx = (gs.dealer_idx + 1) % len(gs.players)
+        room.dealer_idx = (gs.dealer_idx + 1) % len(gs.players)  # 换庄
+        room.dealer_advances += 1
+        # Every 4 dealer changes complete one wind round (East→South→West→North)
+        if room.dealer_advances % 4 == 0:
+            room.round_wind_idx = (room.round_wind_idx + 1) % 4
 
     # ----------------------------------------------------------------
     # Chip settlement — Han-based, zero-sum
@@ -510,11 +514,25 @@ async def _handle_game_over(room_id: str) -> None:
         dealer_idx = gs.dealer_idx
 
         def _pay(payer_idx: int) -> int:
-            """Return chip payment amount for a loser at payer_idx."""
+            """Chips that payer_idx owes in a tsumo scenario for this winner.
+
+            Rule:
+              - Dealer wins   → every non-dealer loser pays 2×unit.
+              - Non-dealer wins → dealer pays 2×unit; each non-dealer pays 1×unit.
+
+            Note: when the dealer wins, winner_idx == dealer_idx, so dealer_idx is
+            excluded from the summation; all remaining payers are non-dealers and
+            each pays 2×unit (giving 3×2u = 6u total to the dealer winner).
+            """
+            if winner_idx == dealer_idx:
+                # Dealer wins: every loser (all non-dealer) pays double
+                return 2 * unit
+            # Non-dealer wins: dealer pays double, other non-dealers pay single
             return 2 * unit if payer_idx == dealer_idx else unit
 
         if gs.win_ron and gs.win_discarder_idx is not None:
-            # Ron: discarder alone pays the full combined tsumo amount
+            # Ron: discarder alone pays the combined tsumo total.
+            # Non-dealer win: 2u + u + u = 4u   Dealer win: 2u + 2u + 2u = 6u
             full = sum(
                 _pay(i) for i in range(len(gs.players)) if i != winner_idx
             )
@@ -526,7 +544,7 @@ async def _handle_game_over(room_id: str) -> None:
                 room.cumulative_scores.get(discarder_id, INITIAL_CHIPS) - full
             )
         elif gs.win_ron is False:
-            # Tsumo: each loser pays their own share
+            # Tsumo: each loser pays their individual share
             for i, p in enumerate(gs.players):
                 if i != winner_idx:
                     pay = _pay(i)
