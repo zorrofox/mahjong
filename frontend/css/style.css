@@ -498,8 +498,8 @@ html, body {
   justify-content: center;
   gap: 0;
   max-height: 80px;
-  overflow-x: auto;
-  padding: 2px 4px 4px;
+  overflow: visible;   /* allow selected tile to rise above the container edge */
+  padding: 14px 4px 4px; /* top padding absorbs the 10px selection lift + buffer */
 }
 
 .my-melds {
