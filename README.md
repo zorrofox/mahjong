@@ -24,6 +24,7 @@ A browser-based multiplayer Mahjong game. Supports 1–4 human players per room;
 - 庄家（庄）徽标显示在对应玩家名旁；庄家赢则连庄，闲家赢或流局则换庄
 - 手牌自动整理（条 → 饼 → 萬 → 风/字/花季）
 - 游戏结束后支持一键重开局（保留原房间人类玩家，筹码持续累计）
+- 大厅显示各房间实时筹码余额；已结束的房间显示"Rejoin 重回"按钮
 - 响应式绿毡牌桌界面
 
 ---

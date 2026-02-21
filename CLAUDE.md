@@ -254,12 +254,12 @@ const TILE_SVG_MAP = {
 | `game/ai_player.py` | 371 | AI 逻辑 |
 | `game/hand.py` | 313 | 胡牌算法 |
 | `game/tiles.py` | 201 | 牌型定义 |
-| `game/room_manager.py` | 234 | 房间管理 |
+| `game/room_manager.py` | 244 | 房间管理 |
 | `api/websocket.py` | 806 | WebSocket 处理 |
 | `api/routes.py` | 102 | REST 接口 |
 | `main.py` | 54 | 应用入口 |
 | `frontend/js/game.js` | 948 | 游戏客户端（含 TILE_SVG_MAP + Cangjie6 渲染） |
-| `frontend/js/lobby.js` | 177 | 大厅客户端 |
+| `frontend/js/lobby.js` | 194 | 大厅客户端 |
 | `frontend/css/style.css` | 753 | 样式表 |
 | `frontend/tiles/` | 42 SVG | Cangjie6 港式麻将牌面图片 |
 | **业务代码合计** | **~4,757** | |
@@ -1524,6 +1524,49 @@ for f in flowers:
 
 ---
 
+### Bug 修复：大厅无法重新开局 + 状态/筹码显示异常
+
+**发现时间**：游戏结束后用户返回大厅时
+
+**现象**（三处独立问题）：
+
+1. 房间状态显示原始字符串 `"ended"` 而非 `"已结束"`，无颜色样式
+2. 筹码列显示 `"–"`（大厅拿不到筹码数据）
+3. 已结束的房间无法重新开局——Join 按钮仅对 `"finished"` 禁用，`"ended"` 未处理；且大厅没有重开入口
+
+**根本原因**：
+
+| 问题 | 根因 |
+|---|---|
+| 状态显示异常 | `formatStatus`/`getStatusClass` 只映射了 `"finished"`，后端实际发 `"ended"` |
+| 筹码为"-" | `Room.to_dict()` 未包含 `cumulative_scores` 和 `round_number` |
+| 无重开入口 | 大厅无重开按钮；`"ended"` 房间需要引导用户回到游戏页使用"再来一局" |
+
+**修复方案**：
+
+**1. `backend/game/room_manager.py`**：`to_dict()` 新增 `cumulative_scores` 和 `round_number` 字段，让大厅可以读取当前筹码余额。
+
+**2. `frontend/js/lobby.js`**：
+- `formatStatus`：新增 `"ended"` → `"Finished 已结束"` 映射
+- `getStatusClass`：新增 `"ended"` → `"status-finished"` 映射
+- 房间行新增"筹码/Chips"列，显示当前玩家在该房间的余额
+- `"ended"` 房间 Join 按钮改为 **"Rejoin 重回"**（灰色次级样式），玩家点击后进入游戏页，可在那里使用"再来一局"按钮
+
+**3. `frontend/index.html`**：表头新增"筹码/Chips"列，`colspan` 调整为 5。
+
+**4. `frontend/tests/lobby.test.js`**：更新 `formatStatus` 断言以匹配新双语格式，新增 `"ended"` 状态测试。
+
+**修改文件**：
+
+| 文件 | 改动 |
+|---|---|
+| `backend/game/room_manager.py` | `to_dict()` 新增 `cumulative_scores`、`round_number` |
+| `frontend/js/lobby.js` | 修复 `"ended"` 状态映射；添加筹码列；Rejoin 按钮 |
+| `frontend/index.html` | 表头新增筹码列，colspan 5 |
+| `frontend/tests/lobby.test.js` | 更新断言，新增 `"ended"` case |
+
+---
+
 ## 测试体系
 
 ### 运行方式
@@ -1586,5 +1629,5 @@ pytest -v
 | 计分系统 | 番数驱动结算（unit=2^(n-1)，庄家双倍，杠钱即时，详见功能增强 5） | 天胡/地胡等特殊牌型；庄家轮换；番型加倍上限调整 |
 | AI 强度 | 启发式贪心 | 蒙特卡洛或规则引擎 |
 | 移动端适配 | 桌面优先（1024px+） | 触屏手势支持 |
-| 测试覆盖 | 333 tests（后端 269 + 前端 64），含声索窗口、手牌排序、加杠/搶杠胡、番数/圈风/本命花规则修正专项测试 | E2E 浏览器测试（Playwright） |
+| 测试覆盖 | 333 tests（后端 269 + 前端 64），含声索窗口、手牌排序、加杠/搶杠胡、番数/圈风/本命花规则修正专项测试 | E2E 浏览器测试（Playwright）；lobby Rejoin 流程集成测试 |
 | 多语言 | 界面为中英混合 | i18n 国际化 |
