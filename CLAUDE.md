@@ -1238,6 +1238,39 @@ _handle_game_over()
 
 ---
 
+### 功能增强 6：摸牌自动选中 + 庄家标识显示
+
+**摸牌自动选中**
+
+摸牌后玩家须先点选一张牌才能出牌，体验不佳。本次让服务端告知前端刚摸到的牌，前端自动预选。
+
+实现：
+1. `game_state.py`：新增 `self.last_drawn_tile: Optional[str] = None`，在 `draw_tile()` 末尾赋值，在自摸杠和声索杠的补牌步骤中同样赋值
+2. `websocket.py`：`_send_action_required()` 中，若可用操作包含 `"discard"` 且 `gs.last_drawn_tile` 非空，则在消息里附加 `"drawn_tile": gs.last_drawn_tile`
+3. `game.js`：
+   - `handleGameState()` 开始时清除 `selectedTile = null`（防止上一轮选择残留）
+   - `handleActionRequired()` 收到含 `"discard"` 的消息且有 `msg.drawn_tile` 时，自动在 `.my-hand` 中找到对应 `.tile` 元素并调用 `selectTile()`，高亮上浮、出牌按钮立即可用
+
+**庄家标识显示**
+
+牌桌上无法判断谁是庄家，影响出牌策略判断。
+
+实现：
+1. `game_state.py`：`to_dict()` 返回字典新增 `"dealer_idx": self.dealer_idx`
+2. `game.js`：`renderMyHand()` 和 `renderOpponent()` 中，若 `state.dealer_idx === playerIdx`，在玩家名后插入 `<span class="dealer-badge">庄</span>` 徽标
+3. `style.css`：新增 `.dealer-badge` 样式（金色背景、深色文字、圆角小方块）
+
+**修改文件**：
+
+| 文件 | 改动 |
+|---|---|
+| `backend/game/game_state.py` | 新增 `last_drawn_tile` 字段；三处赋值（`draw_tile`、自摸杠补牌、声索杠补牌）；`to_dict()` 新增 `dealer_idx` |
+| `backend/api/websocket.py` | `_send_action_required()` 附加 `drawn_tile` 字段 |
+| `frontend/js/game.js` | 摸牌预选逻辑；新游戏状态时清除 `selectedTile`；两处玩家标签加庄家徽标 |
+| `frontend/css/style.css` | 新增 `.dealer-badge` 样式 |
+
+---
+
 ## 测试体系
 
 ### 运行方式
