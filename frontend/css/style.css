@@ -765,6 +765,18 @@ html, body {
   color: var(--accent);
 }
 
+/* ---------- New-game deal transition ---------- */
+/* Applied briefly when a new hand is dealt (dealer rotation / restart).
+   Fades the board out, then CSS transition fades it back in once the
+   new game_state is rendered, hiding the innerHTML-clear jitter. */
+.board-wrapper {
+  transition: opacity 0.25s ease;
+}
+.board-wrapper.board-dealing {
+  opacity: 0;
+  transition: none; /* instant dim so fade-in starts from invisible */
+}
+
 /* ---------- Speech toggle button ---------- */
 #btn-speech {
   background: transparent;

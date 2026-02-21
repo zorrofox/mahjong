@@ -323,6 +323,15 @@ function handleGameState(state) {
 
   renderBoard(state);
   updateActionButtonsForState(state);
+
+  // If the board was hidden for a new-game deal transition, fade it back in now.
+  // requestAnimationFrame ensures the render has painted before we start the transition.
+  const boardEl = document.querySelector('.board-wrapper');
+  if (boardEl?.classList.contains('board-dealing')) {
+    requestAnimationFrame(() => {
+      boardEl.classList.remove('board-dealing'); // CSS transition: opacity 0 → 1
+    });
+  }
 }
 
 function handleActionRequired(msg) {
@@ -1065,6 +1074,9 @@ document.addEventListener('DOMContentLoaded', () => {
   // Game-over modal buttons
   document.getElementById('btn-play-again')?.addEventListener('click', () => {
     document.getElementById('game-over-modal')?.classList.add('hidden');
+    // Instantly hide the board so the innerHTML re-render is invisible,
+    // then let the CSS transition fade it back in with the new tiles.
+    document.querySelector('.board-wrapper')?.classList.add('board-dealing');
     sendAction('restart_game');
   });
   document.getElementById('btn-back-lobby')?.addEventListener('click', () => {
