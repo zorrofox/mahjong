@@ -45,7 +45,7 @@ uvicorn main:app --reload --port 8000
 │   ├── js/            # 大厅 + 游戏客户端
 │   └── tests/         # 前端单元测试（56 tests）
 └── tests/
-    └── integration/   # REST + WebSocket 集成测试（23 tests）
+    └── integration/   # REST + WebSocket 集成测试（38 tests）
 ```
 
 ---
