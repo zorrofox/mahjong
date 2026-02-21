@@ -1271,6 +1271,39 @@ _handle_game_over()
 
 ---
 
+### 功能增强 7：庄家轮换
+
+**背景**：庄家（dealer_idx）此前写死为 player 0，且不会跨局更换，与传统麻将规则不符。
+
+**规则**：
+- 庄家赢牌（无论自摸或荣和）→ **连庄**，下局仍为庄家
+- 闲家赢牌或流局（没有赢家）→ **换庄**，下局由下一个座位（顺时针 +1）担任庄家
+
+**实现**：
+
+1. `room_manager.py`：`Room` 新增 `dealer_idx: int = 0` 字段，跨局持久化，`start_game()` 将其传给 `GameState(dealer_idx=room.dealer_idx)`
+
+2. `game_state.py`：`__init__` 新增 `dealer_idx: int = 0` 参数；`deal_initial_tiles()` 将 14 张牌发给 `self.dealer_idx` 座位（而非写死的 0），初始回合 `current_turn` 也从庄家开始
+
+3. `websocket.py`：`_handle_game_over()` 在结算后更新 `room.dealer_idx`：
+
+```python
+if winner_idx is not None and winner_idx == gs.dealer_idx:
+    pass  # 庄家赢 — 连庄
+else:
+    room.dealer_idx = (gs.dealer_idx + 1) % len(gs.players)  # 换庄
+```
+
+**修改文件**：
+
+| 文件 | 改动 |
+|---|---|
+| `backend/game/room_manager.py` | `Room` 新增 `dealer_idx` 字段；`start_game()` 透传给 `GameState` |
+| `backend/game/game_state.py` | `__init__` 接受 `dealer_idx` 参数；`deal_initial_tiles()` 按庄家座位发牌 |
+| `backend/api/websocket.py` | `_handle_game_over()` 实现连庄/换庄逻辑 |
+
+---
+
 ## 测试体系
 
 ### 运行方式
