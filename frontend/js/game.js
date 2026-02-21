@@ -78,6 +78,24 @@ function getHandTiles(player) {
 }
 
 /**
+ * Return a sorted copy of a hand tile array.
+ * Sort order: Bamboo (B) → Circles (C) → Characters (M) → Winds/Dragons/Flowers/Seasons.
+ * Within each suit, tiles are sorted by their label (B1 < B2 … < B9).
+ * The original array is not mutated.
+ */
+const _SUIT_ORDER = { B: 0, C: 1, M: 2 };
+function sortHandTiles(hand) {
+  return [...hand].sort((a, b) => {
+    const ia = TILE_MAP[a] || {};
+    const ib = TILE_MAP[b] || {};
+    const sa = ia.suit !== undefined ? _SUIT_ORDER[ia.suit] : 3;
+    const sb = ib.suit !== undefined ? _SUIT_ORDER[ib.suit] : 3;
+    if (sa !== sb) return sa - sb;
+    return (ia.label || a).localeCompare(ib.label || b);
+  });
+}
+
+/**
  * Return the number of tiles in a player's hand (works for hidden hands too).
  */
 function getHandCount(player) {
@@ -326,17 +344,7 @@ function renderMyHand(player, playerIdx, state) {
   // Render hand tiles
   handEl.innerHTML = '';
   const hand = getHandTiles(player);
-  // 将手牌按花色和数字排序：条(B) → 饼(C) → 萬(M) → 风/字/花/季
-  const SUIT_ORDER = { B: 0, C: 1, M: 2 };
-  const sortedHand = [...hand].sort((a, b) => {
-    const ia = TILE_MAP[a] || {};
-    const ib = TILE_MAP[b] || {};
-    const sa = ia.suit !== undefined ? SUIT_ORDER[ia.suit] : 3;
-    const sb = ib.suit !== undefined ? SUIT_ORDER[ib.suit] : 3;
-    if (sa !== sb) return sa - sb;
-    return (ia.label || a).localeCompare(ib.label || b);
-  });
-  sortedHand.forEach(tileStr => {
+  sortHandTiles(hand).forEach(tileStr => {
     const el = makeTileEl(tileStr, { clickable: true, selected: tileStr === selectedTile });
     handEl.appendChild(el);
   });
@@ -859,5 +867,5 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // Allow unit testing in Node/Vitest
 if (typeof globalThis !== 'undefined' && typeof window === 'undefined') {
-  globalThis._mahjongTestExports = { getHandTiles, getHandCount, tileToDisplay, formatPhase, autoSelectChow, escapeHtml, TILE_MAP };
+  globalThis._mahjongTestExports = { getHandTiles, getHandCount, tileToDisplay, formatPhase, autoSelectChow, escapeHtml, TILE_MAP, sortHandTiles };
 }

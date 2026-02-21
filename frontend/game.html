@@ -485,7 +485,7 @@
 
         if (handEl) {
           handEl.innerHTML = '';
-          getHandTiles(player).forEach(tileStr => {
+          sortHandTiles(getHandTiles(player)).forEach(tileStr => {
             const el = makeTileEl(tileStr, {
               clickable: true,
               selected: tileStr === selectedTile

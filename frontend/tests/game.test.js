@@ -57,7 +57,7 @@ const patchedCode = code.replace(
 
 vm.runInNewContext(patchedCode, sandbox, { filename: filePath })
 
-const { getHandTiles, getHandCount, tileToDisplay, formatPhase, autoSelectChow, escapeHtml, TILE_MAP } = globalThis._mahjongTestExports
+const { getHandTiles, getHandCount, tileToDisplay, formatPhase, autoSelectChow, escapeHtml, TILE_MAP, sortHandTiles } = globalThis._mahjongTestExports
 
 /* ==========================================================
    getHandTiles
@@ -304,5 +304,72 @@ describe('escapeHtml', () => {
 
   it('converts non-string to string', () => {
     expect(escapeHtml(123)).toBe('123')
+  })
+})
+
+/* ==========================================================
+   sortHandTiles
+   ========================================================== */
+describe('sortHandTiles', () => {
+  it('returns empty array for empty input', () => {
+    expect(sortHandTiles([])).toEqual([])
+  })
+
+  it('does not mutate the original array', () => {
+    const hand = ['WEST', 'BAMBOO_5', 'CIRCLES_1']
+    const original = [...hand]
+    sortHandTiles(hand)
+    expect(hand).toEqual(original)
+  })
+
+  it('sorts bamboo before circles before characters', () => {
+    const hand = ['CHARACTERS_1', 'CIRCLES_1', 'BAMBOO_1']
+    const sorted = sortHandTiles(hand)
+    expect(sorted).toEqual(['BAMBOO_1', 'CIRCLES_1', 'CHARACTERS_1'])
+  })
+
+  it('sorts numbers within same suit in ascending order', () => {
+    const hand = ['BAMBOO_9', 'BAMBOO_1', 'BAMBOO_5', 'BAMBOO_3']
+    const sorted = sortHandTiles(hand)
+    expect(sorted).toEqual(['BAMBOO_1', 'BAMBOO_3', 'BAMBOO_5', 'BAMBOO_9'])
+  })
+
+  it('places honor tiles (winds/dragons) after suit tiles', () => {
+    const hand = ['EAST', 'BAMBOO_3', 'RED', 'CIRCLES_7']
+    const sorted = sortHandTiles(hand)
+    // Suit tiles first, then honors
+    expect(sorted.indexOf('BAMBOO_3')).toBeLessThan(sorted.indexOf('EAST'))
+    expect(sorted.indexOf('CIRCLES_7')).toBeLessThan(sorted.indexOf('RED'))
+  })
+
+  it('places flower/season tiles after suit tiles', () => {
+    const hand = ['FLOWER_1', 'BAMBOO_2', 'SEASON_3', 'CHARACTERS_9']
+    const sorted = sortHandTiles(hand)
+    expect(sorted.indexOf('BAMBOO_2')).toBeLessThan(sorted.indexOf('FLOWER_1'))
+    expect(sorted.indexOf('CHARACTERS_9')).toBeLessThan(sorted.indexOf('SEASON_3'))
+  })
+
+  it('sorts a mixed realistic hand correctly', () => {
+    const hand = [
+      'EAST', 'BAMBOO_7', 'CIRCLES_3', 'CHARACTERS_1',
+      'BAMBOO_2', 'CIRCLES_9', 'CHARACTERS_5', 'RED',
+    ]
+    const sorted = sortHandTiles(hand)
+    // All bamboo before circles before characters before honors
+    const bIdx  = sorted.findIndex(t => t.startsWith('BAMBOO'))
+    const cIdx  = sorted.findIndex(t => t.startsWith('CIRCLES'))
+    const mIdx  = sorted.findIndex(t => t.startsWith('CHARACTERS'))
+    const honorIdx = sorted.findIndex(t => t === 'EAST' || t === 'RED')
+    expect(bIdx).toBeLessThan(cIdx)
+    expect(cIdx).toBeLessThan(mIdx)
+    expect(mIdx).toBeLessThan(honorIdx)
+  })
+
+  it('sorts all nine bamboo tiles in order', () => {
+    const hand = ['BAMBOO_9','BAMBOO_8','BAMBOO_7','BAMBOO_6','BAMBOO_5',
+                  'BAMBOO_4','BAMBOO_3','BAMBOO_2','BAMBOO_1']
+    const sorted = sortHandTiles(hand)
+    expect(sorted).toEqual(['BAMBOO_1','BAMBOO_2','BAMBOO_3','BAMBOO_4','BAMBOO_5',
+                            'BAMBOO_6','BAMBOO_7','BAMBOO_8','BAMBOO_9'])
   })
 })
