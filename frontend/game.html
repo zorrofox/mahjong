@@ -138,9 +138,9 @@
     #my-hand {
       display: flex;
       flex-wrap: nowrap;
-      gap: 3px;
-      overflow-x: auto;
-      padding-bottom: 4px;
+      gap: 0;              /* was 3px — eliminated by tile negative margins */
+      overflow: visible;   /* was overflow-x:auto which clips overflow-y, hiding the glow */
+      padding: 14px 4px 4px; /* top padding gives room for the tile to lift without clipping */
       align-items: flex-end;
       max-width: 100%;
     }
