@@ -16,7 +16,7 @@ const TILE_SPEECH = (() => {
   }
   m['EAST']  = '东风'; m['SOUTH'] = '南风';
   m['WEST']  = '西风'; m['NORTH'] = '北风';
-  m['RED']   = '中';   m['GREEN'] = '发';  m['WHITE'] = '白';
+  m['RED']   = '中';   m['GREEN'] = '发财'; m['WHITE'] = '白板';
   m['FLOWER_1'] = '梅花'; m['FLOWER_2'] = '兰花';
   m['FLOWER_3'] = '菊花'; m['FLOWER_4'] = '竹子';
   m['SEASON_1'] = '春';   m['SEASON_2'] = '夏';

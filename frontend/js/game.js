@@ -286,6 +286,35 @@ function handleGameState(state) {
     getSpeech()?.speakTile(state.last_discard);
   }
 
+  // Detect meld actions (碰/吃/杠) by OTHER players and announce them.
+  // Local player's own actions are already announced via sendPung/sendChow/sendKong.
+  if (prevState && prevState.players && state.players && myPlayerIdx >= 0) {
+    state.players.forEach((player, idx) => {
+      if (idx === myPlayerIdx) return;  // self: already announced on send
+      const prevMelds = prevState.players[idx]?.melds || [];
+      const currMelds = player.melds || [];
+
+      if (currMelds.length > prevMelds.length) {
+        // New meld appeared (pung / chow / claimed kong)
+        const newMeld = currMelds[currMelds.length - 1];
+        if (newMeld && newMeld.length >= 3) {
+          if (newMeld[0] === newMeld[1]) {
+            getSpeech()?.speak(newMeld.length >= 4 ? '杠' : '碰');
+          } else {
+            getSpeech()?.speak('吃');
+          }
+        }
+      } else if (currMelds.length === prevMelds.length) {
+        // Check for extend-pung → kong (same meld count, but one meld grew to 4)
+        currMelds.forEach((meld, mi) => {
+          if (prevMelds[mi] && meld.length === 4 && prevMelds[mi].length === 3) {
+            getSpeech()?.speak('杠');
+          }
+        });
+      }
+    });
+  }
+
   // Hide claim overlay when we receive a fresh game state
   hideClaimOverlay();
   inClaimWindow = false;
