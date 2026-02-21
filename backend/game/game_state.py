@@ -113,6 +113,8 @@ class GameState:
 
         # Game result
         self.winner: Optional[str] = None  # player id of the winner
+        self.win_ron: Optional[bool] = None  # True = discard win, False = self-draw
+        self.win_discarder_idx: Optional[int] = None  # index of the discarder for ron wins
 
         logger.info("GameState created: room=%s players=%s", room_id, player_ids)
 
@@ -260,6 +262,8 @@ class GameState:
     def _finalize_win(self, player_idx: int, winning_tile: str, ron: bool = False) -> None:
         """Mark the game as ended with the given player as winner."""
         self.winner = self.players[player_idx].id
+        self.win_ron = ron
+        self.win_discarder_idx = self.last_discard_player if ron else None
         self.phase = "ended"
         logger.info(
             "Player %s wins! Room=%s tile=%s ron=%s",

@@ -384,6 +384,11 @@
   <div class="claim-overlay hidden" id="claim-overlay">
     <div class="claim-box">
       <h3>Claim Tile?</h3>
+      <div class="claim-countdown-bar" id="claim-countdown-bar">
+        <span class="claim-countdown-label">自动跳过 / Auto-skip in</span>
+        <span class="claim-countdown" id="claim-countdown">30</span>
+        <span class="claim-countdown-label">s</span>
+      </div>
       <div class="claim-tile-display" id="claim-tile-display"></div>
       <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:1rem;">
         Tile: <strong id="claim-tile-name" data-tile=""></strong>
@@ -400,9 +405,10 @@
       <h2>Game Over!</h2>
       <div class="winner-name">Winner: <strong id="winner-name">–</strong></div>
 
+      <div id="round-number-label" style="font-size:0.85rem;color:var(--text-muted);margin-bottom:0.5rem;"></div>
       <table class="scores-table">
         <thead>
-          <tr><th>Player</th><th>Score</th></tr>
+          <tr><th>玩家 / Player</th><th>本局得分 / Round</th><th>累计筹码 / Chips</th></tr>
         </thead>
         <tbody id="scores-body"></tbody>
       </table>
@@ -441,8 +447,9 @@
         }
 
         if (labelEl) {
+          const chips = (state.cumulative_scores || {})[player.id] ?? '–';
           labelEl.innerHTML = `<span class="player-name">${escapeHtmlLocal(player.id)}</span>
-            <span class="player-score">Score: ${player.score ?? 0}</span>`;
+            <span class="player-score">筹码: ${chips}</span>`;
         }
 
         if (handEl) {
@@ -482,7 +489,7 @@
         const scoreEl = document.getElementById('my-player-score');
 
         if (nameEl)  nameEl.textContent  = player.id || 'Your hand';
-        if (scoreEl) scoreEl.textContent = `Score: ${player.score ?? 0}`;
+        if (scoreEl) scoreEl.textContent = `筹码: ${(state.cumulative_scores || {})[player.id] ?? '–'}`;
 
         if (handEl) {
           handEl.innerHTML = '';

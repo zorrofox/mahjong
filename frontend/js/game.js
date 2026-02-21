@@ -19,6 +19,7 @@ let selectedTile   = null;
 let pendingActions = [];
 let inClaimWindow  = false;
 let statusDismissTimer = null;
+let claimCountdownTimer = null;
 
 /* ============================================================
    TILE DISPLAY
@@ -271,16 +272,14 @@ function handleClaimWindow(msg) {
   inClaimWindow = true;
   pendingActions = msg.actions || [];
 
-  showClaimOverlay(msg.tile, pendingActions);
+  showClaimOverlay(msg.tile, pendingActions, msg.timeout || 30);
 
-  // If only "skip" is available for us automatically, or we're not a participant,
-  // the overlay lets the user decide.
   setStatus(`Claim opportunity: ${tileToDisplay(msg.tile).label}`);
 }
 
 function handleGameOver(msg) {
   const winnerName = msg.winner_id || `Player ${msg.winner_idx + 1}`;
-  showGameOverModal(winnerName, msg.scores || {});
+  showGameOverModal(winnerName, msg.scores || {}, msg.cumulative_scores || {}, msg.round_number);
   setStatus(`Game over! Winner: ${winnerName}`, 'success');
   disableAllActionButtons();
 }
@@ -337,8 +336,9 @@ function renderMyHand(player, playerIdx, state) {
   const labelEl  = document.getElementById('my-label');
 
   if (labelEl) {
+    const chips = (state.cumulative_scores || {})[player.id] ?? '–';
     labelEl.innerHTML = `<span class="player-name">${escapeHtml(player.id)}</span>
-      <span class="player-score">Score: ${player.score ?? 0}</span>`;
+      <span class="player-score">筹码: ${chips}</span>`;
   }
 
   // Render hand tiles
@@ -387,8 +387,9 @@ function renderOpponent(player, playerIdx, position, state, discardPile) {
     labelEl.className = 'player-label';
     area.insertBefore(labelEl, area.firstChild);
   }
+  const chips = (state.cumulative_scores || {})[player.id] ?? '–';
   labelEl.innerHTML = `<span class="player-name">${escapeHtml(player.id)}</span>
-    <span class="player-score">Score: ${player.score ?? 0}</span>`;
+    <span class="player-score">筹码: ${chips}</span>`;
 
   // Hand (face-down tiles)
   let handEl = area.querySelector('.opponent-hand');
@@ -695,7 +696,7 @@ function sendStartGame() {
 /* ============================================================
    CLAIM WINDOW OVERLAY
    ============================================================ */
-function showClaimOverlay(tileStr, actions) {
+function showClaimOverlay(tileStr, actions, timeout) {
   const overlay  = document.getElementById('claim-overlay');
   const tileDisp = document.getElementById('claim-tile-display');
   const tileName = document.getElementById('claim-tile-name');
@@ -737,6 +738,9 @@ function showClaimOverlay(tileStr, actions) {
   const skipBtn = makeClaimBtn('Skip 過', 'btn-secondary', sendSkip);
   actionsEl.appendChild(skipBtn);
 
+  // Start countdown — auto-skip when it reaches 0
+  _startClaimCountdown(Math.floor(timeout || 30));
+
   overlay.classList.remove('hidden');
 }
 
@@ -748,27 +752,67 @@ function makeClaimBtn(text, cls, handler) {
   return btn;
 }
 
+function _startClaimCountdown(seconds) {
+  _clearClaimCountdown();
+  _updateClaimCountdownDisplay(seconds);
+  claimCountdownTimer = setInterval(() => {
+    seconds -= 1;
+    _updateClaimCountdownDisplay(seconds);
+    if (seconds <= 0) {
+      _clearClaimCountdown();
+      sendSkip();
+    }
+  }, 1000);
+}
+
+function _clearClaimCountdown() {
+  if (claimCountdownTimer !== null) {
+    clearInterval(claimCountdownTimer);
+    claimCountdownTimer = null;
+  }
+}
+
+function _updateClaimCountdownDisplay(seconds) {
+  const el = document.getElementById('claim-countdown');
+  if (el) el.textContent = seconds;
+  const bar = document.getElementById('claim-countdown-bar');
+  if (bar) bar.classList.toggle('urgent', seconds <= 10);
+}
+
 function hideClaimOverlay() {
   const overlay = document.getElementById('claim-overlay');
   if (overlay) overlay.classList.add('hidden');
+  _clearClaimCountdown();
 }
 
 /* ============================================================
    GAME OVER MODAL
    ============================================================ */
-function showGameOverModal(winnerName, scores) {
+function showGameOverModal(winnerName, scores, cumulativeScores, roundNumber) {
   const modal     = document.getElementById('game-over-modal');
   const winnerEl  = document.getElementById('winner-name');
   const scoresEl  = document.getElementById('scores-body');
+  const roundEl   = document.getElementById('round-number-label');
 
   if (!modal) return;
 
   winnerEl.textContent = winnerName;
 
+  if (roundEl && roundNumber) {
+    roundEl.textContent = `第 ${roundNumber} 局 / Round ${roundNumber}`;
+  }
+
   scoresEl.innerHTML = '';
-  Object.entries(scores).forEach(([pid, score]) => {
+  // Sort by cumulative chips descending for the leaderboard view
+  const allPids = Object.keys(cumulativeScores || scores);
+  allPids.sort((a, b) => ((cumulativeScores || {})[b] ?? 0) - ((cumulativeScores || {})[a] ?? 0));
+  allPids.forEach(pid => {
+    const roundScore = scores[pid] ?? 0;
+    const chips = (cumulativeScores || {})[pid] ?? '–';
+    const isWinner = pid === winnerName ? ' class="winner-row"' : '';
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${escapeHtml(pid)}</td><td>${score}</td>`;
+    if (pid === winnerName) tr.classList.add('winner-row');
+    tr.innerHTML = `<td>${escapeHtml(pid)}</td><td>${roundScore}</td><td>${chips}</td>`;
     scoresEl.appendChild(tr);
   });
 

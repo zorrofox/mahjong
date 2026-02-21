@@ -225,18 +225,18 @@ drawing → discarding → claiming → (下一轮 drawing)
 
 | 文件 | 行数 | 说明 |
 |---|---|---|
-| `game/game_state.py` | 805 | 核心状态机 |
+| `game/game_state.py` | 828 | 核心状态机 |
 | `game/ai_player.py` | 371 | AI 逻辑 |
 | `game/hand.py` | 313 | 胡牌算法 |
 | `game/tiles.py` | 201 | 牌型定义 |
-| `game/room_manager.py` | 218 | 房间管理 |
-| `api/websocket.py` | 731 | WebSocket 处理 |
+| `game/room_manager.py` | 234 | 房间管理 |
+| `api/websocket.py` | 806 | WebSocket 处理 |
 | `api/routes.py` | 102 | REST 接口 |
 | `main.py` | 54 | 应用入口 |
-| `frontend/js/game.js` | 875 | 游戏客户端 |
+| `frontend/js/game.js` | 919 | 游戏客户端 |
 | `frontend/js/lobby.js` | 177 | 大厅客户端 |
-| `frontend/css/style.css` | 760 | 样式表 |
-| **业务代码合计** | **~4,520** | |
+| `frontend/css/style.css` | 785 | 样式表 |
+| **业务代码合计** | **~4,790** | |
 | `backend/tests/` | ~1,540 | 后端单元测试（237 tests） |
 | `frontend/tests/` | ~550 | 前端单元测试（64 tests） |
 | `tests/integration/` | ~1,120 | 集成测试（48 tests） |
@@ -760,6 +760,247 @@ if msg_type == "restart_game":
 
 ---
 
+### Bug 13：点击「过」后游戏永久卡死（声索窗口无法关闭）
+
+**发现时间**：正常游玩（点击声索窗口的「过」按钮后）
+**现象**：人类玩家在声索窗口点击「Skip / 过」后，游戏画面停滞，不再推进到下一轮，弹窗消失但再也不会有任何新的操作提示。
+
+**根本原因**（三处独立缺陷）：
+
+**Bug 13a — 超时强制跳过时 `is_ai` 检查导致漏跳**
+
+`_handle_claim_window` 的超时处理器在遍历 `_pending_claims` 时使用了 `not player.is_ai` 判断：
+
+```python
+# 原代码（有问题）：
+for i, player in enumerate(gs.players):
+    if not player.is_ai and i not in gs._skipped_claims:
+        gs.skip_claim(i)
+```
+
+玩家断线时 `finally` 块会将 `player.is_ai` 置为 `True`（让 AI 接管）。若断线恰好发生在声索窗口期间，`is_ai == True` 的玩家会被超时循环跳过，其 `_pending_claims` 条目永远不会被清除，导致声索窗口永不关闭。
+
+**Bug 13b — 超时后无兜底恢复路径**
+
+超时处理器执行后即使声索窗口未能关闭（因 Bug 13a），代码仍会继续调用 `asyncio.create_task(_run_ai_turn(room_id))`。该任务发现 `gs.phase == "claiming"` 后立即返回，无任何恢复逻辑，游戏永久卡死。
+
+**Bug 13c — 人类「过」后双重 `_run_ai_turn` 竞态**
+
+`_handle_claim_window` 通过 `_wait_for_claim_window`（每 0.1 秒轮询一次）等待所有玩家响应。当人类点击「过」并关闭声索窗口后：
+
+1. **skip 处理器**立即发现 `phase != "claiming"`，调用 `asyncio.create_task(_run_ai_turn)`
+2. **`_wait_for_claim_window`** 在 ≤ 0.1 秒内也检测到 phase 变化，唤醒 `_handle_claim_window`，后者同样调用 `asyncio.create_task(_run_ai_turn)`
+
+两个 `_run_ai_turn` 任务竞态执行，在时序敏感的情况下造成游戏状态混乱。
+
+**修复方案**：
+
+**1. 新增模块级标志 `_claim_window_active: set[str]`**
+
+在 `websocket.py` 顶层新增集合，追踪当前正在运行 `_handle_claim_window` 协程的房间：
+
+```python
+_claim_window_active: set[str] = set()
+```
+
+**2. `_handle_claim_window` — 标志管理 + 超时修复 + 安全兜底**
+
+```python
+async def _handle_claim_window(room_id: str) -> None:
+    ...
+    _claim_window_active.add(room_id)
+    try:
+        ...
+        # 超时后强制跳过所有仍 pending 的玩家，不再检查 is_ai
+        except asyncio.TimeoutError:
+            if gs.phase == "claiming":
+                for i in list(gs._pending_claims):
+                    if i not in gs._skipped_claims:
+                        try:
+                            gs.skip_claim(i)
+                        except ValueError:
+                            pass
+
+        # 安全兜底：若 phase 依然是 claiming，再做一轮强制跳过
+        if gs.phase == "claiming":
+            for i in list(gs._pending_claims):
+                if i not in gs._skipped_claims:
+                    try:
+                        gs.skip_claim(i)
+                    except ValueError:
+                        pass
+    finally:
+        _claim_window_active.discard(room_id)  # 无论如何都清除标志
+
+    ...
+    if gs.phase == "claiming":
+        # 所有手段均失效，记录错误并返回，避免无限循环
+        logger.error("Claim window could not be resolved in room %s; giving up.", room_id)
+        return
+
+    asyncio.create_task(_run_ai_turn(room_id))
+```
+
+**3. skip 处理器 — 使用 `_claim_window_active` 去重**
+
+```python
+if msg_type == "skip":
+    ...
+    gs.skip_claim(player_idx)
+    ...
+    if gs.phase != "claiming":
+        # 声索窗口已关闭。仅在 _handle_claim_window 不再活跃时才启动新 _run_ai_turn，
+        # 避免与 _wait_for_claim_window 唤醒路径竞态。
+        if room_id not in _claim_window_active:
+            asyncio.create_task(_run_ai_turn(room_id))
+    else:
+        # 窗口仍开（多人声索场景）：若无活跃处理器则重启一个
+        if room_id not in _claim_window_active:
+            asyncio.create_task(_handle_claim_window(room_id))
+    return
+```
+
+**修改文件**：
+
+| 文件 | 改动 |
+|---|---|
+| `backend/api/websocket.py` | 新增 `_claim_window_active` 集合；`_handle_claim_window` 加标志管理、超时去 `is_ai` 检查、双重安全兜底；skip 处理器使用标志去重 |
+| `tests/integration/conftest.py` | `_clear_state` fixture 增加 `_claim_window_active.clear()` |
+
+---
+
+### 功能增强 1：声索窗口 30 秒倒计时
+
+**背景**：原声索窗口超时仅 5 秒，且前端无任何倒计时反馈，玩家往往在未看清牌面的情况下被自动跳过，体验较差。
+
+**改动说明**：
+
+**1. 超时时间延长（`backend/api/websocket.py`）**
+
+```python
+# 原值
+CLAIM_TIMEOUT = 5.0
+# 新值
+CLAIM_TIMEOUT = 30.0
+```
+
+**2. `claim_window` 消息增加 `timeout` 字段**
+
+```python
+await _send(ws, {
+    "type": "claim_window",
+    "tile": tile,
+    "actions": actions,
+    "timeout": int(CLAIM_TIMEOUT),   # 新增
+})
+```
+
+**3. 前端倒计时 UI（`frontend/game.html` + `frontend/js/game.js` + `frontend/css/style.css`）**
+
+- 声索弹窗顶部新增倒计时栏：`自动跳过 / Auto-skip in 30s`
+- 每秒递减，剩余 ≤10 秒时栏颜色变橙、数字变红并触发脉冲动画
+- 归零时自动调用 `sendSkip()`，无需用户操作
+- 玩家主动点击任意按钮（碰/吃/杠/胡/过）时立即清除定时器
+
+**修改文件**：
+
+| 文件 | 改动 |
+|---|---|
+| `backend/api/websocket.py` | `CLAIM_TIMEOUT` 5→30；`claim_window` 消息新增 `timeout` 字段 |
+| `frontend/game.html` | 声索弹窗内新增 `.claim-countdown-bar` 结构 |
+| `frontend/js/game.js` | `handleClaimWindow` 透传 `timeout`；`showClaimOverlay` 接受 `timeout` 并启动 `_startClaimCountdown`；新增 `_startClaimCountdown`/`_clearClaimCountdown`/`_updateClaimCountdownDisplay`；`hideClaimOverlay` 调用 `_clearClaimCountdown` |
+| `frontend/css/style.css` | 新增 `.claim-countdown-bar`、`.claim-countdown`、`.urgent` 状态及 `pulse-countdown` 动画样式 |
+
+---
+
+### 功能增强 2：跨局累计筹码结算（传统麻将规则）
+
+**背景**：原计分系统只记录单局内的累计得分（`player.score`），每次重开局后归零，无法反映多局连续对战的真实胜负。
+
+**规则实现**（传统中国麻将零和结算）：
+
+| 胜负类型 | 结算方式 |
+|---|---|
+| 自摸（自己摸到胡牌）| 其余 3 家各付给胡牌者 `score` 筹码 |
+| 荣和（放炮全包）| 放炮者独自付给胡牌者 `3 × score` 筹码；其余两家不付 |
+| 流局（牌墙摸空）| 不结算，筹码不变 |
+
+初始筹码：每人 **1000** 筹码（`INITIAL_CHIPS = 1000`）。
+
+**后端改动**：
+
+**1. `backend/game/game_state.py` — 记录胜利类型**
+
+```python
+# __init__ 中新增
+self.win_ron: Optional[bool] = None          # True=荣和, False=自摸
+self.win_discarder_idx: Optional[int] = None  # 放炮者索引（荣和时有效）
+
+# _finalize_win 中赋值
+self.win_ron = ron
+self.win_discarder_idx = self.last_discard_player if ron else None
+```
+
+**2. `backend/game/room_manager.py` — Room 增加跨局字段**
+
+```python
+INITIAL_CHIPS = 1000  # 每个玩家槽位的初始筹码
+
+@dataclass
+class Room:
+    ...
+    cumulative_scores: dict = field(default_factory=dict)  # player_id → 当前筹码
+    round_number: int = 0                                   # 本房间已进行的局数
+```
+
+`start_game` 中：
+```python
+room.round_number += 1
+for pid in player_ids:
+    room.cumulative_scores.setdefault(pid, INITIAL_CHIPS)  # 已有余额不覆盖
+```
+
+**3. `backend/api/websocket.py` — 结算逻辑 + 广播**
+
+`_handle_game_over` 中按规则更新 `room.cumulative_scores`，并在 `game_over` 消息里附带：
+
+```python
+payload = {
+    "type": "game_over",
+    ...
+    "cumulative_scores": dict(room.cumulative_scores),
+    "round_number": room.round_number,
+}
+```
+
+`_broadcast_game_state` 中也将 `cumulative_scores` 和 `round_number` 注入每个玩家的 `game_state` 消息，保证游戏中途随时可查。
+
+**前端改动**：
+
+**`frontend/game.html`**：
+- 游戏结束弹窗积分表从 2 列（Player / Score）扩展为 3 列（玩家 / 本局得分 / 累计筹码），新增局数标签
+
+**`frontend/js/game.js`**：
+- 桌面玩家标签由 `Score: N` 改为 `筹码: N`（显示累计筹码余额）
+- `handleGameOver` 透传 `cumulative_scores` 和 `round_number`
+- `showGameOverModal` 按累计筹码降序排列积分表，胡牌者行高亮金色
+
+**`frontend/game.html`（内联补丁）**：
+- `renderOpponent` 和 `renderMyHand` 内联覆盖版同步改为显示筹码余额
+
+**修改文件**：
+
+| 文件 | 改动 |
+|---|---|
+| `backend/game/game_state.py` | 新增 `win_ron`、`win_discarder_idx` 字段；`_finalize_win` 赋值 |
+| `backend/game/room_manager.py` | 新增 `INITIAL_CHIPS` 常量；`Room` 新增 `cumulative_scores`、`round_number`；`start_game` 初始化/累加 |
+| `backend/api/websocket.py` | 新增 `INITIAL_CHIPS` 导入；`_handle_game_over` 实现零和结算；`_broadcast_game_state` 注入筹码数据；`game_over` payload 增加两个字段 |
+| `frontend/game.html` | 结算表 3 列化；新增局数标签；内联补丁改显示筹码 |
+| `frontend/js/game.js` | `handleGameOver` / `showGameOverModal` 支持累计筹码；玩家标签改筹码显示 |
+| `frontend/css/style.css` | 新增 `.winner-row` 金色高亮样式 |
+
+---
+
 ## 测试体系
 
 ### 运行方式
@@ -819,7 +1060,7 @@ pytest -v
 |---|---|---|
 | 状态持久化 | 纯内存，重启丢失 | 接入 Redis 或 SQLite |
 | 玩家认证 | 无，player_id 自生成 | 加入 JWT/Session |
-| 计分系统 | 简化版（基础分 + 副加分） | 完整番种计算 |
+| 计分系统 | 跨局累计筹码结算（自摸/荣和零和结算，初始 1000 筹码）| 完整番种计算（清一色、字一色等高级番型加倍） |
 | AI 强度 | 启发式贪心 | 蒙特卡洛或规则引擎 |
 | 移动端适配 | 桌面优先（1024px+） | 触屏手势支持 |
 | 测试覆盖 | 349 tests，含声索窗口 + 手牌排序 + 副露胡牌 + 重开局集成测试 | E2E 浏览器测试（Playwright） |

@@ -33,7 +33,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from game.game_state import GameState
 from game.ai_player import AIPlayer
-from game.room_manager import Room
+from game.room_manager import Room, INITIAL_CHIPS
 # Import the singleton room_manager from routes
 from api.routes import room_manager
 
@@ -47,11 +47,15 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 _connections: dict[str, dict[str, WebSocket]] = {}
 
+# Tracks rooms that currently have a running _handle_claim_window coroutine.
+# Used by the skip handler to avoid starting a duplicate handler.
+_claim_window_active: set[str] = set()
+
 # Shared AI instance (stateless heuristics; safe to reuse)
 _ai = AIPlayer()
 
-# Claim-window timeout in seconds
-CLAIM_TIMEOUT = 5.0
+# Claim-window timeout in seconds (shown as countdown in the UI)
+CLAIM_TIMEOUT = 30.0
 
 # AI action delay range (seconds) – makes AI feel natural
 AI_DELAY_MIN = 0.5
@@ -94,6 +98,8 @@ async def _broadcast_game_state(room_id: str) -> None:
     for pid, ws in list(room_conns.items()):
         player_idx = _player_index(gs, pid)
         state_dict = gs.to_dict(viewing_player_idx=player_idx)
+        state_dict["cumulative_scores"] = dict(room.cumulative_scores)
+        state_dict["round_number"] = room.round_number
         await _send(ws, {"type": "game_state", "state": state_dict})
 
 
@@ -149,6 +155,7 @@ async def _send_claim_window(room_id: str, tile: str) -> None:
                 "type": "claim_window",
                 "tile": tile,
                 "actions": actions,
+                "timeout": int(CLAIM_TIMEOUT),
             })
 
 
@@ -293,102 +300,128 @@ async def _handle_claim_window(room_id: str) -> None:
     if gs.phase != "claiming":
         return
 
-    tile = gs.last_discard
-    discarder_idx = gs.last_discard_player
+    _claim_window_active.add(room_id)
+    try:
+        tile = gs.last_discard
+        discarder_idx = gs.last_discard_player
 
-    # Auto-skip humans who have no real choice (only "skip" available).
-    # This avoids the full CLAIM_TIMEOUT wait for unclaimable tiles.
-    for i, player in enumerate(gs.players):
-        if i == discarder_idx or player.is_ai:
-            continue
-        if gs.phase != "claiming" or i not in gs._pending_claims:
-            continue
-        available = gs.get_available_actions(i)
-        if set(available) <= {"skip"}:
-            try:
-                gs.skip_claim(i)
-            except ValueError:
-                pass
-
-    # Broadcast claim window only to humans who still have a real choice
-    if gs.phase == "claiming":
-        await _send_claim_window(room_id, tile)
-
-    # Immediately process AI claim decisions
-    for i, player in enumerate(gs.players):
-        if i == discarder_idx:
-            continue
-        if not player.is_ai:
-            continue
-        if gs.phase != "claiming":
-            break
-        if i not in gs._pending_claims:
-            continue
-
-        # Determine which claim types the AI can make
-        available = gs.get_available_actions(i)
-
-        if "win" in available and _ai.decide_claim(player.hand_without_bonus(), player.melds, tile, "win"):
-            try:
-                gs.declare_win(i)
-                break
-            except ValueError:
-                pass
-
-        claimed = False
-        if "kong" in available and _ai.decide_claim(player.hand_without_bonus(), player.melds, tile, "kong"):
-            try:
-                gs.claim_kong(i, tile)
-                claimed = True
-            except ValueError:
-                pass
-
-        if not claimed and "pung" in available and _ai.decide_claim(player.hand_without_bonus(), player.melds, tile, "pung"):
-            try:
-                gs.claim_pung(i)
-                claimed = True
-            except ValueError:
-                pass
-
-        if not claimed and "chow" in available and _ai.decide_claim(player.hand_without_bonus(), player.melds, tile, "chow"):
-            from game.hand import can_chow
-            possible_chows = can_chow(player.hand_without_bonus(), tile)
-            if possible_chows:
-                # Pick the best chow
-                best_chow = possible_chows[0]
-                hand_tiles = [t for t in best_chow if t != tile]
+        # Auto-skip humans who have no real choice (only "skip" available).
+        # This avoids the full CLAIM_TIMEOUT wait for unclaimable tiles.
+        for i, player in enumerate(gs.players):
+            if i == discarder_idx or player.is_ai:
+                continue
+            if gs.phase != "claiming" or i not in gs._pending_claims:
+                continue
+            available = gs.get_available_actions(i)
+            if set(available) <= {"skip"}:
                 try:
-                    gs.claim_chow(i, hand_tiles)
+                    gs.skip_claim(i)
+                except ValueError:
+                    pass
+
+        # Broadcast claim window only to humans who still have a real choice
+        if gs.phase == "claiming":
+            await _send_claim_window(room_id, tile)
+
+        # Immediately process AI claim decisions
+        for i, player in enumerate(gs.players):
+            if i == discarder_idx:
+                continue
+            if not player.is_ai:
+                continue
+            if gs.phase != "claiming":
+                break
+            if i not in gs._pending_claims:
+                continue
+
+            # Determine which claim types the AI can make
+            available = gs.get_available_actions(i)
+
+            if "win" in available and _ai.decide_claim(player.hand_without_bonus(), player.melds, tile, "win"):
+                try:
+                    gs.declare_win(i)
+                    break
+                except ValueError:
+                    pass
+
+            claimed = False
+            if "kong" in available and _ai.decide_claim(player.hand_without_bonus(), player.melds, tile, "kong"):
+                try:
+                    gs.claim_kong(i, tile)
                     claimed = True
                 except ValueError:
                     pass
 
-        if not claimed and gs.phase == "claiming" and i in gs._pending_claims:
-            try:
-                gs.skip_claim(i)
-            except ValueError:
-                pass
+            if not claimed and "pung" in available and _ai.decide_claim(player.hand_without_bonus(), player.melds, tile, "pung"):
+                try:
+                    gs.claim_pung(i)
+                    claimed = True
+                except ValueError:
+                    pass
 
-    # If the claim window is still open, wait for human responses with a timeout
-    if gs.phase == "claiming":
-        try:
-            await asyncio.wait_for(_wait_for_claim_window(room_id), timeout=CLAIM_TIMEOUT)
-        except asyncio.TimeoutError:
-            # Force-skip all remaining pending human claims
-            if gs.phase == "claiming":
-                for i in list(gs._pending_claims):
-                    player = gs.players[i]
-                    if not player.is_ai and i not in gs._skipped_claims:
-                        try:
-                            gs.skip_claim(i)
-                        except ValueError:
-                            pass
+            if not claimed and "chow" in available and _ai.decide_claim(player.hand_without_bonus(), player.melds, tile, "chow"):
+                from game.hand import can_chow
+                possible_chows = can_chow(player.hand_without_bonus(), tile)
+                if possible_chows:
+                    # Pick the best chow
+                    best_chow = possible_chows[0]
+                    hand_tiles = [t for t in best_chow if t != tile]
+                    try:
+                        gs.claim_chow(i, hand_tiles)
+                        claimed = True
+                    except ValueError:
+                        pass
+
+            if not claimed and gs.phase == "claiming" and i in gs._pending_claims:
+                try:
+                    gs.skip_claim(i)
+                except ValueError:
+                    pass
+
+        # If the claim window is still open, wait for human responses with a timeout
+        if gs.phase == "claiming":
+            try:
+                await asyncio.wait_for(_wait_for_claim_window(room_id), timeout=CLAIM_TIMEOUT)
+            except asyncio.TimeoutError:
+                # Force-skip ALL remaining pending claims (human or temporarily-AI-marked).
+                # Skipping only "not is_ai" players would miss players who disconnected
+                # mid-window and were temporarily marked as AI, leaving the window stuck.
+                if gs.phase == "claiming":
+                    for i in list(gs._pending_claims):
+                        if i not in gs._skipped_claims:
+                            try:
+                                gs.skip_claim(i)
+                            except ValueError:
+                                pass
+
+        # Safety net: if claim window is still open after all handling, force-resolve.
+        # This guards against unexpected states (e.g. all pending players were AI-marked).
+        if gs.phase == "claiming":
+            logger.warning(
+                "Claim window still open after handling in room %s; force-resolving.", room_id
+            )
+            for i in list(gs._pending_claims):
+                if i not in gs._skipped_claims:
+                    try:
+                        gs.skip_claim(i)
+                    except ValueError:
+                        pass
+    finally:
+        # Always clear the active flag so future claim windows can be handled.
+        _claim_window_active.discard(room_id)
 
     # Broadcast updated state after resolution
     await _broadcast_game_state(room_id)
 
     if gs.phase == "ended":
         await _handle_game_over(room_id)
+        return
+
+    if gs.phase == "claiming":
+        # Still stuck after all attempts — log and bail to avoid infinite loop.
+        logger.error(
+            "Claim window could not be resolved in room %s; giving up.", room_id
+        )
         return
 
     # Continue AI automation for the next player's turn
@@ -407,7 +440,7 @@ async def _wait_for_claim_window(room_id: str) -> None:
 
 
 async def _handle_game_over(room_id: str) -> None:
-    """Broadcast game_over and update room status."""
+    """Broadcast game_over, settle chips, and update room status."""
     room = room_manager.get_room(room_id)
     if room is None or room.game_state is None:
         return
@@ -423,11 +456,44 @@ async def _handle_game_over(room_id: str) -> None:
         if p.id == winner_id:
             winner_idx = i
 
+    # ----------------------------------------------------------------
+    # Chip settlement (traditional Mahjong rules, zero-sum)
+    # ----------------------------------------------------------------
+    # win_score = the in-game points earned by the winner this hand.
+    # Self-draw (自摸): each of the other 3 players pays win_score chips.
+    # Discard win (荣和/放炮全包): only the discarder pays 3 × win_score.
+    # Draw (流局 / no winner): no chip transfer.
+    # ----------------------------------------------------------------
+    if winner_idx is not None:
+        win_score = gs.players[winner_idx].score
+        if win_score > 0:
+            if gs.win_ron and gs.win_discarder_idx is not None:
+                # Discard win – discarder pays triple
+                discarder_id = gs.players[gs.win_discarder_idx].id
+                room.cumulative_scores[winner_id] = (
+                    room.cumulative_scores.get(winner_id, INITIAL_CHIPS) + win_score * 3
+                )
+                room.cumulative_scores[discarder_id] = (
+                    room.cumulative_scores.get(discarder_id, INITIAL_CHIPS) - win_score * 3
+                )
+            elif gs.win_ron is False:
+                # Self-draw – each loser pays once
+                for i, p in enumerate(gs.players):
+                    if i != winner_idx:
+                        room.cumulative_scores[winner_id] = (
+                            room.cumulative_scores.get(winner_id, INITIAL_CHIPS) + win_score
+                        )
+                        room.cumulative_scores[p.id] = (
+                            room.cumulative_scores.get(p.id, INITIAL_CHIPS) - win_score
+                        )
+
     payload = {
         "type": "game_over",
         "winner_idx": winner_idx,
         "winner_id": winner_id,
         "scores": scores,
+        "cumulative_scores": dict(room.cumulative_scores),
+        "round_number": room.round_number,
     }
     await _broadcast(room_id, payload)
     await _broadcast_room_update()
@@ -724,7 +790,16 @@ async def _handle_message(
             return
 
         if gs.phase != "claiming":
-            asyncio.create_task(_run_ai_turn(room_id))
+            # Claim window resolved. If _handle_claim_window is still running it
+            # will also create _run_ai_turn when _wait_for_claim_window wakes up;
+            # only kick off our own task when no handler is active to avoid races.
+            if room_id not in _claim_window_active:
+                asyncio.create_task(_run_ai_turn(room_id))
+        else:
+            # Window still open (shouldn't happen in single-human play, but guard
+            # against it: restart the handler if it's no longer active).
+            if room_id not in _claim_window_active:
+                asyncio.create_task(_handle_claim_window(room_id))
         return
 
     # ---- unknown ----------------------------------------------------------

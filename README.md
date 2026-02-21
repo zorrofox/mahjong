@@ -15,9 +15,11 @@ A browser-based multiplayer Mahjong game. Supports 1–4 human players per room;
 - AI 自动填补空位，启发式出牌与声索决策
 - 声索优先级：胡 > 碰/杠 > 吃
 - 自摸与荣和均支持
+- 声索窗口 30 秒倒计时，归零自动跳过
+- 跨局累计筹码结算（传统零和规则：自摸三家付、荣和放炮全包，初始 1000 筹码）
 - 传统麻将牌视觉风格：汉字数字（一～九）+ 花色名（萬/条/饼），象牙骨色 3D 浮雕牌面
 - 手牌自动整理（条 → 饼 → 萬 → 风/字/花季）
-- 游戏结束后支持一键重开局（保留原房间人类玩家）
+- 游戏结束后支持一键重开局（保留原房间人类玩家，筹码持续累计）
 - 响应式绿毡牌桌界面
 
 ---
@@ -101,5 +103,11 @@ pytest -v
 | `{"type": "win"}` | 声明胡牌 |
 | `{"type": "skip"}` | 过 |
 | `{"type": "restart_game"}` | 重开局（仅游戏结束后有效） |
+
+| 消息（服务器→客户端） | 说明 |
+|---|---|
+| `{"type": "game_state", "state": {...}}` | 完整游戏状态（含 `cumulative_scores`、`round_number`） |
+| `{"type": "claim_window", "tile": "...", "actions": [...], "timeout": 30}` | 声索窗口，含倒计时秒数 |
+| `{"type": "game_over", "winner_id": "...", "cumulative_scores": {...}, "round_number": N}` | 游戏结束，含累计筹码结算结果 |
 
 详细文档见 [CLAUDE.md](CLAUDE.md)。

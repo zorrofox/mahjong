@@ -617,8 +617,43 @@ html, body {
 
 .claim-box h3 {
   color: var(--accent);
-  margin-bottom: 1rem;
+  margin-bottom: 0.5rem;
   font-size: 1.2rem;
+}
+
+/* Countdown bar */
+.claim-countdown-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-bottom: 1rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  transition: color 0.3s;
+}
+
+.claim-countdown {
+  display: inline-block;
+  min-width: 2ch;
+  font-size: 1.4rem;
+  font-weight: bold;
+  color: var(--accent);
+  transition: color 0.3s;
+}
+
+.claim-countdown-bar.urgent {
+  color: #ff9944;
+}
+
+.claim-countdown-bar.urgent .claim-countdown {
+  color: #ff4444;
+  animation: pulse-countdown 1s ease-in-out infinite;
+}
+
+@keyframes pulse-countdown {
+  0%, 100% { transform: scale(1); }
+  50%       { transform: scale(1.25); }
 }
 
 .claim-tile-display {
@@ -690,6 +725,7 @@ html, body {
 
 .scores-table th { color: var(--text-muted); font-size: 0.85rem; }
 .scores-table td { color: var(--text-light); }
+.scores-table tr.winner-row td { color: #ffd700; font-weight: bold; }
 
 .modal-actions {
   margin-top: 1.5rem;

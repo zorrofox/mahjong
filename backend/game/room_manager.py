@@ -20,6 +20,9 @@ logger = logging.getLogger(__name__)
 
 MAX_PLAYERS = 4
 
+# Starting chip balance for every player slot in a new room session
+INITIAL_CHIPS = 1000
+
 
 @dataclass
 class Room:
@@ -31,6 +34,10 @@ class Room:
     game_state: Optional[GameState] = None
     status: str = "waiting"  # "waiting" | "playing" | "ended"
     created_at: datetime = field(default_factory=datetime.utcnow)
+    # Cumulative chip balances across all rounds played in this room.
+    # Keyed by player_id; values start at INITIAL_CHIPS and are updated after each game.
+    cumulative_scores: dict = field(default_factory=dict)
+    round_number: int = 0  # how many games have been completed (or started) in this room
 
     @property
     def player_count(self) -> int:
@@ -214,8 +221,14 @@ class RoomManager:
 
         room.game_state = game_state
         room.status = "playing"
+        room.round_number += 1
+
+        # Initialise cumulative chip balance for any player not yet tracked.
+        # Existing balances are kept intact (cross-game persistence).
+        for pid in player_ids:
+            room.cumulative_scores.setdefault(pid, INITIAL_CHIPS)
 
         logger.info(
-            "Game started: room=%s players=%s", room_id, player_ids
+            "Game started: room=%s players=%s round=%d", room_id, player_ids, room.round_number
         )
         return game_state

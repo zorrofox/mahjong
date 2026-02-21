@@ -10,7 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 from main import app
 from api.routes import room_manager
-from api.websocket import _connections
+from api.websocket import _connections, _claim_window_active
 
 
 @pytest.fixture(autouse=True)
@@ -18,9 +18,11 @@ def _clear_state():
     """Clear all rooms and WS connections before each test."""
     room_manager._rooms.clear()
     _connections.clear()
+    _claim_window_active.clear()
     yield
     room_manager._rooms.clear()
     _connections.clear()
+    _claim_window_active.clear()
 
 
 @pytest.fixture
