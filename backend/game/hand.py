@@ -174,10 +174,9 @@ def is_winning_hand(tiles: list[str]) -> bool:
         if _try_extract_melds(remaining):
             return True
 
-    # Special case: seven pairs (not standard but common variant)
-    # Uncomment to enable:
-    # if _is_seven_pairs(sorted_tiles):
-    #     return True
+    # Seven pairs (七對) — standard HK Mahjong rule
+    if _is_seven_pairs(sorted_tiles):
+        return True
 
     return False
 
@@ -502,17 +501,21 @@ def calculate_han(
     if all_pungs:
         add('碰碰胡', 'All Pungs', 3)
 
+    # 平胡: all chows + simple pair + fully concealed + must win by RON (荣和)
+    # (港式规则：平胡只能荣和，自摸不计平胡)
     if (all_chows
             and not declared_melds
-            and _h_is_simple(pair_tile)):
+            and _h_is_simple(pair_tile)
+            and ron):
         add('平胡', 'Ping Hu (All Sequences)', 1)
 
     if all(_h_is_simple(t) for t in all_tiles):
         add('断幺', 'All Simples', 1)
 
-    # 混幺九: every group AND pair contains a terminal or honor
+    # 混幺九: EVERY tile in every group AND the pair must be terminal or honor.
+    # (港式规则：每张牌均须为幺九牌或风字牌，含中间牌2-8的组合不算)
     if (all_groups
-            and all(any(_h_is_terminal_or_honor(t) for t in g['tiles']) for g in all_groups)
+            and all(all(_h_is_terminal_or_honor(t) for t in g['tiles']) for g in all_groups)
             and _h_is_terminal_or_honor(pair_tile)):
         add('混幺九', 'Mixed Terminals & Honors', 2)
 

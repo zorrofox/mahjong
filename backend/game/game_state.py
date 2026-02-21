@@ -33,6 +33,8 @@ NUM_PLAYERS = 4
 DEALER_INITIAL_TILES = 14
 NON_DEALER_INITIAL_TILES = 13
 
+MIN_HAN = 3  # Minimum fan required to declare a winning hand (港式规则标准)
+
 
 @dataclass
 class PlayerState:
@@ -126,6 +128,12 @@ class GameState:
         self.han_breakdown: list[dict] = []   # [{'name_cn','name_en','fan'}, ...]
         self.han_total: int = 0
 
+        # Rob-the-kong (搶杠) state: set while an extend-pung window is open.
+        # Only "win" claims are valid during this window.
+        self._is_rob_kong_window: bool = False
+        self._rob_kong_tile: Optional[str] = None       # the tile being extended
+        self._rob_kong_player_idx: Optional[int] = None # the konger
+
         # Accumulated chip transfers from kong declarations during the hand.
         # Applied at game end alongside the win payment.
         # Keys are player_id strings; values are net chip deltas (can be negative).
@@ -189,7 +197,11 @@ class GameState:
         If no claim is accepted, resume normal play (next player draws).
         """
         if self._best_claim is None:
-            # No claims; advance to the next player's draw turn
+            if self._is_rob_kong_window:
+                # Nobody robbed the extend-pung kong — complete it now.
+                self._complete_extend_kong()
+                return
+            # Normal: advance to the next player's draw turn
             self._advance_turn()
             return
 
@@ -211,8 +223,34 @@ class GameState:
         claimer = self.players[claimer_idx]
 
         if claim_type == "win":
+            if self._is_rob_kong_window:
+                # Robbing the kong (搶杠胡): revert the konger's extended meld back to
+                # a 3-tile pung before processing the win.
+                konger_idx = self._rob_kong_player_idx
+                if konger_idx is not None:
+                    konger = self.players[konger_idx]
+                    for meld in konger.melds:
+                        if len(meld) == 4 and meld[0] == discard_tile:
+                            meld.pop()  # 4-tile kong → 3-tile pung
+                            break
+                self._is_rob_kong_window = False
+                self._rob_kong_tile = None
+                self._rob_kong_player_idx = None
+
             # Add the claimed tile to the winner's hand, then finalize
             claimer.hand.append(discard_tile)
+            _pre_han = calculate_han(
+                claimer.hand_without_bonus(), claimer.melds, claimer.flowers, ron=True
+            )
+            if _pre_han['total'] < MIN_HAN:
+                # Insufficient fan — reject the win, advance to next turn
+                claimer.hand.remove(discard_tile)
+                logger.warning(
+                    "Ron win claim by player %d rejected: %d fan < MIN_HAN %d",
+                    claimer_idx, _pre_han['total'], MIN_HAN
+                )
+                self._advance_turn()
+                return
             self._finalize_win(claimer_idx, discard_tile, ron=True)
             # player.score is set inside _finalize_win (= han_total)
 
@@ -275,6 +313,43 @@ class GameState:
         self._best_claim = None
         self._pending_claims.clear()
         self._skipped_claims.clear()
+
+    def _complete_extend_kong(self) -> None:
+        """
+        Finalise an extend-pung (加杠) kong after no one robbed it.
+
+        The meld has already been extended from 3→4 tiles in claim_kong().
+        Here we record the kong payment, draw the replacement tile, and
+        return the konger to the discarding phase.
+        """
+        konger_idx = self._rob_kong_player_idx
+        assert konger_idx is not None
+
+        # Clear rob-kong state first
+        self._is_rob_kong_window = False
+        self._rob_kong_tile = None
+        self._rob_kong_player_idx = None
+        self._best_claim = None
+        self._pending_claims.clear()
+        self._skipped_claims.clear()
+
+        # Record chip payment (each other player pays 1 chip)
+        self.record_kong_payment(konger_idx)
+
+        # Draw replacement tile from back of wall
+        replacement = self._draw_from_back()
+        if replacement is not None:
+            self.players[konger_idx].hand.append(replacement)
+            self._collect_bonus_tiles(konger_idx)
+            self.last_drawn_tile = replacement
+        else:
+            self.phase = "ended"
+            return
+
+        self.current_turn = konger_idx
+        self.last_discard = None
+        self.last_discard_player = None
+        self.phase = "discarding"
 
     def _finalize_win(self, player_idx: int, winning_tile: str, ron: bool = False) -> None:
         """Mark the game as ended with the given player as winner."""
@@ -490,10 +565,41 @@ class GameState:
         """
         player = self.players[player_idx]
 
-        # Self-drawn kong (during discarding phase, player adds 4th from hand)
+        # Self-drawn / extend-pung kong (during discarding phase)
         if self.phase == "discarding" and player_idx == self.current_turn:
+            # ── Extend-pung (加杠): tile is in hand AND matches an existing pung ──
+            extend_meld_idx = next(
+                (i for i, m in enumerate(player.melds)
+                 if len(m) == 3 and m[0] == m[1] == m[2] == tile),
+                None,
+            )
+            if extend_meld_idx is not None and player.hand.count(tile) >= 1:
+                player.hand.remove(tile)
+                player.melds[extend_meld_idx].append(tile)  # 3-tile pung → 4-tile kong
+
+                # Open a rob-the-kong (搶杠) claim window for all other players.
+                # Only "win" claims are valid.
+                self._is_rob_kong_window = True
+                self._rob_kong_tile = tile
+                self._rob_kong_player_idx = player_idx
+                # Treat the kong tile as a pseudo-discard so declare_win / _resolve_claims
+                # work through the existing claiming-phase machinery.
+                self.last_discard = tile
+                self.last_discard_player = player_idx
+                self._pending_claims = {
+                    i for i in range(NUM_PLAYERS) if i != player_idx
+                }
+                self._skipped_claims.clear()
+                self._best_claim = None
+                self.phase = "claiming"
+                return True
+
+            # ── Concealed kong (暗杠): 4-of-a-kind entirely in hand ──
             if player.hand.count(tile) < 4:
-                raise ValueError(f"Player {player_idx} does not have 4x '{tile}' for self-kong.")
+                raise ValueError(
+                    f"Player {player_idx} cannot declare kong with '{tile}': "
+                    "no matching pung meld and fewer than 4 copies in hand."
+                )
             meld = [tile] * 4
             for t in meld:
                 player.hand.remove(t)
@@ -620,6 +726,11 @@ class GameState:
             meld_tiles = [t for meld in player.melds for t in meld[:3]]
             if not is_winning_hand(effective_hand + meld_tiles):
                 raise ValueError(f"Player {player_idx}'s hand is not a winning hand.")
+            _pre_han = calculate_han(effective_hand, player.melds, player.flowers, ron=False)
+            if _pre_han['total'] < MIN_HAN:
+                raise ValueError(
+                    f"Hand has only {_pre_han['total']} fan; minimum {MIN_HAN} required to win."
+                )
             winning_tile = effective_hand[-1]  # conventionally the last drawn tile
             ron = False
 
@@ -636,6 +747,11 @@ class GameState:
             meld_tiles = [t for meld in player.melds for t in meld[:3]]
             if not is_winning_hand(effective_hand + meld_tiles):
                 raise ValueError(f"Player {player_idx}'s hand + '{tile}' is not a winning hand.")
+            _pre_han = calculate_han(effective_hand, player.melds, player.flowers, ron=True)
+            if _pre_han['total'] < MIN_HAN:
+                raise ValueError(
+                    f"Hand has only {_pre_han['total']} fan; minimum {MIN_HAN} required to win."
+                )
 
             winning_tile = tile
             ron = True
@@ -748,11 +864,19 @@ class GameState:
             effective_hand = player.hand_without_bonus()
             meld_tiles = [t for meld in player.melds for t in meld[:3]]
             if len(effective_hand) + len(meld_tiles) == 14 and is_winning_hand(effective_hand + meld_tiles):
-                actions.append("win")
-            # Check self-drawn kong (4-of-a-kind in hand)
+                han = calculate_han(effective_hand, player.melds, player.flowers, ron=False)
+                if han['total'] >= MIN_HAN:
+                    actions.append("win")
+            # Check self-drawn kong — concealed (4-of-a-kind) or extend-pung (加杠)
             from collections import Counter
             counts = Counter(player.hand_without_bonus())
-            if any(c >= 4 for c in counts.values()):
+            has_concealed_kong = any(c >= 4 for c in counts.values())
+            pung_meld_tiles = {
+                m[0] for m in player.melds
+                if len(m) == 3 and m[0] == m[1] == m[2]
+            }
+            has_extend_pung = any(counts.get(t, 0) >= 1 for t in pung_meld_tiles)
+            if has_concealed_kong or has_extend_pung:
                 actions.append("kong")
 
         if self.phase == "claiming" and player_idx != self.last_discard_player:
@@ -760,11 +884,26 @@ class GameState:
                 tile = self.last_discard
                 effective_hand = player.hand_without_bonus()
 
+                if self._is_rob_kong_window:
+                    # Rob-the-kong window (搶杠胡): ONLY win or skip allowed
+                    meld_tiles = [t for meld in player.melds for t in meld[:3]]
+                    test_hand = effective_hand + [tile] + meld_tiles
+                    if is_winning_hand(test_hand):
+                        han = calculate_han(effective_hand + [tile], player.melds,
+                                            player.flowers, ron=True)
+                        if han['total'] >= MIN_HAN:
+                            actions.append("win")
+                    actions.append("skip")
+                    return sorted(set(actions))
+
+                # Normal claim window ─────────────────────────────────────────
                 # Check win
                 meld_tiles = [t for meld in player.melds for t in meld[:3]]
                 test_hand = effective_hand + [tile] + meld_tiles
                 if is_winning_hand(test_hand):
-                    actions.append("win")
+                    han = calculate_han(effective_hand + [tile], player.melds, player.flowers, ron=True)
+                    if han['total'] >= MIN_HAN:
+                        actions.append("win")
 
                 # Check pung
                 if can_pung(effective_hand, tile):

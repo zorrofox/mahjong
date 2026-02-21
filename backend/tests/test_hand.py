@@ -286,3 +286,59 @@ class TestFindMelds:
 
     def test_empty_hand(self):
         assert find_melds([]) == []
+
+
+# ============================================================
+# Tests for #1 fix: Seven Pairs now legal in is_winning_hand
+# ============================================================
+
+class TestSevenPairsWinningHand:
+    """Verify seven pairs (七對) is now accepted by is_winning_hand."""
+
+    def test_seven_pairs_is_winning_hand(self):
+        """A hand of 7 distinct pairs must be a valid winning hand."""
+        tiles = (
+            ["BAMBOO_1"] * 2
+            + ["BAMBOO_3"] * 2
+            + ["CIRCLES_5"] * 2
+            + ["CHARACTERS_7"] * 2
+            + ["EAST"] * 2
+            + ["RED"] * 2
+            + ["BAMBOO_9"] * 2
+        )
+        assert is_winning_hand(tiles) is True
+
+    def test_all_honour_seven_pairs(self):
+        """Seven pairs from honour tiles only is also a valid winning hand."""
+        tiles = (
+            ["EAST"] * 2 + ["SOUTH"] * 2 + ["WEST"] * 2 + ["NORTH"] * 2
+            + ["RED"] * 2 + ["GREEN"] * 2 + ["WHITE"] * 2
+        )
+        assert is_winning_hand(tiles) is True
+
+    def test_duplicate_pair_is_not_seven_pairs(self):
+        """Four copies of one tile does NOT form seven pairs (only 6 distinct types)."""
+        tiles = (
+            ["BAMBOO_1"] * 4        # 4-of-a-kind, not two separate pairs
+            + ["BAMBOO_3"] * 2
+            + ["CIRCLES_5"] * 2
+            + ["CHARACTERS_7"] * 2
+            + ["EAST"] * 2
+            + ["RED"] * 2
+        )
+        # 14 tiles but only 6 distinct types → not seven pairs, and not 4+1 either
+        assert is_winning_hand(tiles) is False
+
+    def test_seven_pairs_calculate_han_gives_3(self):
+        """Seven pairs hand must receive the 七對 +3 fan bonus."""
+        from game.hand import calculate_han
+        tiles = (
+            ["BAMBOO_1"] * 2 + ["BAMBOO_3"] * 2 + ["CIRCLES_5"] * 2
+            + ["CHARACTERS_7"] * 2 + ["EAST"] * 2 + ["RED"] * 2
+            + ["BAMBOO_9"] * 2
+        )
+        result = calculate_han(tiles, [], [], ron=False)
+        names = [item['name_cn'] for item in result['breakdown']]
+        assert '七对' in names
+        fan = next(item['fan'] for item in result['breakdown'] if item['name_cn'] == '七对')
+        assert fan == 3
