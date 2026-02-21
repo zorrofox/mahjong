@@ -342,10 +342,12 @@ html, body {
   display: flex;
   flex-wrap: wrap;
   align-content: flex-start;
-  gap: 2px;
+  gap: 0;
   overflow: hidden;
   min-height: 0;
 }
+.discard-pile .tile { margin-right: -4px; }
+.discard-pile .tile:last-child { margin-right: 0; }
 
 .discard-pile-label {
   font-size: 0.65rem;
@@ -439,6 +441,13 @@ html, body {
   width: 44px;
   height: 62px;
   cursor: pointer;
+  /* Negative margin compensates for the transparent perspective edges
+     of the Cangjie6 oblique SVG tiles, making them visually flush. */
+  margin-right: -6px;
+}
+/* Last tile in hand: restore margin so the row doesn't over-extend */
+.my-hand .tile:last-child {
+  margin-right: 0;
 }
 
 .my-hand .tile:hover {
