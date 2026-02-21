@@ -232,14 +232,14 @@ drawing → discarding → claiming → (下一轮 drawing)
 | `api/websocket.py` | 664 | WebSocket 处理 |
 | `api/routes.py` | 102 | REST 接口 |
 | `main.py` | 54 | 应用入口 |
-| `frontend/js/game.js` | 863 | 游戏客户端 |
+| `frontend/js/game.js` | 880 | 游戏客户端 |
 | `frontend/js/lobby.js` | 177 | 大厅客户端 |
 | `frontend/css/style.css` | 760 | 样式表 |
-| **业务代码合计** | **~4,454** | |
+| **业务代码合计** | **~4,470** | |
 | `backend/tests/` | ~900 | 后端单元测试（233 tests） |
-| `frontend/tests/` | ~350 | 前端单元测试（56 tests） |
-| `tests/integration/` | ~850 | 集成测试（38 tests） |
-| **测试代码合计** | **~2,100** | |
+| `frontend/tests/` | ~420 | 前端单元测试（64 tests） |
+| `tests/integration/` | ~1,100 | 集成测试（45 tests） |
+| **测试代码合计** | **~2,420** | |
 
 ---
 
@@ -564,6 +564,87 @@ if (info.sub) {
 
 ---
 
+### Bug 9：玩家返回大厅再重连后游戏变全自动
+
+**发现时间**：多轮测试（用户反馈）
+**现象**：玩家从游戏页返回大厅，再点击加入同一房间后，游戏变为全自动——玩家的出牌、碰、吃、胡等操作全部被忽略，座位由 AI 接管。
+
+**根本原因**：`websocket.py` 的 `finally` 断连块（~第 500 行）会将玩家座位标记为 `is_ai = True`，以便 AI 在断线期间代为操作。但重连处理逻辑中从未重置该标志，导致玩家重连后座位依然被识别为 AI。
+
+```python
+# 断连时（finally 块）
+gs.players[pidx].is_ai = True  # ← 标记为 AI
+
+# 重连时（原代码）
+player_idx = _player_index(gs, player_id)
+# ← 缺失：未重置 is_ai = False
+state_dict = gs.to_dict(...)
+```
+
+**修复方案**：在 `websocket_endpoint` 重连处理中，注册连接后立即检查并重置 `is_ai`：
+
+```python
+if player_idx is not None and not player_id.startswith("ai_player_"):
+    if gs.players[player_idx].is_ai:
+        gs.players[player_idx].is_ai = False
+        logger.info("Player %s reconnected; seat %d restored to human control", ...)
+```
+
+**修改文件**：`backend/api/websocket.py`（`websocket_endpoint` 函数，`_player_index` 调用后）
+
+---
+
+### Bug 10：手牌排序修复无效（game.html 内联函数覆盖）
+
+**发现时间**：用户验收测试
+**现象**：在 `game.js` 的 `renderMyHand` 中加入了排序逻辑，但玩家看到的手牌仍然乱序。
+
+**根本原因**：`game.html` 第 477 行用 `window.renderMyHand = function(...)` 定义了一个内联版本，在运行时**完全覆盖**了 `game.js` 中的同名函数。内联版本没有排序逻辑，导致 `game.js` 中的修复成为死代码。
+
+```html
+<!-- game.html 第 477 行 —— 覆盖 game.js 的 renderMyHand -->
+window.renderMyHand = function(player, playerIdx, state) {
+  ...
+  getHandTiles(player).forEach(tileStr => {  // ← 无排序，直接渲染
+    ...
+  });
+};
+```
+
+**修复方案（两步）**：
+
+1. **提取顶层函数**：在 `game.js` 中将排序逻辑提取为独立的 `sortHandTiles(hand)` 函数（返回副本，不修改原数组），供两处复用：
+```js
+const _SUIT_ORDER = { B: 0, C: 1, M: 2 };
+function sortHandTiles(hand) {
+  return [...hand].sort((a, b) => {
+    const ia = TILE_MAP[a] || {}, ib = TILE_MAP[b] || {};
+    const sa = ia.suit !== undefined ? _SUIT_ORDER[ia.suit] : 3;
+    const sb = ib.suit !== undefined ? _SUIT_ORDER[ib.suit] : 3;
+    if (sa !== sb) return sa - sb;
+    return (ia.label || a).localeCompare(ib.label || b);
+  });
+}
+```
+
+2. **修复内联覆盖**：在 `game.html` 的内联 `window.renderMyHand` 中调用 `sortHandTiles()`：
+```js
+sortHandTiles(getHandTiles(player)).forEach(tileStr => { ... });
+```
+
+排序规则：条(B) → 饼(C) → 萬(M) → 风/字/花/季，同花色内按数字升序。
+
+**修改文件**：
+
+| 文件 | 改动 |
+|---|---|
+| `frontend/js/game.js` | 新增 `sortHandTiles()` 函数；`renderMyHand` 调用它；导出到 `_mahjongTestExports` |
+| `frontend/game.html` | 内联 `window.renderMyHand` 改用 `sortHandTiles()` |
+| `frontend/tests/game.test.js` | 新增 8 个 `sortHandTiles` 单元测试 |
+| `tests/integration/test_hand_order.py` | 新增 7 个集成测试（服务端不排序的验证 + Python 复现 JS 排序算法） |
+
+---
+
 ## 测试体系
 
 ### 运行方式
@@ -611,6 +692,7 @@ pytest -v
 | `test_rest_api.py` | 14 | 全部 REST 端点（列出/创建/加入/开始房间） |
 | `test_websocket.py` | 9 | WS 连接、游戏状态结构、手牌可见性 |
 | `test_claim_window.py` | 15 | 碰/吃/杠/过/胡 完整声索窗口流程 |
+| `test_hand_order.py` | 7 | 服务端不排序验证 + Python 复现 JS 排序算法 |
 
 `test_claim_window.py` 策略：通过 REST 开始游戏后直接操控 `room.game_state`，将局面固定到声索阶段（控制手牌、弃牌、已跳过玩家），再通过 WS 连接触发同步 `claim_window` 消息，验证声索结果。
 
@@ -625,5 +707,5 @@ pytest -v
 | 计分系统 | 简化版（基础分 + 副加分） | 完整番种计算 |
 | AI 强度 | 启发式贪心 | 蒙特卡洛或规则引擎 |
 | 移动端适配 | 桌面优先（1024px+） | 触屏手势支持 |
-| 测试覆盖 | 327 tests，含完整声索窗口集成测试 | E2E 浏览器测试（Playwright） |
+| 测试覆盖 | 342 tests，含声索窗口 + 手牌排序集成测试 | E2E 浏览器测试（Playwright） |
 | 多语言 | 界面为中英混合 | i18n 国际化 |

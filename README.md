@@ -4,7 +4,7 @@
 
 A browser-based multiplayer Mahjong game. Supports 1–4 human players per room; empty seats are filled by AI.
 
-![Python](https://img.shields.io/badge/Python-3.11-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-0.111-green) ![Tests](https://img.shields.io/badge/tests-327%20passed-brightgreen)
+![Python](https://img.shields.io/badge/Python-3.11-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-0.111-green) ![Tests](https://img.shields.io/badge/tests-342%20passed-brightgreen)
 
 ---
 
@@ -45,7 +45,7 @@ uvicorn main:app --reload --port 8000
 │   ├── js/            # 大厅 + 游戏客户端
 │   └── tests/         # 前端单元测试（56 tests）
 └── tests/
-    └── integration/   # REST + WebSocket 集成测试（38 tests）
+    └── integration/   # REST + WebSocket 集成测试（45 tests）
 ```
 
 ---
