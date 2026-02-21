@@ -254,3 +254,73 @@ class TestWebSocketTwoPlayers:
             players2 = msg2["state"]["players"]
             assert players2[1]["hand"]["hidden"] is False  # p2 sees own hand
             assert players2[0]["hand"]["hidden"] is True   # p2 can't see p1
+
+
+class TestRestartGame:
+    """Verify that a finished game can be restarted via the restart_game WS message."""
+
+    def _drain_until(self, ws, target_type, max_msgs=8):
+        for _ in range(max_msgs):
+            try:
+                msg = ws.receive_json()
+                if msg.get("type") == target_type:
+                    return msg
+            except Exception:
+                break
+        raise AssertionError(f"Message type '{target_type}' not received.")
+
+    def test_restart_game_resets_state(self, client):
+        """After game ends, sending restart_game starts a fresh game."""
+        import sys, os
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../backend'))
+        from api.routes import room_manager
+
+        pid = "restart_player"
+        room_id = _create_and_start(client, pid)
+
+        # Force the game into "ended" state
+        room = room_manager.get_room(room_id)
+        room.game_state.phase = "ended"
+        room.status = "ended"
+
+        with client.websocket_connect(f"/ws/{room_id}/{pid}") as ws:
+            self._drain_until(ws, "game_state")
+            ws.send_json({"type": "restart_game"})
+            msg = self._drain_until(ws, "game_state")
+
+        assert msg["state"]["phase"] in ("drawing", "discarding", "claiming")
+        assert room.status == "playing"
+
+    def test_restart_game_before_end_returns_error(self, client):
+        """Sending restart_game while game is still active returns an error."""
+        pid = "restart_early"
+        room_id = _create_and_start(client, pid)
+
+        with client.websocket_connect(f"/ws/{room_id}/{pid}") as ws:
+            self._drain_until(ws, "game_state")
+            ws.send_json({"type": "restart_game"})
+            msg = self._drain_until(ws, "error")
+
+        assert msg["type"] == "error"
+
+    def test_restart_preserves_human_players(self, client):
+        """After restart, the same human player occupies the same seat."""
+        import sys, os
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../backend'))
+        from api.routes import room_manager
+
+        pid = "restart_human"
+        room_id = _create_and_start(client, pid)
+
+        room = room_manager.get_room(room_id)
+        room.game_state.phase = "ended"
+        room.status = "ended"
+
+        with client.websocket_connect(f"/ws/{room_id}/{pid}") as ws:
+            self._drain_until(ws, "game_state")
+            ws.send_json({"type": "restart_game"})
+            msg = self._drain_until(ws, "game_state")
+
+        players = msg["state"]["players"]
+        human_ids = [p["id"] for p in players if not p.get("is_ai", True)]
+        assert pid in human_ids

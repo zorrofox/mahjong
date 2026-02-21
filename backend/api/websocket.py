@@ -558,6 +558,27 @@ async def _handle_message(
             await _send_action_required(room_id, gs.current_turn)
         return
 
+    # ---- restart_game -----------------------------------------------------
+    if msg_type == "restart_game":
+        if room.status != "ended":
+            await _send(ws, {"type": "error", "message": "Game has not ended yet."})
+            return
+        try:
+            room_manager.start_game(room_id)  # resets status "ended"→"waiting"→"playing"
+        except Exception as e:
+            await _send(ws, {"type": "error", "message": str(e)})
+            return
+
+        await _broadcast_game_state(room_id)
+        await _broadcast_room_update()
+
+        gs = room.game_state
+        if gs.players[gs.current_turn].is_ai:
+            asyncio.create_task(_run_ai_turn(room_id))
+        else:
+            await _send_action_required(room_id, gs.current_turn)
+        return
+
     # All subsequent messages require an active game
     if room.game_state is None or room.status != "playing":
         await _send(ws, {"type": "error", "message": "Game is not active."})

@@ -846,7 +846,11 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-skip')   ?.addEventListener('click', sendSkip);
   document.getElementById('btn-start')  ?.addEventListener('click', sendStartGame);
 
-  // Game-over modal close
+  // Game-over modal buttons
+  document.getElementById('btn-play-again')?.addEventListener('click', () => {
+    document.getElementById('game-over-modal')?.classList.add('hidden');
+    sendAction('restart_game');
+  });
   document.getElementById('btn-back-lobby')?.addEventListener('click', () => {
     window.location.href = 'index.html';
   });

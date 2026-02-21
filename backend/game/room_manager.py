@@ -189,6 +189,9 @@ class RoomManager:
         room = self._rooms.get(room_id)
         if room is None:
             raise KeyError(f"Room '{room_id}' does not exist.")
+        if room.status == "ended":
+            # Allow restarting a finished game with the same human players.
+            room.status = "waiting"
         if room.status != "waiting":
             raise ValueError(f"Room '{room_id}' is not in waiting status (status={room.status}).")
 
