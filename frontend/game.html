@@ -462,7 +462,8 @@
 
         if (labelEl) {
           const chips = (state.cumulative_scores || {})[player.id] ?? '–';
-          labelEl.innerHTML = `<span class="player-name">${escapeHtmlLocal(player.id)}</span>
+          const dealerBadge = (state.dealer_idx === playerIdx) ? '<span class="dealer-badge">庄</span>' : '';
+          labelEl.innerHTML = `<span class="player-name">${escapeHtmlLocal(player.id)}${dealerBadge}</span>
             <span class="player-score">筹码: ${chips}</span>`;
         }
 
@@ -502,7 +503,10 @@
         const nameEl  = document.getElementById('my-player-name');
         const scoreEl = document.getElementById('my-player-score');
 
-        if (nameEl)  nameEl.textContent  = player.id || 'Your hand';
+        if (nameEl) {
+          const dealerBadge = (state.dealer_idx === playerIdx) ? '<span class="dealer-badge">庄</span>' : '';
+          nameEl.innerHTML = escapeHtmlLocal(player.id || 'Your hand') + dealerBadge;
+        }
         if (scoreEl) scoreEl.textContent = `筹码: ${(state.cumulative_scores || {})[player.id] ?? '–'}`;
 
         if (handEl) {
