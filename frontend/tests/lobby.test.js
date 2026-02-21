@@ -75,6 +75,7 @@ describe('getStatusClass', () => {
 
   it('maps finished to status-finished', () => {
     expect(getStatusClass('finished')).toBe('status-finished')
+    expect(getStatusClass('ended')).toBe('status-finished')
   })
 
   it('handles mixed case', () => {
@@ -100,14 +101,15 @@ describe('formatStatus', () => {
   })
 
   it('maps known statuses', () => {
-    expect(formatStatus('waiting')).toBe('Waiting')
-    expect(formatStatus('playing')).toBe('Playing')
-    expect(formatStatus('finished')).toBe('Finished')
+    expect(formatStatus('waiting')).toBe('Waiting 等待中')
+    expect(formatStatus('playing')).toBe('Playing 游戏中')
+    expect(formatStatus('finished')).toBe('Finished 已结束')
+    expect(formatStatus('ended')).toBe('Finished 已结束')
   })
 
   it('handles mixed case', () => {
-    expect(formatStatus('WAITING')).toBe('Waiting')
-    expect(formatStatus('Playing')).toBe('Playing')
+    expect(formatStatus('WAITING')).toBe('Waiting 等待中')
+    expect(formatStatus('Playing')).toBe('Playing 游戏中')
   })
 
   it('returns raw string for unknown status', () => {

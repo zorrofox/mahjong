@@ -58,6 +58,8 @@ class Room:
             "status": self.status,
             "max_players": MAX_PLAYERS,
             "created_at": self.created_at.isoformat(),
+            "cumulative_scores": dict(self.cumulative_scores),
+            "round_number": self.round_number,
         }
 
 

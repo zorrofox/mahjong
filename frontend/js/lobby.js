@@ -42,25 +42,37 @@ function renderRooms(rooms) {
   tbody.innerHTML = '';
 
   if (!rooms || rooms.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="4" class="no-rooms">No rooms yet. Create one to get started!</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5" class="no-rooms">No rooms yet. Create one to get started!</td></tr>`;
     return;
   }
 
   rooms.forEach(room => {
     const tr = document.createElement('tr');
     const playerCount = room.player_count ?? (room.players ? room.players.length : 0);
-    const maxPlayers = room.max_players ?? 4;
+    const maxPlayers  = room.max_players ?? 4;
     const statusClass = getStatusClass(room.status);
+    const isEnded     = room.status === 'ended' || room.status === 'finished';
+
+    // Show the current player's chip balance (if the room has cumulative scores)
+    const scores = room.cumulative_scores || {};
+    const myChips = scores[PLAYER_ID];
+    const chipsCell = myChips !== undefined
+      ? `<span style="color:var(--accent);font-weight:700">${myChips}</span>`
+      : '–';
+
+    // Button: ended rooms show "Rejoin 重回" to return to game page (Play Again button is there)
+    const btnLabel  = isEnded ? 'Rejoin 重回' : 'Join';
+    const btnClass  = isEnded ? 'btn-secondary' : 'btn-primary';
 
     tr.innerHTML = `
       <td>${escapeHtml(room.name || room.id)}</td>
       <td>${playerCount}/${maxPlayers}</td>
       <td><span class="${statusClass}">${formatStatus(room.status)}</span></td>
+      <td>${chipsCell}</td>
       <td>
-        <button class="btn btn-sm btn-primary"
-                onclick="joinRoom('${escapeAttr(room.id)}')"
-                ${room.status === 'finished' ? 'disabled' : ''}>
-          Join
+        <button class="btn btn-sm ${btnClass}"
+                onclick="joinRoom('${escapeAttr(room.id)}')">
+          ${btnLabel}
         </button>
       </td>
     `;
@@ -71,21 +83,26 @@ function renderRooms(rooms) {
 function getStatusClass(status) {
   if (!status) return '';
   const s = status.toLowerCase();
-  if (s === 'waiting')  return 'status-waiting';
-  if (s === 'playing')  return 'status-playing';
-  if (s === 'finished') return 'status-finished';
+  if (s === 'waiting')            return 'status-waiting';
+  if (s === 'playing')            return 'status-playing';
+  if (s === 'finished' || s === 'ended') return 'status-finished';
   return '';
 }
 
 function formatStatus(status) {
   if (!status) return 'Unknown';
-  const map = { waiting: 'Waiting', playing: 'Playing', finished: 'Finished' };
+  const map = {
+    waiting:  'Waiting 等待中',
+    playing:  'Playing 游戏中',
+    finished: 'Finished 已结束',
+    ended:    'Finished 已结束',
+  };
   return map[status.toLowerCase()] || status;
 }
 
 function showTableError(msg) {
   const tbody = document.getElementById('rooms-tbody');
-  tbody.innerHTML = `<tr><td colspan="4" class="no-rooms" style="color:#e08080;">${escapeHtml(msg)}</td></tr>`;
+  tbody.innerHTML = `<tr><td colspan="5" class="no-rooms" style="color:#e08080;">${escapeHtml(msg)}</td></tr>`;
 }
 
 function updateRefreshTime() {
