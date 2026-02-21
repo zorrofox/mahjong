@@ -753,6 +753,24 @@ html, body {
   color: var(--accent);
 }
 
+/* ---------- Speech toggle button ---------- */
+#btn-speech {
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.2);
+  color: var(--text-light);
+  padding: 0.25rem 0.55rem;
+  font-size: 1.05rem;
+  line-height: 1;
+  min-width: unset;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  flex-shrink: 0;
+}
+#btn-speech:hover { background: rgba(255,255,255,0.12); border-color: rgba(255,255,255,0.35); }
+#btn-speech:active { transform: scale(0.94); }
+#btn-speech.muted { opacity: 0.45; }
+
 /* ---------- Modal Actions ---------- */
 .modal-actions {
   margin-top: 1.5rem;

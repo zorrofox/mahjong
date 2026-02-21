@@ -21,6 +21,15 @@ let inClaimWindow  = false;
 let statusDismissTimer = null;
 let claimCountdownTimer = null;
 
+/* ---------- Speech engine singleton ---------- */
+let _speech = null;
+function getSpeech() {
+  if (_speech === null && typeof SpeechEngine !== 'undefined') {
+    _speech = new SpeechEngine();
+  }
+  return _speech;
+}
+
 /* ============================================================
    TILE DISPLAY
    ============================================================ */
@@ -263,11 +272,18 @@ function handleServerMessage(msg) {
 }
 
 function handleGameState(state) {
+  // Detect any discard (by anyone, including AI) before updating gameState
+  const prevState = gameState;
   gameState = state;
 
   // Resolve my player index from the players array
   if (myPlayerIdx === -1 && state.players) {
     myPlayerIdx = state.players.findIndex(p => p.id === PLAYER_ID);
+  }
+
+  // Announce the discarded tile (covers AI discards arriving via game_state)
+  if (prevState && state.last_discard && state.last_discard !== prevState.last_discard) {
+    getSpeech()?.speakTile(state.last_discard);
   }
 
   // Hide claim overlay when we receive a fresh game state
@@ -305,6 +321,8 @@ function handleActionRequired(msg) {
           const tileEl = tiles.filter(el => el.dataset.tile === msg.drawn_tile).at(-1);
           if (tileEl) selectTile(msg.drawn_tile, tileEl);
         }
+        // Announce the drawn tile
+        getSpeech()?.speakTile(msg.drawn_tile);
       }
     } else {
       setStatus('Your turn — choose an action.', 'info');
@@ -322,12 +340,20 @@ function handleClaimWindow(msg) {
   pendingActions = msg.actions || [];
 
   showClaimOverlay(msg.tile, pendingActions, msg.timeout || 30);
+  // Announce the tile available to claim
+  getSpeech()?.speakTile(msg.tile);
 
   setStatus(`Claim opportunity: ${tileToDisplay(msg.tile).label}`);
 }
 
 function handleGameOver(msg) {
   const winnerName = msg.winner_id || `Player ${msg.winner_idx + 1}`;
+  // Announce win or draw
+  if (msg.winner_idx !== null && msg.winner_idx !== undefined && msg.winner_idx >= 0) {
+    getSpeech()?.speak('胡了！', true);
+  } else {
+    getSpeech()?.speak('流局', true);
+  }
   showGameOverModal(
     winnerName,
     msg.scores || {},
@@ -657,11 +683,14 @@ function sendDiscard() {
     setStatus('Please select a tile to discard.', 'error');
     return;
   }
+  // Announce the tile being discarded (priority: player action)
+  getSpeech()?.speakTile(selectedTile, true);
   sendAction('discard', { tile: selectedTile });
   selectedTile = null;
 }
 
 function sendPung() {
+  getSpeech()?.speak('碰！', true);
   sendAction('pung');
   hideClaimOverlay();
 }
@@ -676,6 +705,7 @@ function sendChow() {
   // Try to auto-select a valid chow (adjacent tiles)
   const chowTiles = autoSelectChow(tile, hand);
   if (chowTiles) {
+    getSpeech()?.speak('吃！', true);
     sendAction('chow', { tiles: chowTiles });
     hideClaimOverlay();
   } else {
@@ -720,6 +750,7 @@ function autoSelectChow(discardedTile, hand) {
 
 function sendKong() {
   if (selectedTile) {
+    getSpeech()?.speak('杠！', true);
     sendAction('kong', { tile: selectedTile });
   } else if (gameState) {
     // Self-drawn kong: try to find a tile in hand with 4 copies
@@ -728,6 +759,7 @@ function sendKong() {
     hand.forEach(t => counts[t] = (counts[t] || 0) + 1);
     const kongTile = Object.keys(counts).find(t => counts[t] >= 4);
     if (kongTile) {
+      getSpeech()?.speak('杠！', true);
       sendAction('kong', { tile: kongTile });
     } else {
       setStatus('Select a tile for Kong.', 'error');
@@ -738,6 +770,7 @@ function sendKong() {
 }
 
 function sendWin() {
+  getSpeech()?.speak('胡！', true);
   sendAction('win');
   hideClaimOverlay();
 }
@@ -955,6 +988,31 @@ document.addEventListener('DOMContentLoaded', () => {
   const roomInfoEl = document.getElementById('room-info');
   if (roomInfoEl) {
     roomInfoEl.textContent = `Room: ${ROOM_ID} | Player: ${PLAYER_ID}`;
+  }
+
+  // Speech toggle button
+  const btnSpeech  = document.getElementById('btn-speech');
+  const speechIcon = document.getElementById('speech-icon');
+  const sp = getSpeech();
+  if (btnSpeech) {
+    // Sync icon with persisted state
+    if (sp && !sp.isEnabled()) {
+      speechIcon && (speechIcon.textContent = '🔇');
+      btnSpeech.classList.add('muted');
+    }
+    btnSpeech.addEventListener('click', () => {
+      const engine = getSpeech();
+      if (!engine) return;
+      if (engine.isEnabled()) {
+        engine.disable();
+        speechIcon && (speechIcon.textContent = '🔇');
+        btnSpeech.classList.add('muted');
+      } else {
+        engine.enable();
+        speechIcon && (speechIcon.textContent = '🔊');
+        btnSpeech.classList.remove('muted');
+      }
+    });
   }
 
   // Wire up action buttons
