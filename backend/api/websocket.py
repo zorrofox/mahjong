@@ -453,6 +453,19 @@ async def websocket_endpoint(ws: WebSocket, room_id: str, player_id: str):
     if room and room.game_state:
         gs = room.game_state
         player_idx = _player_index(gs, player_id)
+
+        # Restore human control when a player reconnects after disconnect.
+        # On disconnect the finally block sets is_ai=True so the AI can fill
+        # in; here we reverse that for the real human player (identified by
+        # a non-AI player_id, i.e. not "ai_player_1/2/3").
+        if player_idx is not None and not player_id.startswith("ai_player_"):
+            if gs.players[player_idx].is_ai:
+                gs.players[player_idx].is_ai = False
+                logger.info(
+                    "Player %s reconnected; seat %d restored to human control",
+                    player_id, player_idx,
+                )
+
         state_dict = gs.to_dict(viewing_player_idx=player_idx)
         await _send(ws, {"type": "game_state", "state": state_dict})
 

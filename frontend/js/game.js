@@ -326,7 +326,17 @@ function renderMyHand(player, playerIdx, state) {
   // Render hand tiles
   handEl.innerHTML = '';
   const hand = getHandTiles(player);
-  hand.forEach(tileStr => {
+  // 将手牌按花色和数字排序：条(B) → 饼(C) → 萬(M) → 风/字/花/季
+  const SUIT_ORDER = { B: 0, C: 1, M: 2 };
+  const sortedHand = [...hand].sort((a, b) => {
+    const ia = TILE_MAP[a] || {};
+    const ib = TILE_MAP[b] || {};
+    const sa = ia.suit !== undefined ? SUIT_ORDER[ia.suit] : 3;
+    const sb = ib.suit !== undefined ? SUIT_ORDER[ib.suit] : 3;
+    if (sa !== sb) return sa - sb;
+    return (ia.label || a).localeCompare(ib.label || b);
+  });
+  sortedHand.forEach(tileStr => {
     const el = makeTileEl(tileStr, { clickable: true, selected: tileStr === selectedTile });
     handEl.appendChild(el);
   });
