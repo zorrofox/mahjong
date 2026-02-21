@@ -778,11 +778,20 @@ function autoSelectChow(discardedTile, hand) {
 }
 
 function sendKong() {
+  if (inClaimWindow) {
+    // Claiming a kong from another player's discard.
+    // Server uses gs.last_discard when no tile is specified.
+    getSpeech()?.speak('杠！', true);
+    sendAction('kong');
+    hideClaimOverlay();
+    return;
+  }
   if (selectedTile) {
+    // Extend-pung or concealed kong on the selected tile.
     getSpeech()?.speak('杠！', true);
     sendAction('kong', { tile: selectedTile });
   } else if (gameState) {
-    // Self-drawn kong: try to find a tile in hand with 4 copies
+    // Self-drawn kong: auto-detect a 4-of-a-kind in hand.
     const hand = getHandTiles(gameState.players?.[myPlayerIdx]);
     const counts = {};
     hand.forEach(t => counts[t] = (counts[t] || 0) + 1);
