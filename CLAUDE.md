@@ -1370,16 +1370,22 @@ def _pay(payer_idx: int) -> int:
 
 ---
 
-### 规则修正 #13：最低 3 番起胡
+### 规则修正 #13：最低番数起胡门槛（MIN_HAN）
 
-**问题**：任意合法牌型均可胡牌，港式规则要求合计番数 ≥ 3 才可胡。
+**问题**：任意合法牌型均可胡牌，港式严格赛事规则要求合计番数 ≥ 3 才可胡。
 
-**修复**（`backend/game/game_state.py`）：新增常量 `MIN_HAN = 3`，在三处执行最低番数检查：
-- `get_available_actions()`：不显示"胡"按钮（防止玩家尝试不够番的胡牌）
-- `declare_win()`：抛出 `ValueError("...fan; minimum 3 required to win.")`
-- `_resolve_claims()`：拒绝声索并推进至下一轮
+**实现**（`backend/game/game_state.py`）：新增常量 `MIN_HAN`，在三处执行最低番数检查：
+- `get_available_actions()`：番数不足时不显示"胡"按钮
+- `declare_win()`：番数不足时抛出 `ValueError`
+- `_resolve_claims()`：番数不足时拒绝声索并推进至下一轮
 
-**新增测试**（`TestMinimumFanRequirement`，4 个）：常量值、低番被拒、高番被接受、七对满足最低番数。
+**调整历史**：
+- 初始设为 `MIN_HAN = 3`（港式赛事规则）
+- **后回退至 `MIN_HAN = 1`**（任意合法手牌可胡）——因为 `MIN_HAN = 3` 过于严格，导致大量典型日常手牌无法胡牌（例：荣和 + 有副露 + 有花牌 = 仅基本分 1 番；荣和 + 有副露 + 无花牌 = 2 番），人类玩家几乎不可能满足 3 番门槛，而 AI 随机碰到复杂手牌才能胡。港式日常打法通常采用「最低 1 番」（任意结构合法即可胡）。
+
+**当前值**：`MIN_HAN = 1`（可在 `game_state.py` 中调整为 3 以启用严格赛事规则）
+
+**新增测试**（`TestMinimumFanRequirement`，4 个）：常量值 ≥ 1、低番手牌在 MIN_HAN 以上时跳过、高番手牌被接受、七对满足最低番数。
 
 ---
 
@@ -1421,7 +1427,7 @@ if extend_meld_idx is not None and player.hand.count(tile) >= 1:
 | 文件 | 改动 |
 |---|---|
 | `backend/game/hand.py` | 平胡加 `ron` 条件；混幺九 `any()` → `all()`；七对 `is_winning_hand` 已启用 |
-| `backend/game/game_state.py` | `MIN_HAN = 3`；`_is_rob_kong_window` 状态；`claim_kong()` 延伸碰路径；`get_available_actions()` 搶杠限制；`_resolve_claims()` 搶杠分支；`_complete_extend_kong()` 方法 |
+| `backend/game/game_state.py` | `MIN_HAN = 1`（可调）；`_is_rob_kong_window` 状态；`claim_kong()` 延伸碰路径；`get_available_actions()` 搶杠限制；`_resolve_claims()` 搶杠分支；`_complete_extend_kong()` 方法 |
 | `backend/api/websocket.py` | `_pay()` 修正庄家赢时两倍付出 |
 | `backend/tests/test_hand.py` | `TestSevenPairsWinningHand`（4）、`TestPingHuRonOnly`（已在 game_state 测试）、`TestHunYaoJiu` |
 | `backend/tests/test_game_state.py` | `TestRonChipFormulaDealerWin`（5）、`TestMinimumFanRequirement`（4）、`TestExtendPungKong`（5）、`TestRobTheKong`（2） |
