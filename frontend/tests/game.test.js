@@ -134,9 +134,11 @@ describe('tileToDisplay', () => {
   })
 
   it('maps BAMBOO tiles correctly', () => {
+    const HANZI = ['一','二','三','四','五','六','七','八','九']
     for (let i = 1; i <= 9; i++) {
       const info = tileToDisplay(`BAMBOO_${i}`)
-      expect(info.text).toBe(`${i}`)
+      expect(info.text).toBe(HANZI[i-1])
+      expect(info.sub).toBe('条')
       expect(info.label).toBe(`B${i}`)
       expect(info.cls).toBe('tile-bamboo')
       expect(info.suit).toBe('B')
@@ -144,9 +146,11 @@ describe('tileToDisplay', () => {
   })
 
   it('maps CIRCLES tiles correctly', () => {
+    const HANZI = ['一','二','三','四','五','六','七','八','九']
     for (let i = 1; i <= 9; i++) {
       const info = tileToDisplay(`CIRCLES_${i}`)
-      expect(info.text).toBe(`${i}`)
+      expect(info.text).toBe(HANZI[i-1])
+      expect(info.sub).toBe('饼')
       expect(info.label).toBe(`C${i}`)
       expect(info.cls).toBe('tile-circles')
       expect(info.suit).toBe('C')
@@ -154,9 +158,11 @@ describe('tileToDisplay', () => {
   })
 
   it('maps CHARACTERS tiles correctly', () => {
+    const HANZI = ['一','二','三','四','五','六','七','八','九']
     for (let i = 1; i <= 9; i++) {
       const info = tileToDisplay(`CHARACTERS_${i}`)
-      expect(info.text).toBe(`${i}`)
+      expect(info.text).toBe(HANZI[i-1])
+      expect(info.sub).toBe('萬')
       expect(info.label).toBe(`M${i}`)
       expect(info.cls).toBe('tile-characters')
       expect(info.suit).toBe('M')

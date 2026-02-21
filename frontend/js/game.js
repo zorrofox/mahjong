@@ -25,18 +25,19 @@ let statusDismissTimer = null;
    ============================================================ */
 const TILE_MAP = (() => {
   const m = {};
+  const HANZI = ['一','二','三','四','五','六','七','八','九'];
 
-  // Bamboo 1-9
+  // Bamboo 1-9 (条子)
   for (let i = 1; i <= 9; i++) {
-    m[`BAMBOO_${i}`] = { text: `${i}`, label: `B${i}`, cls: 'tile-bamboo', suit: 'B' };
+    m[`BAMBOO_${i}`] = { text: HANZI[i-1], sub: '条', label: `B${i}`, cls: 'tile-bamboo', suit: 'B' };
   }
-  // Circles 1-9
+  // Circles 1-9 (筒子/饼)
   for (let i = 1; i <= 9; i++) {
-    m[`CIRCLES_${i}`] = { text: `${i}`, label: `C${i}`, cls: 'tile-circles', suit: 'C' };
+    m[`CIRCLES_${i}`] = { text: HANZI[i-1], sub: '饼', label: `C${i}`, cls: 'tile-circles', suit: 'C' };
   }
-  // Characters 1-9 (Man)
+  // Characters 1-9 (万字)
   for (let i = 1; i <= 9; i++) {
-    m[`CHARACTERS_${i}`] = { text: `${i}`, label: `M${i}`, cls: 'tile-characters', suit: 'M' };
+    m[`CHARACTERS_${i}`] = { text: HANZI[i-1], sub: '萬', label: `M${i}`, cls: 'tile-characters', suit: 'M' };
   }
   // Winds
   m['EAST']  = { text: '東', label: 'E',  cls: 'tile-wind' };
@@ -118,14 +119,10 @@ function makeTileEl(tileStr, options = {}) {
   const info = tileToDisplay(tileStr);
   el.classList.add(...info.cls.split(' ').filter(Boolean));
 
-  // Two-line display: suit letter on bottom, number on top
-  if (info.suit) {
-    el.innerHTML = `<span style="display:flex;flex-direction:column;align-items:center;line-height:1;">
-      <span style="font-size:1.1em">${info.text}</span>
-      <span style="font-size:0.7em;opacity:0.7">${info.suit}</span>
-    </span>`;
+  if (info.sub) {
+    el.innerHTML = `<span class="tile-main">${escapeHtml(info.text)}</span><span class="tile-sub">${escapeHtml(info.sub)}</span>`;
   } else {
-    el.textContent = info.text;
+    el.innerHTML = `<span class="tile-main">${escapeHtml(info.text)}</span>`;
   }
 
   el.title = info.label || tileStr;

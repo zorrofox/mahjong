@@ -355,76 +355,137 @@ html, body {
   vertical-align: middle;
 }
 
-/* ---------- TILES ---------- */
+/* ---------- TILES - Traditional Mahjong Style ---------- */
 .tile {
   display: inline-flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 44px;
-  background: var(--tile-bg);
-  border: 1px solid var(--tile-border);
-  border-radius: var(--border-radius-tile);
-  box-shadow: 1px 2px 3px var(--tile-shadow);
-  font-size: 0.72rem;
-  font-weight: bold;
-  color: #2a1a0a;
+  gap: 1px;
+  width: 36px;
+  height: 50px;
+  /* Ivory bone background with gradient for depth */
+  background: linear-gradient(150deg, #fffef5 0%, #f7f2e2 55%, #ede4c4 100%);
+  /* Bevel: bright top-left, dark bottom-right */
+  border-top:    2px solid #fff8e8;
+  border-left:   2px solid #fff5e0;
+  border-right:  2px solid #9a7e38;
+  border-bottom: 3px solid #9a7e38;
+  border-radius: 3px;
+  box-shadow: 2px 3px 6px rgba(0,0,0,0.45);
   cursor: default;
   user-select: none;
   flex-shrink: 0;
-  transition: transform 0.1s, box-shadow 0.1s, background 0.1s;
+  transition: transform 0.1s, box-shadow 0.1s;
   position: relative;
-  line-height: 1.1;
-  text-align: center;
+}
+
+/* Inner characters */
+.tile-main {
+  font-size: 1.25em;
+  line-height: 1.05;
+  font-weight: 900;
+  font-family: 'Noto Serif SC', 'Source Han Serif CN', 'SimSun', 'STSong', 'KaiTi', serif;
+}
+.tile-sub {
+  font-size: 0.55em;
+  line-height: 1;
+  font-weight: 700;
+  opacity: 0.82;
+  font-family: 'Noto Serif SC', 'Source Han Serif CN', 'SimSun', 'STSong', 'KaiTi', serif;
 }
 
 /* Tile in discard pile (smaller) */
 .discard-pile .tile {
-  width: 22px;
-  height: 30px;
-  font-size: 0.6rem;
-  border-radius: 2px;
+  width: 26px;
+  height: 36px;
+  border-top-width:    1px;
+  border-left-width:   1px;
+  border-right-width:  1px;
+  border-bottom-width: 2px;
+  gap: 0;
+  box-shadow: 1px 2px 3px rgba(0,0,0,0.4);
 }
+.discard-pile .tile .tile-main { font-size: 1em; }
+.discard-pile .tile .tile-sub  { font-size: 0.48em; }
 
 /* Tile in hand (bottom area) */
 .my-hand .tile {
-  width: 40px;
-  height: 56px;
-  font-size: 0.8rem;
+  width: 44px;
+  height: 62px;
   cursor: pointer;
 }
+.my-hand .tile .tile-main { font-size: 1.55em; }
+.my-hand .tile .tile-sub  { font-size: 0.62em; }
 
 .my-hand .tile:hover {
-  transform: translateY(-4px);
-  box-shadow: 2px 6px 8px var(--tile-shadow);
+  transform: translateY(-6px);
+  box-shadow: 3px 8px 14px rgba(0,0,0,0.55);
 }
 
 .my-hand .tile.selected {
-  background: var(--tile-selected);
-  border-color: #b8860b;
-  transform: translateY(-8px);
-  box-shadow: 2px 8px 12px rgba(0,0,0,0.5);
+  background: linear-gradient(150deg, #fff8b0 0%, #ffe44a 60%, #f0c428 100%);
+  border-top-color:    #ffee80;
+  border-left-color:   #ffee80;
+  border-right-color:  #9a7800;
+  border-bottom-color: #9a7800;
+  transform: translateY(-10px);
+  box-shadow: 3px 10px 18px rgba(0,0,0,0.6);
 }
 
-/* Face-down tile */
+/* Face-down tile — diagonal stripe pattern */
 .tile-back {
-  background: var(--tile-back);
-  border-color: var(--tile-back-border);
-  color: rgba(255,255,255,0.15);
+  background:
+    repeating-linear-gradient(
+      45deg,
+      #1e3a7a,
+      #1e3a7a 4px,
+      #2a52a8 4px,
+      #2a52a8 9px
+    );
+  border-top-color:    #4a6ad0;
+  border-left-color:   #4a6ad0;
+  border-right-color:  #0e2050;
+  border-bottom-color: #0e2050;
   cursor: default;
 }
 
+/* Opponent hand tiles */
+.opponent-hand .tile {
+  width: 24px;
+  height: 33px;
+  border-top-width:    1px;
+  border-left-width:   1px;
+  border-right-width:  1px;
+  border-bottom-width: 2px;
+  gap: 0;
+  box-shadow: 1px 2px 3px rgba(0,0,0,0.4);
+}
+.opponent-hand .tile .tile-main { font-size: 0.95em; }
+.opponent-hand .tile .tile-sub  { font-size: 0.46em; }
+
+/* Claim overlay tile */
+.claim-tile-display .tile {
+  width: 56px;
+  height: 78px;
+}
+.claim-tile-display .tile .tile-main { font-size: 2em; }
+.claim-tile-display .tile .tile-sub  { font-size: 0.75em; }
+
 /* Tile color variants */
-.tile-bamboo    { color: #1a6b1a; }
-.tile-circles   { color: #8b0000; }
-.tile-characters { color: #00008b; }
-.tile-wind      { color: #2a2a2a; }
-.tile-dragon    { color: #8b0000; }
-.tile-red       { color: #cc0000; }
-.tile-green     { color: #008000; }
-.tile-white     { color: #888; }
-.tile-flower    { color: #9b59b6; }
-.tile-season    { color: #e67e22; }
+.tile-bamboo    .tile-main { color: #1a5c1a; }
+.tile-bamboo    .tile-sub  { color: #1a5c1a; }
+.tile-circles   .tile-main { color: #8b1414; }
+.tile-circles   .tile-sub  { color: #8b1414; }
+.tile-characters .tile-main { color: #14148b; }
+.tile-characters .tile-sub  { color: #14148b; }
+.tile-wind      .tile-main { color: #1a1a1a; }
+.tile-dragon    .tile-main { color: #1a1a1a; }
+.tile-red       .tile-main { color: #cc0000; font-weight: 900; }
+.tile-green     .tile-main { color: #007a00; font-weight: 900; }
+.tile-white     .tile-main { color: #5570a0; }
+.tile-flower    .tile-main { color: #8b1a8b; }
+.tile-season    .tile-main { color: #a85000; }
 
 /* Meld group */
 .meld-group {
@@ -455,7 +516,7 @@ html, body {
   flex-wrap: wrap;
   justify-content: center;
   gap: 3px;
-  max-height: 70px;
+  max-height: 80px;
   overflow-x: auto;
   padding: 2px 4px 4px;
 }
@@ -474,12 +535,6 @@ html, body {
   justify-content: center;
   gap: 2px;
   max-width: 100%;
-}
-
-.opponent-hand .tile {
-  width: 20px;
-  height: 28px;
-  font-size: 0.6rem;
 }
 
 /* Left/Right player - vertical orientation */
@@ -681,10 +736,11 @@ html, body {
     grid-template-rows: 110px 1fr 110px;
   }
   .my-hand .tile {
-    width: 34px;
-    height: 48px;
-    font-size: 0.72rem;
+    width: 36px;
+    height: 52px;
   }
+  .my-hand .tile .tile-main { font-size: 1.3em; }
+  .my-hand .tile .tile-sub  { font-size: 0.55em; }
 }
 
 /* Utility */
