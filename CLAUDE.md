@@ -1434,6 +1434,96 @@ if extend_meld_idx is not None and player.hand.count(tile) >= 1:
 
 ---
 
+### 规则修正 #4：混幺九 番数 +2 → +3
+
+**问题**：混幺九固定给 +2 番，港式标准为 +3 番。
+
+**修复**（`backend/game/hand.py`）：将 `add('混幺九', ..., 2)` 改为 `add('混幺九', ..., 3)`。
+
+**新增测试**（`TestHunYaoJiuFanValue`，1 个）：验证混幺九值为 3。
+
+---
+
+### 规则修正 #5：门清仅限荣和
+
+**问题**：门清 +1 在自摸时也被授予；港式规则要求门清只适用于荣和（ron）。
+
+**修复**（`backend/game/hand.py`）：在门清条件上增加 `and ron`：
+```python
+if not declared_melds and ron:
+    add('门清', 'Concealed Hand', 1)
+```
+自摸门清手牌改为只获得 `自摸 +1`，不再叠加门清。
+
+**新增测试**（`TestMenQingRonOnly`，2 个）：荣和时给门清、自摸时不给门清但给自摸。
+
+---
+
+### 规则修正 #8：嶺上開花（杠后摸牌胡）+1 番
+
+**问题**：任何杠后补摸牌胡牌未额外计 +1 番。
+
+**实现**：
+
+1. `game_state.py`：新增 `self.lingshang_pending: bool = False` 标志位——杠后补摸牌时置 `True`，出牌时或 `_finalize_win` 消费后清除。
+
+2. `hand.py`：`calculate_han` 新增 `ling_shang: bool = False` 参数，自摸且 `ling_shang=True` 时加 `嶺上開花 +1`：
+```python
+if ling_shang and not ron:
+    add('嶺上開花', 'Kong Win (Lingshang)', 1)
+```
+
+**新增测试**（`TestLingShang`，2 个）：嶺上開花自摸 +1 番、荣和时不给嶺上開花。
+
+---
+
+### 规则修正 #9：本命花（座位花）+1 番/张
+
+**问题**：收到与自己座位匹配的花牌/季牌无额外番数。
+
+**座位花对应关系**：
+
+| 座位 | 座位花 |
+|---|---|
+| 0（东） | FLOWER_1、SEASON_1 |
+| 1（南） | FLOWER_2、SEASON_2 |
+| 2（西） | FLOWER_3、SEASON_3 |
+| 3（北） | FLOWER_4、SEASON_4 |
+
+**实现**（`backend/game/hand.py`）：新增 `_SEAT_FLOWERS` 常量，`calculate_han` 新增 `player_seat: int = 0` 参数，每张匹配的本命花给 +1：
+```python
+seat_flower_set = _SEAT_FLOWERS.get(player_seat, frozenset())
+for f in flowers:
+    if f in seat_flower_set:
+        add('本命花', 'Seat Flower', 1)
+```
+
+**新增测试**（`TestSeatFlower`，3 个）：本命花 +1、两张本命花 +2、非本命花不给分。
+
+---
+
+### 规则修正 #12：圈风追踪 + 自风碰/圈风碰 +1 番
+
+**问题**：无圈风（场风）追踪，碰风牌无额外番数。
+
+**规则**：
+- **自风碰**：碰了本座位的风牌（如东家碰东风）→ +1 番
+- **圈风碰**：碰了当前圈风牌 → +1 番
+- 两者可叠加：东风圈中东家碰东风 = +2 番（自风碰 + 圈风碰）
+
+**实现**：
+
+| 文件 | 改动 |
+|---|---|
+| `room_manager.py` | `Room` 新增 `round_wind_idx: int = 0`、`dealer_advances: int = 0` |
+| `websocket.py` | `_handle_game_over()` 每次换庄累计 `dealer_advances`，每满 4 次推进一轮圈风（东→南→西→北） |
+| `game_state.py` | `__init__` 接受 `round_wind_idx`，传给 `calculate_han`，暴露在 `to_dict()` |
+| `hand.py` | 新增 `_WIND_TILES` 常量、`round_wind_idx` 参数；检测自风碰/圈风碰并各给 +1 |
+
+**新增测试**（`TestWindPungs`，4 个）：自风碰 +1、圈风碰 +1、东风圈东家碰东风两项均触发、不匹配时无加成。
+
+---
+
 ## 测试体系
 
 ### 运行方式
@@ -1496,5 +1586,5 @@ pytest -v
 | 计分系统 | 番数驱动结算（unit=2^(n-1)，庄家双倍，杠钱即时，详见功能增强 5） | 天胡/地胡等特殊牌型；庄家轮换；番型加倍上限调整 |
 | AI 强度 | 启发式贪心 | 蒙特卡洛或规则引擎 |
 | 移动端适配 | 桌面优先（1024px+） | 触屏手势支持 |
-| 测试覆盖 | 322 tests（后端 258 + 前端 64），含声索窗口、手牌排序、加杠/搶杠胡、规则修正专项测试 | E2E 浏览器测试（Playwright） |
+| 测试覆盖 | 333 tests（后端 269 + 前端 64），含声索窗口、手牌排序、加杠/搶杠胡、番数/圈风/本命花规则修正专项测试 | E2E 浏览器测试（Playwright） |
 | 多语言 | 界面为中英混合 | i18n 国际化 |
