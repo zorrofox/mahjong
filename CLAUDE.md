@@ -1663,27 +1663,42 @@ enable() / disable() / isEnabled()   // 开关（持久化至 localStorage）
 5. zh-TW / zh-HK
 6. 任意 zh 语音
 
-**防堆积机制**：非优先语音在 `speechSynthesis.speaking || pending` 时跳过（防止 AI 快速出牌造成语音队列堆积）；优先语音（碰/吃/杠/胡/流局）直接 `cancel()` 打断当前播报。
+**三模式播报引擎**（替换原有 priority 布尔值）：
+
+| 模式 | 行为 | 用途 |
+|---|---|---|
+| `'skip'`（默认） | 正在播报则跳过 | AI/任意出牌牌名、声索窗口牌名、摸牌牌名 |
+| `'queue'` | 入队，当前结束后**立即**接着播 | 对手碰/吃/杠（跟在出牌牌名后，不重叠） |
+| `'immediate'` | 取消当前 + 清空队列 + 立即播 | 自己出牌牌名、自己碰/吃/杠/胡、胡了/流局 |
+
+内部使用 `#active` 标志 + `#queue` 数组（最多存 1 项），`utt.onend` 回调自动消费队列，实现出牌牌名 → 对手操作的顺序衔接。
+
+**典型时序**：
+```
+对手打 "三万"     → speakTile('skip')   → 播 "三万"
+另一对手随即碰牌   → speak('queue')     → 入队
+"三万" 播完        → onend 触发        → 立即接播 "碰"
+```
 
 ### 触发时机
 
-| 游戏事件 | 语音内容 | 优先级 | 触发方式 |
+| 游戏事件 | 语音内容 | 模式 | 触发方式 |
 |---|---|---|---|
-| 任意玩家出牌（含 AI） | 牌名（如"三万"） | 普通 | `handleGameState` last_discard 变化 |
-| 我方摸牌 | 牌名 | 普通 | `handleActionRequired` drawn_tile |
-| 声索窗口出现 | 可抢牌名 | 普通 | `handleClaimWindow` |
-| 对手碰 | "碰" | 普通 | `handleGameState` 副露数量增加且首张相同 |
-| 对手吃 | "吃" | 普通 | `handleGameState` 副露数量增加且首张不同 |
-| 对手杠（含加杠） | "杠" | 普通 | `handleGameState` 副露增加且长≥4，或同数量但某副露从3涨到4 |
-| 我方出牌 | 牌名 | **高**（打断） | `sendDiscard` |
-| 我方碰 | "碰！" | **高** | `sendPung` |
-| 我方吃 | "吃！" | **高** | `sendChow` |
-| 我方杠 | "杠！" | **高** | `sendKong` |
-| 我方胡 | "胡！" | **高** | `sendWin` |
-| 游戏结束-胡牌 | "胡了！" | **高** | `handleGameOver` winner 存在 |
-| 游戏结束-流局 | "流局" | **高** | `handleGameOver` no winner |
+| 任意玩家出牌（含 AI） | 牌名（如"三万"） | `skip` | `handleGameState` last_discard 变化 |
+| 我方摸牌 | 牌名 | `skip` | `handleActionRequired` drawn_tile |
+| 声索窗口出现 | 可抢牌名 | `skip` | `handleClaimWindow` |
+| 对手碰 | "碰" | **`queue`** | `handleGameState` 副露增加且首张相同 |
+| 对手吃 | "吃" | **`queue`** | `handleGameState` 副露增加且首张不同 |
+| 对手杠（含加杠） | "杠" | **`queue`** | `handleGameState` 副露增加且长≥4，或某副露3→4 |
+| 我方出牌 | 牌名 | **`immediate`** | `sendDiscard` |
+| 我方碰 | "碰！" | **`immediate`** | `sendPung` |
+| 我方吃 | "吃！" | **`immediate`** | `sendChow` |
+| 我方杠 | "杠！" | **`immediate`** | `sendKong` |
+| 我方胡 | "胡！" | **`immediate`** | `sendWin` |
+| 游戏结束-胡牌 | "胡了！" | **`immediate`** | `handleGameOver` |
+| 游戏结束-流局 | "流局" | **`immediate`** | `handleGameOver` |
 
-**双重播报防止**：我方碰/吃/杠由 `send*` 函数以 `priority=true` 立即播报；`handleGameState` 的副露检测跳过 `myPlayerIdx`，不会重复播报自己的动作。
+**双重播报防止**：我方操作由 `send*` 函数以 `'immediate'` 立即播报；`handleGameState` 的副露检测跳过 `myPlayerIdx`，不会重复播报自己的动作。
 
 ### 修改文件
 
