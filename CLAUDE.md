@@ -645,6 +645,63 @@ sortHandTiles(getHandTiles(player)).forEach(tileStr => { ... });
 
 ---
 
+### Bug 11：有副露时无法胡牌（"win" 按钮从不出现）
+
+**发现时间**：正常游玩（碰牌后尝试胡牌时发现）
+**现象**：玩家已碰/吃/杠后，即使手牌构成胡牌型，界面上也不会出现"胡"按钮；即使强制发送 `{"type": "win"}` 也会收到 `error`。
+
+**根本原因**：`get_available_actions` 和 `declare_win` 均只将 `player.hand_without_bonus()` 传给 `is_winning_hand`，完全忽略已声索的副露。
+
+- 有 1 个副露（3 张碰牌已移出手牌）：`hand_without_bonus()` 仅剩 11 张
+- `get_available_actions` 中检查 `len(effective_hand) == 14` → 11 ≠ 14 → 不添加 `"win"`
+- `is_winning_hand(11 张)` 期望找到 4 组 + 1 对 → 凑不够 → 始终返回 False
+
+**正确的"14 张牌"不变量**：
+
+| 副露数 | 手牌 | 副露代表牌（每副 3 张，杠也取前 3） | 合计 |
+|---|---|---|---|
+| 0 | 14 | 0 | 14 |
+| 1 | 11 | 3 | 14 |
+| 2 | 8 | 6 | 14 |
+| 3 | 5 | 9 | 14 |
+| 4 | 2 | 12 | 14 |
+
+杠为 4 张牌，但仅取前 3 张作为代表（`meld[:3]`），因为杠摸牌已补回第 4 张的手牌位置。
+
+**修复方案**：在所有 4 处 `is_winning_hand` 调用前计算副露代表牌，并将其合并后传入：
+
+```python
+meld_tiles = [t for meld in player.melds for t in meld[:3]]
+# 1. get_available_actions 自摸阶段：
+if len(effective_hand) + len(meld_tiles) == 14 and is_winning_hand(effective_hand + meld_tiles):
+    actions.append("win")
+
+# 2. get_available_actions 声索阶段：
+test_hand = effective_hand + [tile] + meld_tiles
+if is_winning_hand(test_hand):
+    actions.append("win")
+
+# 3. declare_win 自摸：
+if not is_winning_hand(effective_hand + meld_tiles):
+    raise ValueError(...)
+
+# 4. declare_win 荣和：
+effective_hand = player.hand_without_bonus() + [tile]
+if not is_winning_hand(effective_hand + meld_tiles):
+    raise ValueError(...)
+```
+
+**修改文件**：`backend/game/game_state.py` — `get_available_actions`（2 处）、`declare_win`（2 处）
+
+**新增测试**（`backend/tests/test_game_state.py`，5 个）：
+- `test_self_draw_win_with_pung_meld`：有 1 副碰牌时自摸胡牌
+- `test_self_draw_win_action_offered_with_melds`：有副露时 `"win"` 出现在可用操作中
+- `test_ron_win_with_pung_meld`：有 1 副碰牌时荣和
+- `test_ron_win_action_offered_with_melds`：有副露时声索阶段 `"win"` 出现
+- （原有）各阶段胡牌基础路径保持 pass
+
+---
+
 ## 测试体系
 
 ### 运行方式
@@ -707,5 +764,5 @@ pytest -v
 | 计分系统 | 简化版（基础分 + 副加分） | 完整番种计算 |
 | AI 强度 | 启发式贪心 | 蒙特卡洛或规则引擎 |
 | 移动端适配 | 桌面优先（1024px+） | 触屏手势支持 |
-| 测试覆盖 | 342 tests，含声索窗口 + 手牌排序集成测试 | E2E 浏览器测试（Playwright） |
+| 测试覆盖 | 346 tests，含声索窗口 + 手牌排序 + 副露胡牌集成测试 | E2E 浏览器测试（Playwright） |
 | 多语言 | 界面为中英混合 | i18n 国际化 |
