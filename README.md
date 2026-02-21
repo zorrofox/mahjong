@@ -16,6 +16,8 @@ A browser-based multiplayer Mahjong game. Supports 1–4 human players per room;
 - 声索优先级：胡 > 碰/杠 > 吃
 - 自摸与荣和均支持
 - 传统麻将牌视觉风格：汉字数字（一～九）+ 花色名（萬/条/饼），象牙骨色 3D 浮雕牌面
+- 手牌自动整理（条 → 饼 → 萬 → 风/字/花季）
+- 游戏结束后支持一键重开局（保留原房间人类玩家）
 - 响应式绿毡牌桌界面
 
 ---
@@ -40,12 +42,12 @@ uvicorn main:app --reload --port 8000
 ├── backend/
 │   ├── game/          # 游戏引擎（牌型、胡牌、状态机、AI）
 │   ├── api/           # FastAPI 路由 + WebSocket 处理
-│   └── tests/         # 后端单元测试（233 tests）
+│   └── tests/         # 后端单元测试（237 tests）
 ├── frontend/
 │   ├── js/            # 大厅 + 游戏客户端
-│   └── tests/         # 前端单元测试（56 tests）
+│   └── tests/         # 前端单元测试（64 tests）
 └── tests/
-    └── integration/   # REST + WebSocket 集成测试（45 tests）
+    └── integration/   # REST + WebSocket 集成测试（48 tests）
 ```
 
 ---
@@ -98,5 +100,6 @@ pytest -v
 | `{"type": "kong", "tile": "..."}` | 杠 |
 | `{"type": "win"}` | 声明胡牌 |
 | `{"type": "skip"}` | 过 |
+| `{"type": "restart_game"}` | 重开局（仅游戏结束后有效） |
 
 详细文档见 [CLAUDE.md](CLAUDE.md)。

@@ -42,11 +42,11 @@ majiang/
 │   │   ├── routes.py                # REST 接口：列出/创建/加入/开始房间
 │   │   └── websocket.py             # WebSocket 游戏事件处理、AI 自动操作
 │   └── tests/                       # 后端单元测试（pytest）
-│       ├── test_tiles.py            # 52 tests
+│       ├── test_tiles.py            # 74 tests
 │       ├── test_hand.py             # 47 tests
-│       ├── test_game_state.py       # 50 tests
+│       ├── test_game_state.py       # 54 tests
 │       ├── test_ai_player.py        # 23 tests
-│       ├── test_room_manager.py     # 28 tests
+│       ├── test_room_manager.py     # 26 tests
 │       └── test_routes.py           # 13 tests
 ├── frontend/
 │   ├── index.html                   # 大厅页：房间列表、创建/加入
@@ -57,14 +57,15 @@ majiang/
 │   │   ├── lobby.js                 # 大厅逻辑：轮询房间列表
 │   │   └── game.js                  # 游戏逻辑：WebSocket 客户端、渲染
 │   └── tests/                       # 前端单元测试（Vitest）
-│       ├── game.test.js             # 37 tests
+│       ├── game.test.js             # 45 tests
 │       └── lobby.test.js            # 19 tests
 └── tests/
     └── integration/                 # 集成测试（pytest + httpx）
         ├── conftest.py              # TestClient fixtures
         ├── test_rest_api.py         # 14 tests
-        ├── test_websocket.py        # 9 tests
-        └── test_claim_window.py     # 15 tests（声索窗口完整流程）
+        ├── test_websocket.py        # 12 tests（含 TestRestartGame）
+        ├── test_claim_window.py     # 15 tests（声索窗口完整流程）
+        └── test_hand_order.py       # 7 tests（手牌排序验证）
 ```
 
 ---
@@ -229,17 +230,17 @@ drawing → discarding → claiming → (下一轮 drawing)
 | `game/hand.py` | 313 | 胡牌算法 |
 | `game/tiles.py` | 201 | 牌型定义 |
 | `game/room_manager.py` | 218 | 房间管理 |
-| `api/websocket.py` | 664 | WebSocket 处理 |
+| `api/websocket.py` | 731 | WebSocket 处理 |
 | `api/routes.py` | 102 | REST 接口 |
 | `main.py` | 54 | 应用入口 |
-| `frontend/js/game.js` | 880 | 游戏客户端 |
+| `frontend/js/game.js` | 875 | 游戏客户端 |
 | `frontend/js/lobby.js` | 177 | 大厅客户端 |
 | `frontend/css/style.css` | 760 | 样式表 |
-| **业务代码合计** | **~4,470** | |
-| `backend/tests/` | ~900 | 后端单元测试（233 tests） |
-| `frontend/tests/` | ~420 | 前端单元测试（64 tests） |
-| `tests/integration/` | ~1,100 | 集成测试（45 tests） |
-| **测试代码合计** | **~2,420** | |
+| **业务代码合计** | **~4,520** | |
+| `backend/tests/` | ~1,540 | 后端单元测试（237 tests） |
+| `frontend/tests/` | ~550 | 前端单元测试（64 tests） |
+| `tests/integration/` | ~1,120 | 集成测试（48 tests） |
+| **测试代码合计** | **~3,210** | |
 
 ---
 
@@ -804,7 +805,7 @@ pytest -v
 | 测试文件 | 测试数 | 覆盖范围 |
 |---|---|---|
 | `test_rest_api.py` | 14 | 全部 REST 端点（列出/创建/加入/开始房间） |
-| `test_websocket.py` | 9 | WS 连接、游戏状态结构、手牌可见性 |
+| `test_websocket.py` | 12 | WS 连接、游戏状态结构、手牌可见性、重开局（TestRestartGame） |
 | `test_claim_window.py` | 15 | 碰/吃/杠/过/胡 完整声索窗口流程 |
 | `test_hand_order.py` | 7 | 服务端不排序验证 + Python 复现 JS 排序算法 |
 
