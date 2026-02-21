@@ -63,7 +63,8 @@ majiang/
     └── integration/                 # 集成测试（pytest + httpx）
         ├── conftest.py              # TestClient fixtures
         ├── test_rest_api.py         # 14 tests
-        └── test_websocket.py        # 9 tests
+        ├── test_websocket.py        # 9 tests
+        └── test_claim_window.py     # 15 tests（声索窗口完整流程）
 ```
 
 ---
@@ -237,8 +238,8 @@ drawing → discarding → claiming → (下一轮 drawing)
 | **业务代码合计** | **~4,454** | |
 | `backend/tests/` | ~900 | 后端单元测试（233 tests） |
 | `frontend/tests/` | ~350 | 前端单元测试（56 tests） |
-| `tests/integration/` | ~400 | 集成测试（23 tests） |
-| **测试代码合计** | **~1,650** | |
+| `tests/integration/` | ~850 | 集成测试（38 tests） |
+| **测试代码合计** | **~2,100** | |
 
 ---
 
@@ -603,6 +604,16 @@ pytest -v
 
 注：`api/websocket.py` 异步流程通过集成测试覆盖，未计入单元测试覆盖率。
 
+### 集成测试分布
+
+| 测试文件 | 测试数 | 覆盖范围 |
+|---|---|---|
+| `test_rest_api.py` | 14 | 全部 REST 端点（列出/创建/加入/开始房间） |
+| `test_websocket.py` | 9 | WS 连接、游戏状态结构、手牌可见性 |
+| `test_claim_window.py` | 15 | 碰/吃/杠/过/胡 完整声索窗口流程 |
+
+`test_claim_window.py` 策略：通过 REST 开始游戏后直接操控 `room.game_state`，将局面固定到声索阶段（控制手牌、弃牌、已跳过玩家），再通过 WS 连接触发同步 `claim_window` 消息，验证声索结果。
+
 ---
 
 ## 已知限制与后续扩展方向
@@ -614,5 +625,5 @@ pytest -v
 | 计分系统 | 简化版（基础分 + 副加分） | 完整番种计算 |
 | AI 强度 | 启发式贪心 | 蒙特卡洛或规则引擎 |
 | 移动端适配 | 桌面优先（1024px+） | 触屏手势支持 |
-| 测试覆盖 | 312 tests，websocket.py 单测待补 | E2E 浏览器测试（Playwright） |
+| 测试覆盖 | 327 tests，含完整声索窗口集成测试 | E2E 浏览器测试（Playwright） |
 | 多语言 | 界面为中英混合 | i18n 国际化 |
