@@ -1649,9 +1649,19 @@ enable() / disable() / isEnabled()   // 开关（持久化至 localStorage）
 | 饼子 CIRCLES_1–9 | 一饼 … 九饼 |
 | 万字 CHARACTERS_1–9 | 一万 … 九万 |
 | 风牌 | 东风 / 南风 / 西风 / 北风 |
-| 字牌 | 中 / 发 / 白板 |
+| 字牌 | 中 / 发 / 白 |
 | 花牌 | 梅花 / 兰花 / 菊花 / 竹子 |
 | 季牌 | 春 / 夏 / 秋 / 冬 |
+
+**语音参数**：`rate = 0.88`（偏慢，发音更清晰自然）；`pitch = 1.05`（略高，减少平板感）。
+
+**语音优先级选择**（`_pickVoice`，从最佳到兜底）：
+1. Google zh-CN（Chrome 内置 Neural TTS，音质最佳）
+2. Google 任意 zh
+3. Neural/Natural zh-CN（其他 Neural 声音）
+4. 普通 zh-CN
+5. zh-TW / zh-HK
+6. 任意 zh 语音
 
 **防堆积机制**：非优先语音在 `speechSynthesis.speaking || pending` 时跳过（防止 AI 快速出牌造成语音队列堆积）；优先语音（碰/吃/杠/胡/流局）直接 `cancel()` 打断当前播报。
 
