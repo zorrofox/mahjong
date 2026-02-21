@@ -1304,6 +1304,130 @@ else:
 
 ---
 
+## 港式规则修正记录
+
+基于代码全面 review 发现的规则偏差，按严重程度依次修复。
+
+### 规则修正 #1：七对（七對）胡牌启用
+
+**问题**：`is_winning_hand` 中七对判断被注释掉，持有七对的玩家永远无法胡牌。
+
+**修复**（`backend/game/hand.py`）：取消注释 `_is_seven_pairs` 调用：
+```python
+# 七对 (七對) — 标准港式规则
+if _is_seven_pairs(sorted_tiles):
+    return True
+```
+`calculate_han` 已正确为七对手牌计算 +3 番，同时支持七对版清一色/混一色/字一色组合。
+
+**新增测试**（`TestSevenPairsWinningHand`，4 个）：七对合法性、全风字七对、四张同牌不合法、`calculate_han` 给 +3 番。
+
+---
+
+### 规则修正 #2：平胡（Ping Hu）仅限荣和
+
+**问题**：平胡在自摸时也被授予，港式规则要求只能荣和时计平胡。
+
+**修复**（`backend/game/hand.py`）：在平胡条件上增加 `and ron`：
+```python
+if (all_chows and not declared_melds and _h_is_simple(pair_tile) and ron):
+    add('平胡', 'Ping Hu (All Sequences)', 1)
+```
+
+**新增测试**（`TestPingHuRonOnly`，2 个）：荣和时给平胡、自摸时不给平胡但给自摸。
+
+---
+
+### 规则修正 #3：混幺九（混幺九）检测修正
+
+**问题**：使用 `any()` 检查每组"含一张幺九"，导致 [1,2,3] 这类含中间牌的顺子误判通过。
+
+**修复**（`backend/game/hand.py`）：`any()` → `all()`，要求组内每张牌均为幺九或风字：
+```python
+if (all_groups
+        and all(all(_h_is_terminal_or_honor(t) for t in g['tiles']) for g in all_groups)
+        and _h_is_terminal_or_honor(pair_tile)):
+    add('混幺九', 'Mixed Terminals & Honors', 2)
+```
+
+**新增测试**（`TestHunYaoJiu`，2 个）：全幺九碰牌合法、含中间牌组合不合法。
+
+---
+
+### 规则修正 #10：庄家荣和筹码公式修正
+
+**问题**：`_pay` 函数当庄家赢时，由于庄家是赢家被排除在求和范围外，三位闲家每人只付 `1×unit`（应为 `2×unit`），导致庄家荣和仅收 `3×unit` 而非正确的 `6×unit`。
+
+**修复**（`backend/api/websocket.py`）：`_pay` 增加赢家身份判断：
+```python
+def _pay(payer_idx: int) -> int:
+    if winner_idx == dealer_idx:
+        return 2 * unit  # 庄家赢：每位失家（均为闲家）付双倍
+    return 2 * unit if payer_idx == dealer_idx else unit
+```
+
+**新增测试**（`TestRonChipFormulaDealerWin`，5 个）：庄家荣和收 6u、闲家荣和收 4u、庄家自摸收 6u、闲家自摸收 4u、番数缩放。
+
+---
+
+### 规则修正 #13：最低 3 番起胡
+
+**问题**：任意合法牌型均可胡牌，港式规则要求合计番数 ≥ 3 才可胡。
+
+**修复**（`backend/game/game_state.py`）：新增常量 `MIN_HAN = 3`，在三处执行最低番数检查：
+- `get_available_actions()`：不显示"胡"按钮（防止玩家尝试不够番的胡牌）
+- `declare_win()`：抛出 `ValueError("...fan; minimum 3 required to win.")`
+- `_resolve_claims()`：拒绝声索并推进至下一轮
+
+**新增测试**（`TestMinimumFanRequirement`，4 个）：常量值、低番被拒、高番被接受、七对满足最低番数。
+
+---
+
+### 规则修正 #6/#7：加杠（加槓）与搶杠胡
+
+**问题**：摸到第 4 张与已碰副露相同的牌时，无法将碰升级为杠；且加杠时其余玩家无机会搶杠胡。
+
+**加杠实现**（`backend/game/game_state.py`）：
+
+`claim_kong()` 在 4 张暗杠检查之前，优先检测延伸碰牌条件（手中有 1 张与已声明碰牌相同的牌）：
+```python
+extend_meld_idx = next(
+    (i for i, m in enumerate(player.melds)
+     if len(m) == 3 and m[0] == m[1] == m[2] == tile),
+    None,
+)
+if extend_meld_idx is not None and player.hand.count(tile) >= 1:
+    player.hand.remove(tile)
+    player.melds[extend_meld_idx].append(tile)   # 碰(3张) → 杠(4张)
+    # 设置搶杠声索窗口...
+    self._is_rob_kong_window = True
+    ...
+```
+
+**搶杠胡实现**：
+
+| 组件 | 改动 |
+|---|---|
+| `_is_rob_kong_window` 标志 | 搶杠窗口开启时置 True |
+| `get_available_actions()` | 搶杠窗口中只返回 `["win"]` 或 `["skip"]`，禁止碰/吃/杠 |
+| `_resolve_claims()` 无人搶杠 | 调用 `_complete_extend_kong()`：记录杠钱、补摸牌、返回出牌阶段 |
+| `_resolve_claims()` 有人搶杠 | 先将杠家 4 张副露回退为 3 张碰，再按普通荣和流程结算（搶杠者为赢家，杠家为放炮者） |
+| `_complete_extend_kong()` | 新增方法：处理无搶杠时的杠后收尾逻辑 |
+
+**新增测试**（`TestExtendPungKong` 5 个 + `TestRobTheKong` 2 个）：加杠出现在可用操作、加杠打开搶杠窗口、副露变 4 张、窗口限制只显示胡/过、全过后杠完成；搶杠胡结束游戏、搶杠后杠家副露回退为碰。
+
+**修改文件**：
+
+| 文件 | 改动 |
+|---|---|
+| `backend/game/hand.py` | 平胡加 `ron` 条件；混幺九 `any()` → `all()`；七对 `is_winning_hand` 已启用 |
+| `backend/game/game_state.py` | `MIN_HAN = 3`；`_is_rob_kong_window` 状态；`claim_kong()` 延伸碰路径；`get_available_actions()` 搶杠限制；`_resolve_claims()` 搶杠分支；`_complete_extend_kong()` 方法 |
+| `backend/api/websocket.py` | `_pay()` 修正庄家赢时两倍付出 |
+| `backend/tests/test_hand.py` | `TestSevenPairsWinningHand`（4）、`TestPingHuRonOnly`（已在 game_state 测试）、`TestHunYaoJiu` |
+| `backend/tests/test_game_state.py` | `TestRonChipFormulaDealerWin`（5）、`TestMinimumFanRequirement`（4）、`TestExtendPungKong`（5）、`TestRobTheKong`（2） |
+
+---
+
 ## 测试体系
 
 ### 运行方式
@@ -1366,5 +1490,5 @@ pytest -v
 | 计分系统 | 番数驱动结算（unit=2^(n-1)，庄家双倍，杠钱即时，详见功能增强 5） | 天胡/地胡等特殊牌型；庄家轮换；番型加倍上限调整 |
 | AI 强度 | 启发式贪心 | 蒙特卡洛或规则引擎 |
 | 移动端适配 | 桌面优先（1024px+） | 触屏手势支持 |
-| 测试覆盖 | 346 tests，含声索窗口 + 手牌排序 + 副露胡牌 + 重开局 + 番数/杠钱集成测试 | E2E 浏览器测试（Playwright） |
+| 测试覆盖 | 322 tests（后端 258 + 前端 64），含声索窗口、手牌排序、加杠/搶杠胡、规则修正专项测试 | E2E 浏览器测试（Playwright） |
 | 多语言 | 界面为中英混合 | i18n 国际化 |
