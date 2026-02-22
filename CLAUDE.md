@@ -2356,17 +2356,36 @@ DNS 命令记录：
 gcloud dns record-sets create YOUR_APP_DOMAIN. \
   --zone=YOUR_DNS_ZONE_NAME --type=A --ttl=300 --rrdatas=YOUR_LB_STATIC_IP
 
-# 修复父域 NS 委派（原 YOUR_SUBDOMAIN_ZONE 缺少委派导致无法解析）
+# 修复父域 NS 委派（子域 zone 缺少在父域的 NS 委派记录）
 gcloud dns record-sets create YOUR_SUBDOMAIN_ZONE. \
-  --zone=huanghaoyu --type=NS --ttl=300 \
+  --zone=YOUR_PARENT_DNS_ZONE --type=NS --ttl=300 \
   --rrdatas="ns-cloud-b1.googledomains.com.,ns-cloud-b2.googledomains.com.,\
              ns-cloud-b3.googledomains.com.,ns-cloud-b4.googledomains.com."
 ```
 
+### IAP 服务账号配置（已完成）
+
+IAP 需要一个专属服务代理账号来转发已认证请求到 Cloud Run，必须显式创建：
+
+```bash
+# 1. 创建 IAP 服务代理账号（每个项目只需一次）
+gcloud beta services identity create \
+  --service=iap.googleapis.com \
+  --project=YOUR_GCP_PROJECT_ID
+# 产生：YOUR_IAP_SA（格式：service-YOUR_PROJECT_NUMBER@gcp-sa-iap...）
+
+# 2. 授予 Cloud Run Invoker 权限
+gcloud run services add-iam-policy-binding mahjong \
+  --region=us-central1 \
+  --member="serviceAccount:YOUR_IAP_SA" \
+  --role="roles/run.invoker" \
+  --project=YOUR_GCP_PROJECT_ID
+```
+
 ### 后续步骤
 
-1. **SSL 证书激活**：等待 mahjong-cert-v2 状态变为 ACTIVE（自动完成，无需操作）
-2. **IAP 授权用户**：在 GCP Console → Security → IAP → mahjong-backend，添加允许访问的 Google 账号
+1. **SSL 证书激活**：等待 Google 托管证书状态变为 ACTIVE（自动完成，DNS 传播后约 10-60 分钟）
+2. **IAP 域名白名单**：通过 `gcloud iap web add-iam-policy-binding` 授权访问域名
 3. **访问地址**：`https://YOUR_APP_DOMAIN`（证书激活后可用）
 
 ### 注意事项
