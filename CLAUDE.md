@@ -1947,8 +1947,8 @@ enable() / disable() / isEnabled()   // 开关（持久化至 localStorage）
 
 | 模式 | 行为 | 用途 |
 |---|---|---|
-| `'skip'`（默认） | 正在播报则跳过 | AI/任意出牌牌名、声索窗口牌名、摸牌牌名 |
-| `'queue'` | 入队，当前结束后**立即**接着播 | 对手碰/吃/杠（跟在出牌牌名后，不重叠） |
+| `'skip'`（默认） | 正在播报则跳过 | 声索窗口牌名 |
+| `'queue'` | 入队，当前结束后**立即**接着播 | 对手出牌牌名（改为 queue，避免被其他声音跳过）；对手碰/吃/杠 |
 | `'immediate'` | 取消当前 + 清空队列 + 立即播 | 自己出牌牌名、自己碰/吃/杠/胡、胡了/流局 |
 
 内部使用 `#active` 标志 + `#queue` 数组（最多存 1 项），`utt.onend` 回调自动消费队列，实现出牌牌名 → 对手操作的顺序衔接。
@@ -1964,19 +1964,20 @@ enable() / disable() / isEnabled()   // 开关（持久化至 localStorage）
 
 | 游戏事件 | 语音内容 | 模式 | 触发方式 |
 |---|---|---|---|
-| 任意玩家出牌（含 AI） | 牌名（如"三万"） | `skip` | `handleGameState` last_discard 变化 |
-| 我方摸牌 | 牌名 | `skip` | `handleActionRequired` drawn_tile |
+| 任意玩家出牌（含 AI） | 牌名（如"三万"） | **`queue`** | `handleGameState` last_discard 变化（改为 queue，避免被跳过）|
 | 声索窗口出现 | 可抢牌名 | `skip` | `handleClaimWindow` |
-| 对手碰 | "碰" | **`queue`** | `handleGameState` 副露增加且首张相同 |
-| 对手吃 | "吃" | **`queue`** | `handleGameState` 副露增加且首张不同 |
+| 对手碰 | "碰" | **`queue`** / `immediate`* | `handleGameState` 副露增加且首张相同 |
+| 对手吃 | "吃" | **`queue`** / `immediate`* | `handleGameState` 副露增加且首张不同 |
 | 对手杠（含加杠） | "杠" | **`queue`** | `handleGameState` 副露增加且长≥4，或某副露3→4 |
 | 我方出牌 | 牌名 | **`immediate`** | `sendDiscard` |
 | 我方碰 | "碰！" | **`immediate`** | `sendPung` |
 | 我方吃 | "吃！" | **`immediate`** | `sendChow` |
 | 我方杠 | "杠！" | **`immediate`** | `sendKong` |
 | 我方胡 | "胡！" | **`immediate`** | `sendWin` |
-| 游戏结束-胡牌 | "胡了！" | **`immediate`** | `handleGameOver` |
+| 游戏结束-胡牌 | "胡了！" + 程序化音效 | **`immediate`** | `handleGameOver` + `playWinEffect()` |
 | 游戏结束-流局 | "流局" | **`immediate`** | `handleGameOver` |
+
+*对手碰/吃/杠模式取决于 `_myClaimSent` 标志：若本地玩家刚提交了声索但被他人抢先，用 `'immediate'` 取消挂起的本地声音；否则用 `'queue'`。
 
 **双重播报防止**：我方操作由 `send*` 函数以 `'immediate'` 立即播报；`handleGameState` 的副露检测跳过 `myPlayerIdx`，不会重复播报自己的动作。
 
@@ -1992,6 +1993,48 @@ enable() / disable() / isEnabled()   // 开关（持久化至 localStorage）
 ### 测试兼容性
 
 Node.js / jsdom 无 `speechSynthesis`，`SpeechEngine` 构造函数和所有 `speak()` 调用对 `undefined` 做了防护，现有测试零改动、零回归。
+
+### 后续音效 Bug 修复与增强
+
+#### Bug 修复 1：吃/碰优先级声音乱序
+
+**问题**：玩家点击"吃"后，若另一玩家碰牌优先，游戏先播"吃！"再播"碰"，顺序错误。
+
+**根本原因**：`sendChow()` 用 `'immediate'` 播放"吃！"，随后 `handleGameState` 检测到另一玩家的碰副露，用 `'queue'` 排在"吃！"之后播"碰"。
+
+**修复**：新增模块级 `_myClaimSent` 标志（`null | 'chow' | 'pung' | 'kong' | 'win'`）：
+- `sendPung/sendChow/sendKong(claim)/sendWin` 在播报前设置标志
+- `handleGameState` 副露检测：若 `_myClaimSent` 有值且另一玩家副露出现，用 `'immediate'` 取消挂起的"吃！"并播"碰"
+- 循环结束后清除标志
+
+#### Bug 修复 2：其他玩家出牌有时无声音
+
+**问题**：其他玩家出牌后偶尔无牌名播报，尤其在本地玩家刚碰/吃之后。
+
+**根本原因**：`speakTile(state.last_discard)` 使用默认 `'skip'` 模式，若此时"碰！"等声音仍在播放，牌名被静默跳过。
+
+**修复**：改为 `speakTile(state.last_discard, 'queue')`，牌名排队等候当前语音结束后播出，不再丢失。
+
+#### Bug 修复 3：摸牌不应播报牌名
+
+**问题**：玩家自己摸到的牌也会播报牌名，体验不佳。
+
+**修复**：删除 `handleActionRequired` 中的 `speakTile(msg.drawn_tile)` 调用。牌面自动高亮选中保留，仅取消语音播报。
+
+#### 功能增强：胡牌程序化音效
+
+`playWinEffect()` — 使用 Web Audio API 生成，零音频文件：
+
+| 时间 | 内容 |
+|---|---|
+| 0s | 深沉锣声（55/110/220/440Hz 叠加正弦波，衰减约 3s） |
+| 0.12–0.60s | 五声音阶上行：C5→E5→G5→A5→C6，每音加 2.76x 泛音（钟声质感） |
+| 0.85s | 全音程和弦：低/中/高三层叠加 |
+| 0.92–1.28s | 闪烁级联：11 个高频正弦脉冲上行再下行 |
+
+由 `handleGameOver` 在有胡牌者时触发，与 TTS "胡了！" 同时播放。AudioContext 在 4.8s 后自动关闭。
+
+**修改文件**：`frontend/js/game.js`（新增 `playWinEffect()`、`_myClaimSent` 标志、三处 bug 修复）
 
 ---
 
