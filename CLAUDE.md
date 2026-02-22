@@ -2435,6 +2435,26 @@ if player_idx is None and not player_id.startswith("ai_player_") \
 | A/B 开局后 C 加入 | 同上 | C 接管下一个 AI 座位 |
 | 4 个座位全被人类占 | 满员，重定向新房间 | 同左（不变）|
 
+#### 杠后补牌摸到花牌时 Discard 按钮失效（已修复）
+
+**现象**：其他玩家（AI）杠牌后，人类玩家能看到并选中手牌，但 Discard 按钮处于禁用状态，无法打牌。
+
+**根因**：三处补牌代码（`draw_tile` / `claim_kong` 暗杠 / `_complete_extend_kong` 加杠）在调用 `_collect_bonus_tiles()` 之后，仍将 `last_drawn_tile` 赋值为原始补牌（可能是花牌/季牌）。`_collect_bonus_tiles()` 会将花牌收入花区并再次补一张普通牌，但 `last_drawn_tile` 未更新，依然指向那张已不在手牌区的花牌。
+
+`_send_action_required` 将这张花牌作为 `drawn_tile` 发给前端，前端在手牌区找不到对应元素，自动选中失败，`selectedTile = null`，Discard 按钮虽然可见但处于禁用。
+
+**修复**（`backend/game/game_state.py`，三处）：
+```python
+# 花牌收集后，hand[-1] 是最终摸到的真实非花牌
+self.last_drawn_tile = player.hand[-1] if player.hand else tile
+```
+
+| 修复位置 | 场景 |
+|---|---|
+| `draw_tile()` | 正常从牌墙摸牌 |
+| `claim_kong()` | 暗杠（4 张同牌）后补牌 |
+| `_complete_extend_kong()` | 加杠（碰升级为杠）后补牌 |
+
 ### 注意事项
 
 - Cloud Run 是**无状态**的，游戏状态存储在内存中，实例重启后丢失（多实例时不同用户可能路由到不同实例）
