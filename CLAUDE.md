@@ -2043,6 +2043,60 @@ Node.js / jsdom 无 `speechSynthesis`，`SpeechEngine` 构造函数和所有 `sp
 
 ---
 
+### 移动端竖屏布局专项迭代
+
+经多轮截图反馈与调试，形成以下最终方案（仅针对竖屏手机，`@media (max-width: 600px)`）：
+
+#### 核心布局重构：top/bottom 横跨全列
+
+**问题**：原始 `grid-template-areas: ". top ." / ". bottom ."` 让对面玩家和我的手牌只占中间列（375px 手机上约 145px），极度拥挤。
+
+**修复**：改为 `"top top top" / "bottom bottom bottom"`，对面玩家和我的手牌铺满全屏宽度（约 355px），显著改善。
+
+```css
+grid-template-areas:
+  "top    top    top"      /* 对面玩家全宽 ~355px */
+  "left   center right"   /* 75px | 1fr(215px) | 75px */
+  "bottom bottom bottom"; /* 我的手牌全宽 ~355px */
+grid-template-columns: 75px 1fr 75px;
+grid-template-rows: min(80px, 14%) minmax(80px, 1fr) min(135px, 36%);
+```
+
+#### 弹窗高度修复（声索窗口按钮不显示）
+
+- 新增 `@media (max-width: 900px)` 紧凑声索弹窗布局：h3 标题隐藏、牌面图与倒计时并排（节省约 60px）、按钮 38px、`max-height: 88vh + overflow-y: auto` 兜底
+- 去除旧 600px 声索规则（迁移至 900px 块统一处理）
+
+#### 玩家信息显示恢复
+
+- **顶部玩家**：flex 行内显示名字（截断）+ 筹码，0.68rem
+- **侧边玩家**（75px 宽）：`font-size: 0` 隐藏名字文字但保留 `dealer-badge`（庄字有自己的 `font-size: 0.72rem`），下方显示筹码 0.58rem
+- **我的手牌区**：`#my-hand-label` 不变，显示名字 + 庄标 + 筹码
+
+#### 大厅页（index.html）竖屏适配
+
+| 改动 | 效果 |
+|---|---|
+| `rooms-table-wrap { overflow-x: auto }` | 房间表格 5 列可横向滑动访问 |
+| `th/td` padding 缩小 | 列宽更紧凑 |
+| Player ID UUID 加 `text-overflow: ellipsis` | 不再撑开页面布局 |
+| `lobby-header h1` 2.4rem → 1.4rem | 标题不占过多空间 |
+
+#### 迭代过程中修复的隐蔽 Bug
+
+- **CSS 级联覆盖**：`game.html` 内联 `<style>` 在 HTML 中排在外部 `style.css` 之后，导致 style.css 里的媒体查询被内联样式覆盖。所有响应式规则必须写在 `game.html` 内联块中才能生效。
+- **固定行高 vs 弹性行高**：`grid-template-rows: auto` 在副露出现时使底部行无限扩张，压垮中间行（left/center/right）。改为 `min(px, %)` 弹性值，同时解决矮屏（393px 高）和普通屏（667px 高）的兼容性。
+- **`overflow: visible` vs `overflow-x: auto` 优先级**：`game.html` 用 ID 选择器（高优先级）设置 `#my-hand { overflow: visible }`，class 选择器的 `.my-hand { overflow-x: auto }` 无法覆盖。在 `@media` 块内用 `#my-hand { overflow-x: auto !important }` 解决。
+
+**相关修改文件**（本轮迭代）：
+
+| 文件 | 改动 |
+|---|---|
+| `frontend/game.html` | 竖屏 grid 重构；玩家标签显示恢复；声索弹窗布局调整 |
+| `frontend/css/style.css` | `@media (max-width: 900px)` 声索弹窗紧凑布局；大厅页竖屏适配 |
+
+---
+
 ## 已知限制与后续扩展方向
 
 | 项目 | 当前状态 | 可改进方向 |
@@ -2051,6 +2105,6 @@ Node.js / jsdom 无 `speechSynthesis`，`SpeechEngine` 构造函数和所有 `sp
 | 玩家认证 | 无，player_id 自生成 | 加入 JWT/Session |
 | 计分系统 | 番数驱动结算（unit=2^(n-1)，庄家双倍，杠钱即时，详见功能增强 5） | 天胡/地胡等特殊牌型；庄家轮换；番型加倍上限调整 |
 | AI 强度 | 启发式贪心 | 蒙特卡洛或规则引擎 |
-| 移动端适配 | 已支持（600px 断点、触屏 touch-action、手牌横滑、44px 按钮）| E2E 浏览器测试（Playwright）；iOS 真机测试 |
+| 移动端适配 | 竖屏专项优化：top/bottom 全宽布局、声索弹窗紧凑、大厅表格横滑、玩家标签含庄标+筹码 | 横屏优化；E2E 浏览器测试（Playwright） |
 | 测试覆盖 | 447 tests（后端 285 + 前端 95 + 集成 67），含声索窗口、多口吃牌、边张/坎张、碰后加杠、七对色番组合、花牌链、嶺上開花 flag、touch-action/scrollIntoView 移动端交互、手牌排序、加杠/搶杠胡、番数/圈风/本命花规则修正专项测试 | E2E 浏览器测试（Playwright）；lobby Rejoin 流程集成测试 |
 | 多语言 | 界面为中英混合 | i18n 国际化 |
