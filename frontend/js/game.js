@@ -20,6 +20,10 @@ let pendingActions = [];
 let inClaimWindow  = false;
 let statusDismissTimer = null;
 let claimCountdownTimer = null;
+// Tracks which claim action the local player most recently sent ('chow' | 'pung' |
+// 'kong' | 'win' | null).  Used in handleGameState to decide whether a meld that
+// appeared for ANOTHER player should cancel a pending local claim sound.
+let _myClaimSent = null;
 
 /* ---------- Speech engine singleton ---------- */
 let _speech = null;
@@ -282,9 +286,12 @@ function handleGameState(state) {
     myPlayerIdx = state.players.findIndex(p => p.id === PLAYER_ID);
   }
 
-  // Announce the discarded tile (covers AI discards arriving via game_state)
+  // Announce the discarded tile (covers AI discards arriving via game_state).
+  // Bug fix: use 'queue' instead of default 'skip' so the tile name is not
+  // silently dropped when another sound (e.g. local player's '碰！') is
+  // still playing at the moment this game_state arrives.
   if (prevState && state.last_discard && state.last_discard !== prevState.last_discard) {
-    getSpeech()?.speakTile(state.last_discard);
+    getSpeech()?.speakTile(state.last_discard, 'queue');
   }
 
   // Detect meld actions (碰/吃/杠) by OTHER players and announce them.
@@ -296,14 +303,19 @@ function handleGameState(state) {
       const currMelds = player.melds || [];
 
       if (currMelds.length > prevMelds.length) {
-        // New meld appeared (pung / chow / claimed kong)
+        // New meld appeared (pung / chow / claimed kong).
         const newMeld = currMelds[currMelds.length - 1];
         if (newMeld && newMeld.length >= 3) {
-          if (newMeld[0] === newMeld[1]) {
-            getSpeech()?.speak(newMeld.length >= 4 ? '杠' : '碰', 'queue');
-          } else {
-            getSpeech()?.speak('吃', 'queue');
-          }
+          const sound = newMeld[0] === newMeld[1]
+            ? (newMeld.length >= 4 ? '杠' : '碰')
+            : '吃';
+          // Bug fix: if the local player had just submitted a claim action
+          // (sendChow → '吃！' queued/playing) but ANOTHER player's meld
+          // won instead, use 'immediate' to cancel the local '吃！' and
+          // announce the actual winner's action.  Otherwise use 'queue' so
+          // the sound plays naturally after the discard tile name.
+          const mode = _myClaimSent ? 'immediate' : 'queue';
+          getSpeech()?.speak(sound, mode);
         }
       } else if (currMelds.length === prevMelds.length) {
         // Check for extend-pung → kong (same meld count, but one meld grew to 4)
@@ -314,6 +326,9 @@ function handleGameState(state) {
         });
       }
     });
+    // Clear the claim flag regardless of outcome (own claim succeeded → no other
+    // player's meld was detected above; another player won → already used & reset).
+    _myClaimSent = null;
   }
 
   // Hide claim overlay when we receive a fresh game state
@@ -389,7 +404,7 @@ function handleGameOver(msg) {
   const winnerName = msg.winner_id || `Player ${msg.winner_idx + 1}`;
   // Announce win or draw
   if (msg.winner_idx !== null && msg.winner_idx !== undefined && msg.winner_idx >= 0) {
-    getSpeech()?.speak('胡了！', 'immediate');
+    getSpeech()?.speak('胡！', 'immediate');
   } else {
     getSpeech()?.speak('流局', 'immediate');
   }
@@ -773,6 +788,7 @@ function sendDiscard() {
 }
 
 function sendPung() {
+  _myClaimSent = 'pung';
   getSpeech()?.speak('碰！', 'immediate');
   sendAction('pung');
   hideClaimOverlay();
@@ -790,6 +806,7 @@ function sendChow(handTiles) {
     chowTiles = autoSelectChow(tile, hand);
   }
   if (chowTiles) {
+    _myClaimSent = 'chow';
     getSpeech()?.speak('吃！', 'immediate');
     sendAction('chow', { tiles: chowTiles });
     hideClaimOverlay();
@@ -851,6 +868,7 @@ function sendKong() {
   if (inClaimWindow) {
     // Claiming a kong from another player's discard.
     // Server uses gs.last_discard when no tile is specified.
+    _myClaimSent = 'kong';
     getSpeech()?.speak('杠！', 'immediate');
     sendAction('kong');
     hideClaimOverlay();
@@ -899,6 +917,7 @@ function sendKong() {
 }
 
 function sendWin() {
+  _myClaimSent = 'win';
   getSpeech()?.speak('胡！', 'immediate');
   sendAction('win');
   hideClaimOverlay();
