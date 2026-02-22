@@ -67,7 +67,7 @@ majiang/
 │   │   ├── FLOWER_1.svg .. FLOWER_4.svg
 │   │   └── SEASON_1.svg .. SEASON_4.svg
 │   └── tests/                       # 前端单元测试（Vitest）
-│       ├── game.test.js             # 64 tests
+│       ├── game.test.js             # 76 tests
 │       └── lobby.test.js            # 19 tests
 └── tests/
     └── integration/                 # 集成测试（pytest + httpx）
@@ -266,7 +266,7 @@ const TILE_SVG_MAP = {
 | `frontend/tiles/` | 42 SVG | Cangjie6 港式麻将牌面图片 |
 | **业务代码合计** | **~5,651** | |
 | `backend/tests/` | ~1,800 | 后端单元测试（285 tests） |
-| `frontend/tests/` | ~550 | 前端单元测试（83 tests） |
+| `frontend/tests/` | ~550 | 前端单元测试（95 tests） |
 | `tests/integration/` | ~1,120 | 集成测试（67 tests） |
 | **测试代码合计** | **~3,470** | |
 
@@ -1892,9 +1892,9 @@ pytest -v
 | 层级 | 测试数 |
 |---|---|
 | 后端单元测试 | 285 |
-| 前端单元测试 | 83 |
+| 前端单元测试 | 95 |
 | 集成测试 | 67 |
-| **合计** | **435** |
+| **合计** | **447** |
 
 `test_claim_window.py` 策略：通过 REST 开始游戏后直接操控 `room.game_state`，将局面固定到声索阶段（控制手牌、弃牌、已跳过玩家），再通过 WS 连接触发同步 `claim_window` 消息，验证声索结果。
 
@@ -1995,6 +1995,54 @@ Node.js / jsdom 无 `speechSynthesis`，`SpeechEngine` 构造函数和所有 `sp
 
 ---
 
+## 功能增强：移动端 UI（触屏支持 + 丝滑操作）
+
+**开发方式**：使用 Claude Code 多 Agent 协作（css-agent + js-agent 并行）。
+
+### CSS 改动（`style.css` + `game.html` + `index.html`）
+
+| 改动 | 效果 |
+|---|---|
+| `html { touch-action: manipulation }` | 全局禁用双击缩放 |
+| `viewport` 加 `maximum-scale=1.0, user-scalable=no` | 防止捏合缩放破坏布局 |
+| `.my-hand .tile:hover` 移入 `@media (hover: hover)` | 消除手机端 hover 状态残留 |
+| 新增 `@media (max-width: 600px)` 断点 | 专为手机定制样式 |
+| `board-wrapper` grid 收缩：侧边 70px，上下行 90px | 四方牌桌在 375px 手机上完整显示 |
+| `.my-hand` 横向滚动：`overflow-x: auto` + `-webkit-overflow-scrolling: touch` | 14 张手牌可左右滑动查看 |
+| 手牌尺寸 32×46px（桌面 44×62px）| 手机屏幕容纳 14 张不溢出 |
+| `#area-bottom overflow: visible` | 选中牌上浮不被裁切 |
+| Action 按钮 `min-height: 44px` + `touch-action: manipulation` | 触控目标面积达标（Apple HIG 44pt 规范） |
+| 声索弹窗 `min-width: 92vw`，声索牌 50×70px | 手机弹窗不溢出屏幕 |
+
+### JS 改动（`game.js`）
+
+| 改动 | 效果 |
+|---|---|
+| `makeTileEl()` 加 `touchAction: 'manipulation'` | 消除 iOS 300ms 点击延迟 |
+| `makeClaimBtn()` 同上 | 声索按钮毫秒级响应 |
+| `selectTile()` 末尾加 `scrollIntoView({ behavior:'smooth', inline:'center' })` | 选中的牌自动滚入视野 |
+| `#my-hand` touchmove 监听器（`passive: false`）| 手牌区横滑时阻止页面纵向滚动穿透 |
+
+### 新增测试（12 个，`frontend/tests/game.test.js`）
+
+| 测试组 | 数量 | 覆盖内容 |
+|---|---|---|
+| `makeTileEl — touch interaction` | 5 | clickable 牌有 touch-action；face-down/非 clickable 无 |
+| `makeClaimBtn — touch interaction` | 3 | 所有声索按钮有 touch-action；handler 注册正确 |
+| `selectTile — scrollIntoView` | 4 | 支持时以正确参数调用；不支持时不报错；selected 类正确添加 |
+
+**修改文件**：
+
+| 文件 | 改动 |
+|---|---|
+| `frontend/css/style.css` | `touch-action`、`@media (hover:hover)` 重构、600px 断点（91 行新增） |
+| `frontend/game.html` | viewport `user-scalable=no` |
+| `frontend/index.html` | 同上 |
+| `frontend/js/game.js` | 4 处 touch 交互改动；导出 `makeTileEl`、`makeClaimBtn`、`selectTile` |
+| `frontend/tests/game.test.js` | 新增 12 个移动端单元测试 |
+
+---
+
 ## 已知限制与后续扩展方向
 
 | 项目 | 当前状态 | 可改进方向 |
@@ -2003,6 +2051,6 @@ Node.js / jsdom 无 `speechSynthesis`，`SpeechEngine` 构造函数和所有 `sp
 | 玩家认证 | 无，player_id 自生成 | 加入 JWT/Session |
 | 计分系统 | 番数驱动结算（unit=2^(n-1)，庄家双倍，杠钱即时，详见功能增强 5） | 天胡/地胡等特殊牌型；庄家轮换；番型加倍上限调整 |
 | AI 强度 | 启发式贪心 | 蒙特卡洛或规则引擎 |
-| 移动端适配 | 桌面优先（1024px+） | 触屏手势支持 |
-| 测试覆盖 | 435 tests（后端 285 + 前端 83 + 集成 67），含声索窗口、多口吃牌、边张/坎张、碰后加杠、七对色番组合、花牌链、嶺上開花 flag、手牌排序、加杠/搶杠胡、番数/圈风/本命花规则修正专项测试 | E2E 浏览器测试（Playwright）；lobby Rejoin 流程集成测试 |
+| 移动端适配 | 已支持（600px 断点、触屏 touch-action、手牌横滑、44px 按钮）| E2E 浏览器测试（Playwright）；iOS 真机测试 |
+| 测试覆盖 | 447 tests（后端 285 + 前端 95 + 集成 67），含声索窗口、多口吃牌、边张/坎张、碰后加杠、七对色番组合、花牌链、嶺上開花 flag、touch-action/scrollIntoView 移动端交互、手牌排序、加杠/搶杠胡、番数/圈风/本命花规则修正专项测试 | E2E 浏览器测试（Playwright）；lobby Rejoin 流程集成测试 |
 | 多语言 | 界面为中英混合 | i18n 国际化 |

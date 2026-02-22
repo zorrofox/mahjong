@@ -8,3 +8,6 @@ venv/
 dist/
 build/
 .DS_Store
+.coverage
+node_modules/
+coverage/

@@ -4,7 +4,7 @@
 
 A browser-based multiplayer Mahjong game. Supports 1–4 human players per room; empty seats are filled by AI.
 
-![Python](https://img.shields.io/badge/Python-3.11-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-0.111-green) ![Tests](https://img.shields.io/badge/tests-435%20passed-brightgreen) ![Tiles](https://img.shields.io/badge/tiles-Cangjie6%20SVG-orange)
+![Python](https://img.shields.io/badge/Python-3.11-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-0.111-green) ![Tests](https://img.shields.io/badge/tests-447%20passed-brightgreen) ![Tiles](https://img.shields.io/badge/tiles-Cangjie6%20SVG-orange)
 
 ---
 
@@ -27,7 +27,8 @@ A browser-based multiplayer Mahjong game. Supports 1–4 human players per room;
 - 大厅显示各房间实时筹码余额；已结束的房间显示"Rejoin 重回"按钮
 - **中文语音播报**：出牌念牌名（三万/七饼/东风/发财/白板…），我方及对手碰/吃/杠/胡均有语音；牌名播完后对手操作语音顺序衔接不重叠；基于 Web Speech API，零音频文件
 - **流畅渲染**：差量 DOM 更新（手牌/弃牌堆/副露仅在内容变化时重建）；`active-turn` 焦点切换平滑过渡（CSS transition）；声索/结算弹窗淡入动画；所有文本守卫防止无意义重绘
-- 响应式绿毡牌桌界面
+- **移动端支持**：600px 响应式断点；手牌区横向滚动（`-webkit-overflow-scrolling: touch`）；`touch-action: manipulation` 消除 300ms 延迟；44px 触控目标；选中牌自动 `scrollIntoView`；防双击缩放
+- 响应式绿毡牌桌界面（桌面 1024px+ 全功能；手机 375px+ 触屏可玩）
 
 ---
 
@@ -55,7 +56,7 @@ uvicorn main:app --reload --port 8000
 ├── frontend/
 │   ├── js/            # 大厅 + 游戏客户端
 │   ├── tiles/         # Cangjie6 港式麻将 SVG 牌面（42 张）
-│   └── tests/         # 前端单元测试（83 tests）
+│   └── tests/         # 前端单元测试（95 tests）
 └── tests/
     └── integration/   # REST + WebSocket 集成测试（67 tests）
 ```
