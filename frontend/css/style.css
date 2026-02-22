@@ -437,6 +437,10 @@ html, body {
 .discard-pile .tile {
   width: 26px;
   height: 36px;
+  /* Discard pile tiles are static — no transform/filter transitions needed.
+     The base .tile rule has transition:transform+filter which would fire
+     whenever a tile is appended, causing flicker on each discard. */
+  transition: none;
 }
 
 /* Tile in hand (bottom area) */

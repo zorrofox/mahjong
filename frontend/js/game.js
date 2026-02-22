@@ -703,14 +703,30 @@ function renderCenterTable(state, discards, players) {
     }
   }
 
-  // Last discard highlight — incremental.
+  // Last discard highlight — update img.src in-place to avoid flash.
+  // Recreating the <img> element via innerHTML causes a blank frame while
+  // the browser decodes the new SVG; updating src reuses the existing element.
   const lastDiscardEl = document.getElementById('last-discard');
   if (lastDiscardEl) {
     if (state.last_discard) {
-      const existing = lastDiscardEl.querySelector('.tile');
-      if (!existing || existing.dataset.tile !== state.last_discard) {
+      const existingTile = lastDiscardEl.querySelector('.tile');
+      if (!existingTile) {
+        // First appearance — create from scratch.
         lastDiscardEl.innerHTML = 'Last: ';
         lastDiscardEl.appendChild(makeTileEl(state.last_discard));
+      } else if (existingTile.dataset.tile !== state.last_discard) {
+        // Tile changed — update img.src in-place (no DOM reconstruction).
+        const newSrc = TILE_SVG_MAP[state.last_discard];
+        const img    = existingTile.querySelector('.tile-img');
+        if (img && newSrc) {
+          img.src = newSrc;
+          img.alt = tileToDisplay(state.last_discard).label || state.last_discard;
+        } else {
+          // Fallback text tile (no SVG): rebuild only this element.
+          lastDiscardEl.innerHTML = 'Last: ';
+          lastDiscardEl.appendChild(makeTileEl(state.last_discard));
+        }
+        existingTile.dataset.tile = state.last_discard;
       }
     } else {
       if (lastDiscardEl.innerHTML !== '') lastDiscardEl.innerHTML = '';
