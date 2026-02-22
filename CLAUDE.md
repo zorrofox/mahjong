@@ -2181,6 +2181,65 @@ el.addEventListener('touchend', (e) => {
 
 ---
 
+## 功能增强：音效与操作时序同步
+
+**背景**：AI 操作速度快，多个 AI 连续出牌/碰/吃后立即轮到人类玩家，操作按钮出现时前一轮的语音（牌名、"碰"等）还未播完，音效与界面操作时序错位，体验怪异。
+
+**方案**：`handleActionRequired` 收到消息后不立即显示按钮，而是等语音播完后再展示，使音效落下与按钮出现在同一时刻。
+
+**SpeechEngine 新增成员**（`speech.js`）：
+
+| 成员 | 说明 |
+|---|---|
+| `#silentCbs = []` | 等待 TTS 静默的回调队列 |
+| `isSpeaking()` | 判断是否有语音在播或待播（禁用/无声音时返回 false） |
+| `onSilent(cb, maxWaitMs=1500)` | 语音全部播完后执行 `cb`；超时保护避免 TTS 卡住冻结界面 |
+| `#fireSilentCbs()` | 内部辅助：`utt.onend`（队列耗尽）和 `utt.onerror` 时触发所有等待回调 |
+
+**`handleActionRequired` 修改**（`game.js`）：
+
+```javascript
+const showUI = () => {
+  updateActionButtons(pendingActions);
+  // ... 自动选中摸到的牌、更新状态栏
+};
+const speech = getSpeech();
+if (speech && speech.isSpeaking()) {
+  speech.onSilent(showUI, 1500); // 最长等 1.5 秒
+} else {
+  showUI();  // 无语音则立即显示
+}
+```
+
+`pendingActions` 立即记录（双击出牌逻辑依赖此值），仅操作按钮的视觉展示延迟。若语音禁用或无中文声音包，`isSpeaking()` 返回 false，`showUI()` 同步立即执行，无任何延迟。
+
+**修改文件**：`frontend/js/speech.js`（新增三个成员）、`frontend/js/game.js`（`handleActionRequired` 重构）
+
+---
+
+## 移动端弹窗布局修复（竖屏）
+
+### 修复 1：结束弹窗三个按钮显示不全
+
+**问题**：`.modal-actions { display: flex }` 无 `flex-wrap`，"Close" / "Play Again 再来一局" / "Back to Lobby" 三个按钮在约 265px 内容宽里横排放不下，右侧按钮超出弹窗。
+
+**修复**（`style.css @media max-width:900px`）：
+- `flex-direction: column`，每个按钮独占一整行
+- `width: 100%` 全宽按钮，触控目标最大化
+
+### 修复 2：声索倒计时"s"字母换行
+
+**问题**：移动端规则将 `.claim-countdown-bar` 设为 `flex-direction: column`，把倒计时栏的三个 span（"自动跳过 / Auto-skip in" / 数字 / "s"）竖向排列，"s" 独占最后一行。
+
+**修复**（`style.css @media max-width:900px`）：
+- 恢复 `flex-direction: row`（保持横向排列）
+- `.claim-countdown-label:first-child { display: none }` 隐藏冗长的"自动跳过 / Auto-skip in"文字
+- 最终显示：`[牌面图] | [30] s`，紧凑不换行
+
+**修改文件**：`frontend/css/style.css`（`@media max-width:900px` 块新增 modal-actions 和 claim-countdown-bar 修复规则）
+
+---
+
 ## 已知限制与后续扩展方向
 
 | 项目 | 当前状态 | 可改进方向 |
