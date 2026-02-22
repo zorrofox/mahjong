@@ -1038,4 +1038,38 @@ html, body {
   }
 
   /* 声索弹窗在 600px 宽度断点的旧规则已迁移至上方 @media(max-width:900px) 统一处理 */
+
+  /* ── 大厅页竖屏适配 ────────────────────────────────────── */
+  .lobby-container {
+    padding: 1rem 0.5rem;
+  }
+  .lobby-header h1 { font-size: 1.4rem; letter-spacing: 0; }
+  .lobby-header p  { font-size: 0.8rem; }
+
+  /* Player ID bar：UUID 截断，不撑开页面 */
+  .player-info-bar {
+    padding: 0.5rem 0.8rem;
+    gap: 0.5rem;
+    font-size: 0.78rem;
+    flex-wrap: wrap;
+  }
+  .player-info-bar span.pid {
+    max-width: 60vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.7rem;
+  }
+
+  /* Create Room 按钮与标题同行 */
+  .lobby-actions { flex-wrap: wrap; gap: 0.5rem; }
+  .lobby-actions h2 { font-size: 1rem; }
+
+  /* 房间表格：允许横滑 + 缩小字体和内边距 */
+  .rooms-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .rooms-table { font-size: 0.78rem; }
+  .rooms-table th { padding: 0.5rem 0.6rem; font-size: 0.72rem; }
+  .rooms-table td { padding: 0.45rem 0.6rem; }
+  /* 按钮在 Action 列紧凑 */
+  .rooms-table .btn { padding: 0.25rem 0.6rem; font-size: 0.75rem; }
 }

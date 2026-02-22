@@ -280,10 +280,54 @@
       #room-info { display: none; }
       #topbar h1 { font-size: 0.85rem; letter-spacing: 0; }
 
-      /* 所有玩家标签：隐藏（省空间，信息在弃牌堆标签里可见）*/
+      /* ── 顶部玩家标签（全宽，空间充裕）──────────────────── */
+      #area-top .player-label {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        font-size: 0.68rem;
+      }
+      #area-top .player-label .player-name {
+        max-width: 140px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      #area-top .player-label .player-score {
+        white-space: nowrap;
+        flex-shrink: 0;
+      }
+
+      /* ── 侧边玩家标签（75px 宽，极紧凑）────────────────── */
+      /* 策略：font-size:0 让玩家名文字不可见，但 dealer-badge 有自己的
+         font-size 所以仍然显示；只展示庄标志 + 筹码数 */
       #area-left .player-label,
-      #area-right .player-label,
-      #area-top  .player-label { display: none; }
+      #area-right .player-label {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 1px;
+        max-width: 73px;
+        overflow: hidden;
+      }
+      /* 名字文字隐藏（font-size:0），庄标志保留自身 font-size */
+      #area-left .player-label .player-name,
+      #area-right .player-label .player-name {
+        font-size: 0;
+        line-height: 0;
+      }
+      #area-left .player-label .dealer-badge,
+      #area-right .player-label .dealer-badge {
+        font-size: 0.72rem; /* 恢复庄字可见 */
+        line-height: 1.2;
+      }
+      #area-left .player-label .player-score,
+      #area-right .player-label .player-score {
+        white-space: nowrap;
+        font-size: 0.58rem;
+      }
 
       /* Grid 重构：top/bottom 跨全列 */
       .board-wrapper {
