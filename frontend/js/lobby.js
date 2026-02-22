@@ -2,7 +2,10 @@
    lobby.js – Mahjong Lobby
    ============================================================ */
 
-const API_BASE = 'http://localhost:8000';
+// 自动适配本地开发和生产环境
+const API_BASE = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+  ? `http://${window.location.host}`
+  : '';
 let playerId = null;
 let refreshTimer = null;
 
