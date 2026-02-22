@@ -383,7 +383,6 @@ function handleGameState(state) {
         // Check for extend-pung → kong (same meld count, but one meld grew to 4)
         currMelds.forEach((meld, mi) => {
           if (prevMelds[mi] && meld.length === 4 && prevMelds[mi].length === 3) {
-            playKongEffect();
             getSpeech()?.speak('杠', 'queue');
           }
         });
@@ -896,100 +895,6 @@ function selectTile(tileStr, el) {
    ① Deep gong  ② Pentatonic rising arpeggio (C E G A C)
    ③ Full triumphant chord  ④ Sparkle cascade
    ============================================================ */
-
-/* ============================================================
-   MELD SOUND EFFECTS (Web Audio API)
-   ============================================================ */
-
-function playChowEffect() {
-  const AC = window.AudioContext || window.webkitAudioContext;
-  if (!AC) return;
-  try {
-    const ctx = new AC();
-    const t = ctx.currentTime;
-    
-    // A quick rising two-note sequence (like picking up something swiftly)
-    // C5 -> E5
-    function beep(freq, start) {
-      const o = ctx.createOscillator();
-      const g = ctx.createGain();
-      o.type = 'sine';
-      o.frequency.value = freq;
-      g.gain.setValueAtTime(0, start);
-      g.gain.linearRampToValueAtTime(0.3, start + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.001, start + 0.3);
-      o.connect(g);
-      g.connect(ctx.destination);
-      o.start(start);
-      o.stop(start + 0.35);
-    }
-    
-    beep(523.25, t);
-    beep(659.25, t + 0.1);
-    
-    setTimeout(() => { try { ctx.close(); } catch (_) {} }, 1000);
-  } catch (_) {}
-}
-
-function playPungEffect() {
-  const AC = window.AudioContext || window.webkitAudioContext;
-  if (!AC) return;
-  try {
-    const ctx = new AC();
-    const t = ctx.currentTime;
-    
-    // A resonant double-strike (like two tiles clacking together)
-    function clack(freq, start) {
-      const o = ctx.createOscillator();
-      const g = ctx.createGain();
-      o.type = 'triangle';
-      o.frequency.value = freq;
-      g.gain.setValueAtTime(0, start);
-      g.gain.linearRampToValueAtTime(0.4, start + 0.01);
-      g.gain.exponentialRampToValueAtTime(0.001, start + 0.25);
-      o.connect(g);
-      g.connect(ctx.destination);
-      o.start(start);
-      o.stop(start + 0.3);
-    }
-    
-    clack(440, t);
-    clack(440, t + 0.12);
-    
-    setTimeout(() => { try { ctx.close(); } catch (_) {} }, 1000);
-  } catch (_) {}
-}
-
-function playKongEffect() {
-  const AC = window.AudioContext || window.webkitAudioContext;
-  if (!AC) return;
-  try {
-    const ctx = new AC();
-    const t = ctx.currentTime;
-    
-    // A heavy, powerful metallic strike (like a gong or heavy object)
-    function strike(freq, start, duration, vol) {
-      const o = ctx.createOscillator();
-      const g = ctx.createGain();
-      o.type = 'square';
-      o.frequency.value = freq;
-      g.gain.setValueAtTime(0, start);
-      g.gain.linearRampToValueAtTime(vol, start + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.001, start + duration);
-      o.connect(g);
-      g.connect(ctx.destination);
-      o.start(start);
-      o.stop(start + duration + 0.1);
-    }
-    
-    strike(220, t, 0.6, 0.4);
-    strike(110, t, 0.8, 0.5);
-    strike(330, t + 0.05, 0.5, 0.2); // metallic overtone
-    
-    setTimeout(() => { try { ctx.close(); } catch (_) {} }, 1500);
-  } catch (_) {}
-}
-
 function playWinEffect() {
   const AC = window.AudioContext || window.webkitAudioContext;
   if (!AC) return;
@@ -1072,7 +977,6 @@ function sendDiscard() {
 
 function sendPung() {
   _myClaimSent = 'pung';
-  playPungEffect();
   getSpeech()?.speak('碰！', 'immediate');
   sendAction('pung');
   hideClaimOverlay();
@@ -1091,7 +995,6 @@ function sendChow(handTiles) {
   }
   if (chowTiles) {
     _myClaimSent = 'chow';
-    playChowEffect();
     getSpeech()?.speak('吃！', 'immediate');
     sendAction('chow', { tiles: chowTiles });
     hideClaimOverlay();
@@ -1154,7 +1057,6 @@ function sendKong() {
     // Claiming a kong from another player's discard.
     // Server uses gs.last_discard when no tile is specified.
     _myClaimSent = 'kong';
-    playKongEffect();
     getSpeech()?.speak('杠！', 'immediate');
     sendAction('kong');
     hideClaimOverlay();
@@ -1190,7 +1092,6 @@ function sendKong() {
   }
 
   if (tileToKong) {
-    playKongEffect();
     getSpeech()?.speak('杠！', 'immediate');
     sendAction('kong', { tile: tileToKong });
     // Do NOT call hideClaimOverlay() here: we are not in a claim window.
