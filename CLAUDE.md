@@ -2249,6 +2249,45 @@ if (speech && speech.isSpeaking()) {
 
 ---
 
+## 功能增强：中央弃牌区空间布局
+
+**背景**：原先的 2×2 弃牌格按玩家索引 0→3 顺序填充，底部两格与玩家的实际坐向无关，人类玩家无法直观分辨哪格是自己的弃牌。
+
+**方案**：将 4 个弃牌格按相对 `myPlayerIdx` 的空间位置分配到对应网格区域，底部左格始终为自己，并用金色边框 + 淡绿底高亮区分。
+
+**布局映射**（相对 `myPlayerIdx = M`）：
+
+```
+┌──────────────┬──────────────┐
+│ 上家弃牌      │  对家弃牌     │   left-pile   top-pile
+│ (M+3)%4      │  (M+2)%4     │
+├──────────────┼──────────────┤
+│ ★ 自己弃牌   │  下家弃牌     │   my-pile     right-pile
+│  M（金色边框）│  (M+1)%4     │
+└──────────────┴──────────────┘
+```
+
+**CSS 改动**（`game.html` 内联 `<style>`）：
+- `.discards-grid` 加 `grid-template-areas: "left-pile top-pile" "my-pile right-pile"`
+- `.discard-pile.my-discard-pile`：金色边框 `rgba(212,160,23,0.55)` + 淡绿底
+- `.my-discard-pile .discard-pile-label`：金色字体 + `font-weight: 600`
+
+**JS 改动**（`game.js` `renderCenterTable`）：
+```javascript
+const areaByRel = ['my-pile', 'right-pile', 'top-pile', 'left-pile'];
+for (let i = 0; i < 4; i++) {
+  const rel  = (i - myPlayerIdx + 4) % 4;
+  const el   = document.getElementById(`discard-pile-${i}`);
+  el.style.gridArea = areaByRel[rel];
+  el.classList.toggle('my-discard-pile', rel === 0);
+}
+```
+使用 guard（检查当前值再赋值），避免不必要的样式重算。
+
+**修改文件**：`frontend/game.html`（CSS）、`frontend/js/game.js`（`renderCenterTable`）
+
+---
+
 ## 已知限制与后续扩展方向
 
 | 项目 | 当前状态 | 可改进方向 |
