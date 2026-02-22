@@ -598,6 +598,13 @@ html, body {
 }
 
 .claim-overlay.hidden { display: none; }
+/* Fade-in when overlay becomes visible (display:none→flex is not animatable,
+   so we animate the box-shadow content instead via opacity on the inner box). */
+.claim-overlay:not(.hidden) { animation: overlayFadeIn 0.15s ease; }
+@keyframes overlayFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
 
 .claim-box {
   background: var(--felt-dark);
@@ -681,6 +688,7 @@ html, body {
 }
 
 .modal-overlay.hidden { display: none; }
+.modal-overlay:not(.hidden) { animation: overlayFadeIn 0.2s ease; }
 
 .modal-box {
   background: var(--felt-dark);

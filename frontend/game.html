@@ -461,29 +461,44 @@
         const areaEl  = document.getElementById(`area-${position}`);
 
         if (areaEl) {
-          areaEl.classList.toggle('active-turn', state.current_turn === playerIdx);
+          // Guard: only toggle class when it actually needs to change.
+          const shouldBeActive = state.current_turn === playerIdx;
+          if (areaEl.classList.contains('active-turn') !== shouldBeActive) {
+            areaEl.classList.toggle('active-turn', shouldBeActive);
+          }
         }
 
         if (labelEl) {
           const chips = (state.cumulative_scores || {})[player.id] ?? '–';
-          const dealerBadge = (state.dealer_idx === playerIdx) ? '<span class="dealer-badge">庄</span>' : '';
-          labelEl.innerHTML = `<span class="player-name">${escapeHtmlLocal(player.id)}${dealerBadge}</span>
-            <span class="player-score">筹码: ${chips}</span>`;
+          const isDealer = state.dealer_idx === playerIdx;
+          // Guard: skip innerHTML write when nothing changed.
+          const labelKey = `${player.id}|${chips}|${isDealer}`;
+          if (labelEl.dataset.labelKey !== labelKey) {
+            labelEl.dataset.labelKey = labelKey;
+            const dealerBadge = isDealer ? '<span class="dealer-badge">庄</span>' : '';
+            labelEl.innerHTML = `<span class="player-name">${escapeHtmlLocal(player.id)}${dealerBadge}</span>
+              <span class="player-score">筹码: ${chips}</span>`;
+          }
         }
 
         if (handEl) {
-          // Only rebuild face-down tiles when the count changes.
+          // Incremental face-down tile update: add or remove one at a time,
+          // never clear the whole container unnecessarily.
           const tileCount    = getHandCount(player);
           const currentCount = handEl.querySelectorAll('.tile-back').length;
-          if (currentCount !== tileCount) {
-            handEl.innerHTML = '';
-            for (let i = 0; i < tileCount; i++) {
+          const w = position === 'left' || position === 'right' ? '18px' : '20px';
+          const h = position === 'left' || position === 'right' ? '26px' : '28px';
+          if (currentCount < tileCount) {
+            for (let i = currentCount; i < tileCount; i++) {
               const el = document.createElement('span');
               el.className = 'tile tile-back';
-              el.style.width  = position === 'left' || position === 'right' ? '18px' : '20px';
-              el.style.height = position === 'left' || position === 'right' ? '26px' : '28px';
+              el.style.width  = w;
+              el.style.height = h;
               handEl.appendChild(el);
             }
+          } else if (currentCount > tileCount) {
+            const tiles = [...handEl.querySelectorAll('.tile-back')];
+            for (let i = tileCount; i < currentCount; i++) tiles[i].remove();
           }
         }
 
@@ -517,28 +532,41 @@
         const scoreEl = document.getElementById('my-player-score');
 
         if (nameEl) {
-          const dealerBadge = (state.dealer_idx === playerIdx) ? '<span class="dealer-badge">庄</span>' : '';
-          nameEl.innerHTML = escapeHtmlLocal(player.id || 'Your hand') + dealerBadge;
+          const isDealer = state.dealer_idx === playerIdx;
+          const nameKey  = `${player.id}|${isDealer}`;
+          if (nameEl.dataset.nameKey !== nameKey) {
+            nameEl.dataset.nameKey = nameKey;
+            const dealerBadge = isDealer ? '<span class="dealer-badge">庄</span>' : '';
+            nameEl.innerHTML = escapeHtmlLocal(player.id || 'Your hand') + dealerBadge;
+          }
         }
-        if (scoreEl) scoreEl.textContent = `筹码: ${(state.cumulative_scores || {})[player.id] ?? '–'}`;
+        if (scoreEl) {
+          const chips = `筹码: ${(state.cumulative_scores || {})[player.id] ?? '–'}`;
+          if (scoreEl.textContent !== chips) scoreEl.textContent = chips;
+        }
 
         if (handEl) {
           // Only rebuild hand tiles when the tile set changes.
-          // Selection state is updated separately (no DOM rebuild needed).
           const newTiles    = sortHandTiles(getHandTiles(player));
           const newTilesKey = newTiles.join(',');
           if (handEl.dataset.tilesKey !== newTilesKey) {
             handEl.dataset.tilesKey = newTilesKey;
+            // Reset selectedTile tracker so selection sync runs after rebuild.
+            delete handEl.dataset.selectedTile;
             handEl.innerHTML = '';
             newTiles.forEach(tileStr => {
               const el = makeTileEl(tileStr, { clickable: true });
               handEl.appendChild(el);
             });
           }
-          // Always sync selection without triggering a full rebuild.
-          handEl.querySelectorAll('.tile').forEach(el => {
-            el.classList.toggle('selected', el.dataset.tile === selectedTile);
-          });
+          // Sync selection state only when it has actually changed.
+          const selKey = selectedTile || '';
+          if (handEl.dataset.selectedTile !== selKey) {
+            handEl.dataset.selectedTile = selKey;
+            handEl.querySelectorAll('.tile').forEach(el => {
+              el.classList.toggle('selected', el.dataset.tile === selectedTile);
+            });
+          }
         }
 
         if (meldsEl) {
@@ -563,7 +591,10 @@
 
         const bottomArea = document.getElementById('area-bottom');
         if (bottomArea) {
-          bottomArea.classList.toggle('active-turn', state.current_turn === playerIdx);
+          const shouldBeActive = state.current_turn === playerIdx;
+          if (bottomArea.classList.contains('active-turn') !== shouldBeActive) {
+            bottomArea.classList.toggle('active-turn', shouldBeActive);
+          }
         }
       };
 

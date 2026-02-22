@@ -557,9 +557,12 @@ function renderOpponent(player, playerIdx, position, state, discardPile) {
 
 /* ---------- Center Table ---------- */
 function renderCenterTable(state, discards, players) {
-  // Wall count
+  // Wall count — guard against same-value writes.
   const wallEl = document.getElementById('wall-count');
-  if (wallEl) wallEl.textContent = state.wall_remaining ?? state.wall_count ?? '?';
+  if (wallEl) {
+    const wallTxt = String(state.wall_remaining ?? state.wall_count ?? '?');
+    if (wallEl.textContent !== wallTxt) wallEl.textContent = wallTxt;
+  }
 
   // Discards for each player — incremental update to avoid SVG re-decode flicker.
   // Helper: compare two string arrays for equality.
@@ -572,14 +575,15 @@ function renderCenterTable(state, discards, players) {
     const pile    = (discards[i] || []);
     const visible = pile.slice(-12); // show at most last 12 tiles
 
-    // Update the label text without touching tiles.
+    // Update the label text without touching tiles (guard against no-op writes).
+    const lblText = players[i] ? players[i].id : `P${i + 1}`;
     let lbl = pileEl.querySelector('.discard-pile-label');
     if (lbl) {
-      lbl.textContent = players[i] ? players[i].id : `P${i + 1}`;
+      if (lbl.textContent !== lblText) lbl.textContent = lblText;
     } else {
       lbl = document.createElement('div');
       lbl.className = 'discard-pile-label';
-      lbl.textContent = players[i] ? players[i].id : `P${i + 1}`;
+      lbl.textContent = lblText;
       pileEl.prepend(lbl);
     }
 
@@ -597,12 +601,17 @@ function renderCenterTable(state, discards, players) {
                _arrEq(visible, existingKeys.slice(0, -1))) {
       // Tile was claimed (pung / chow / kong): remove the last DOM element.
       existingTileEls[existingTileEls.length - 1].remove();
+    } else if (visible.length === existingKeys.length &&
+               _arrEq(existingKeys.slice(1), visible.slice(0, -1))) {
+      // Sliding window: pile grew past 12. Remove first element, append new last.
+      existingTileEls[0].remove();
+      pileEl.appendChild(makeTileEl(visible[visible.length - 1]));
     } else {
-      // Full rebuild: new game, window slid past 12, or other structural change.
+      // Full rebuild: new game or other structural change.
       pileEl.innerHTML = '';
       const rebuildLbl = document.createElement('div');
       rebuildLbl.className = 'discard-pile-label';
-      rebuildLbl.textContent = players[i] ? players[i].id : `P${i + 1}`;
+      rebuildLbl.textContent = lblText;
       pileEl.appendChild(rebuildLbl);
       visible.forEach(tStr => pileEl.appendChild(makeTileEl(tStr)));
     }
@@ -622,10 +631,11 @@ function renderCenterTable(state, discards, players) {
     }
   }
 
-  // Phase / turn info in center
+  // Phase / turn info in center — guard against same-value writes.
   const phaseEl = document.getElementById('center-phase');
   if (phaseEl) {
-    phaseEl.textContent = formatPhase(state.phase);
+    const phaseTxt = formatPhase(state.phase);
+    if (phaseEl.textContent !== phaseTxt) phaseEl.textContent = phaseTxt;
   }
 }
 
@@ -1010,6 +1020,10 @@ function showGameOverModal(winnerName, scores, cumulativeScores, roundNumber, ha
 function setStatus(msg, type) {
   const bar = document.getElementById('status-bar');
   if (!bar) return;
+
+  // Guard: skip DOM writes when content and type are identical.
+  const newClass = type ? `status-bar ${type}` : 'status-bar';
+  if (bar.textContent === msg && bar.className === newClass) return;
 
   bar.textContent = msg;
   bar.className   = 'status-bar';
