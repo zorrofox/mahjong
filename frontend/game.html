@@ -270,14 +270,16 @@
       #room-info { display: none; }
       #topbar h1 { font-size: 0.85rem; letter-spacing: 0; }
 
-      /* Fix 2: 侧边栏（110px）依然放不下完整标签，隐藏 */
+      /* Fix 2: 侧边栏（110px）放不下完整标签，隐藏 */
       #area-left .player-label,
       #area-right .player-label { display: none; }
 
-      /* Fix 4: 底部行用 auto 自适应，防止手牌溢出进 action-bar */
+      /* Fix 4 (修正): 底部行用【固定高度】，不用 auto。
+         auto 会随副露牌出现而无限扩张，把 1fr 中间行（left/center/right）压成一条缝。
+         155px = label(20) + gap(4) + hand(80) + gap(4) + melds(32+最多1行)(≤47) = ~155px */
       .board-wrapper {
         grid-template-columns: 110px 1fr 110px;
-        grid-template-rows: 110px 1fr auto;
+        grid-template-rows: 110px 1fr 155px;
       }
 
       /* Fix 5: action-bar 始终在牌的上方 */
@@ -286,17 +288,20 @@
         z-index: 10;
       }
 
-      /* Fix 3: 副露牌尺寸统一（不含 inline style 的那些） */
-      #my-melds .tile     { width: 28px !important; height: 40px !important; }
-      #my-melds .tile-img { width: 28px !important; height: 40px !important; }
+      /* Fix 3: 副露牌在移动端缩小，确保所有副露都能在 155px 行高内显示 */
+      #my-melds .tile     { width: 22px !important; height: 32px !important; }
+      #my-melds .tile-img { width: 22px !important; height: 32px !important; }
     }
 
     @media (max-width: 600px) {
-      /* 更窄设备：侧边栏进一步收缩 */
+      /* 更窄设备：侧边栏进一步收缩，底部同样用固定高度 */
       .board-wrapper {
         grid-template-columns: 70px 1fr 70px;
-        grid-template-rows: 80px 1fr auto;
+        grid-template-rows: 80px 1fr 140px;
       }
+      /* 更小副露牌 */
+      #my-melds .tile     { width: 20px !important; height: 28px !important; }
+      #my-melds .tile-img { width: 20px !important; height: 28px !important; }
     }
   </style>
 </head>
