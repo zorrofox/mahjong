@@ -4,7 +4,7 @@
 
 A browser-based multiplayer Mahjong game. Supports 1–4 human players per room; empty seats are filled by AI.
 
-![Python](https://img.shields.io/badge/Python-3.11-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-0.111-green) ![Tests](https://img.shields.io/badge/tests-382%20passed-brightgreen) ![Tiles](https://img.shields.io/badge/tiles-Cangjie6%20SVG-orange)
+![Python](https://img.shields.io/badge/Python-3.11-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-0.111-green) ![Tests](https://img.shields.io/badge/tests-397%20passed-brightgreen) ![Tiles](https://img.shields.io/badge/tiles-Cangjie6%20SVG-orange)
 
 ---
 
@@ -13,7 +13,7 @@ A browser-based multiplayer Mahjong game. Supports 1–4 human players per room;
 - 标准中国麻将规则（144 张牌，含花牌季牌）
 - 实时多人对战（WebSocket）
 - AI 自动填补空位，启发式出牌与声索决策
-- 声索优先级：胡 > 碰/杠 > 吃；加杠时支持搶杠胡（限声索赢牌）
+- 声索优先级：胡 > 碰/杠 > 吃；加杠时支持搶杠胡（限声索赢牌）；有多口可吃时分别显示三张牌序列供玩家选择（如「吃 三四五」/「吃 四五六」）
 - 自摸与荣和均支持；最低番数门槛可配置（当前 1 番，即任意合法手牌可胡）
 - 七对（七對）为合法胡牌型，计 +3 番
 - 声索窗口 30 秒倒计时，归零自动跳过
@@ -55,9 +55,9 @@ uvicorn main:app --reload --port 8000
 ├── frontend/
 │   ├── js/            # 大厅 + 游戏客户端
 │   ├── tiles/         # Cangjie6 港式麻将 SVG 牌面（42 张）
-│   └── tests/         # 前端单元测试（64 tests）
+│   └── tests/         # 前端单元测试（73 tests）
 └── tests/
-    └── integration/   # REST + WebSocket 集成测试（48 tests）
+    └── integration/   # REST + WebSocket 集成测试（54 tests）
 ```
 
 ---

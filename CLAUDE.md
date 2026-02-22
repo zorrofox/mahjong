@@ -67,14 +67,14 @@ majiang/
 │   │   ├── FLOWER_1.svg .. FLOWER_4.svg
 │   │   └── SEASON_1.svg .. SEASON_4.svg
 │   └── tests/                       # 前端单元测试（Vitest）
-│       ├── game.test.js             # 45 tests
+│       ├── game.test.js             # 54 tests
 │       └── lobby.test.js            # 19 tests
 └── tests/
     └── integration/                 # 集成测试（pytest + httpx）
         ├── conftest.py              # TestClient fixtures
         ├── test_rest_api.py         # 14 tests
         ├── test_websocket.py        # 12 tests（含 TestRestartGame）
-        ├── test_claim_window.py     # 15 tests（声索窗口完整流程）
+        ├── test_claim_window.py     # 21 tests（声索窗口 + 多口吃牌）
         └── test_hand_order.py       # 7 tests（手牌排序验证）
 ```
 
@@ -266,8 +266,8 @@ const TILE_SVG_MAP = {
 | `frontend/tiles/` | 42 SVG | Cangjie6 港式麻将牌面图片 |
 | **业务代码合计** | **~5,651** | |
 | `backend/tests/` | ~1,800 | 后端单元测试（270 tests） |
-| `frontend/tests/` | ~550 | 前端单元测试（64 tests） |
-| `tests/integration/` | ~1,120 | 集成测试（48 tests） |
+| `frontend/tests/` | ~550 | 前端单元测试（73 tests） |
+| `tests/integration/` | ~1,120 | 集成测试（54 tests） |
 | **测试代码合计** | **~3,470** | |
 
 ---
@@ -1655,6 +1655,33 @@ if gs.phase == "claiming" and gs._best_claim is not None \
 
 ---
 
+### 功能增强：吃牌多口选择
+
+**发现时间**：用户反馈
+**现象**：有多口可吃时（如手中有三四和六七，对家打出五），系统自动选择第一口（三四五），用户无法选择其他组合（四五六、五六七）。
+
+**根本原因**：`autoSelectChow()` 仅返回第一口可行组合；`showClaimOverlay` 只生成单个"吃"按钮，无任何分支。
+
+**修复方案**：
+
+1. **新增 `getAllChows(discardedTile, hand)`**（`game.js`）：枚举三种顺子位置（倒数/中间/首位），返回所有可行的 2 元手牌数组列表（而非仅第一个）。`autoSelectChow` 重构为取其第一项，行为对外不变。
+
+2. **`sendChow(handTiles)`**：新增可选参数；传入具体 2 张手牌时直接使用，否则降级至 `autoSelectChow` 自动选择。
+
+3. **`showClaimOverlay` 多按钮渲染**（`game.js`）：
+   - 仅一口可吃 → 保持原有单按钮"Chow 吃"
+   - 多口可吃 → 每口生成独立按钮，标注三张牌的汉字序列（如「吃 三四五」「吃 四五六」「吃 五六七」），点击直接提交对应选择
+
+**修改文件**：
+
+| 文件 | 改动 |
+|---|---|
+| `frontend/js/game.js` | 新增 `getAllChows()`；重构 `autoSelectChow`；`sendChow(handTiles)` 支持参数；`showClaimOverlay` 多按钮分支 |
+| `frontend/tests/game.test.js` | 新增 9 个 `getAllChows` 单元测试（null/荣誉牌/一口/两口/三口/跨花色/重复牌等） |
+| `tests/integration/test_claim_window.py` | 新增 `TestClaimChowMultipleOptions`（6 个集成测试，手牌 3-4-6-7 + 弃牌 5，分别验证三口选择、拒绝无效牌、拒绝手中没有的牌） |
+
+---
+
 ## 测试体系
 
 ### 运行方式
@@ -1701,7 +1728,7 @@ pytest -v
 |---|---|---|
 | `test_rest_api.py` | 14 | 全部 REST 端点（列出/创建/加入/开始房间） |
 | `test_websocket.py` | 12 | WS 连接、游戏状态结构、手牌可见性、重开局（TestRestartGame） |
-| `test_claim_window.py` | 15 | 碰/吃/杠/过/胡 完整声索窗口流程 |
+| `test_claim_window.py` | 21 | 碰/吃/杠/过/胡 完整声索窗口流程；多口吃牌三选一 |
 | `test_hand_order.py` | 7 | 服务端不排序验证 + Python 复现 JS 排序算法 |
 
 ### 测试总量
@@ -1709,9 +1736,9 @@ pytest -v
 | 层级 | 测试数 |
 |---|---|
 | 后端单元测试 | 270 |
-| 前端单元测试 | 64 |
-| 集成测试 | 48 |
-| **合计** | **382** |
+| 前端单元测试 | 73 |
+| 集成测试 | 54 |
+| **合计** | **397** |
 
 `test_claim_window.py` 策略：通过 REST 开始游戏后直接操控 `room.game_state`，将局面固定到声索阶段（控制手牌、弃牌、已跳过玩家），再通过 WS 连接触发同步 `claim_window` 消息，验证声索结果。
 
@@ -1821,5 +1848,5 @@ Node.js / jsdom 无 `speechSynthesis`，`SpeechEngine` 构造函数和所有 `sp
 | 计分系统 | 番数驱动结算（unit=2^(n-1)，庄家双倍，杠钱即时，详见功能增强 5） | 天胡/地胡等特殊牌型；庄家轮换；番型加倍上限调整 |
 | AI 强度 | 启发式贪心 | 蒙特卡洛或规则引擎 |
 | 移动端适配 | 桌面优先（1024px+） | 触屏手势支持 |
-| 测试覆盖 | 382 tests（后端 270 + 前端 64 + 集成 48），含声索窗口、手牌排序、加杠/搶杠胡、番数/圈风/本命花规则修正专项测试 | E2E 浏览器测试（Playwright）；lobby Rejoin 流程集成测试 |
+| 测试覆盖 | 397 tests（后端 270 + 前端 73 + 集成 54），含声索窗口、多口吃牌、手牌排序、加杠/搶杠胡、番数/圈风/本命花规则修正专项测试 | E2E 浏览器测试（Playwright）；lobby Rejoin 流程集成测试 |
 | 多语言 | 界面为中英混合 | i18n 国际化 |
