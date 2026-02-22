@@ -749,3 +749,131 @@ class TestClaimChowEdgeTiles:
         assert "CIRCLES_1" in hand
         assert "EAST" in hand
         assert "SOUTH" in hand
+
+
+# ---------------------------------------------------------------------------
+# Pung → Extend-pung (加杠) regression
+#
+# Scenario: player holds 3 copies of a tile, opponent discards the same tile.
+# Player can both pung AND kong.  Player chooses pung, then later extends the
+# pung to a kong (加杠) during the discarding phase.
+#
+# Before the fix, sendKong() in the frontend would:
+#   1. Auto-detect only 4-of-a-kind (暗杠) — missing the extend-pung case.
+#   2. Call hideClaimOverlay() even when not in a claim window, clearing
+#      pendingActions and leaving the player with no buttons after an error.
+#
+# These tests verify the server-side behaviour that the fix relies on:
+# the extend-pung path is accepted and produces the correct 4-tile meld.
+# ---------------------------------------------------------------------------
+
+
+def _setup_discarding_with_pung_meld(room_id, pung_tile, remaining_hand):
+    """
+    Put game into discarding phase for player 0 who already holds a pung
+    meld (3 × pung_tile) and one extra copy of pung_tile in hand, plus
+    remaining_hand tiles.  The extend-pung (加杠) should be available.
+    """
+    room = room_manager.get_room(room_id)
+    gs = room.game_state
+    # Give player 0 the pung meld + one extra copy + other tiles
+    gs.players[0].melds = [[pung_tile] * 3]
+    gs.players[0].hand  = [pung_tile] + list(remaining_hand)
+    gs.phase        = "discarding"
+    gs.current_turn = 0
+    gs.last_drawn_tile = pung_tile   # simulate the tile that was just drawn
+
+
+class TestPungThenExtendPung:
+    """
+    After choosing pung over kong, the player can extend the pung to a kong
+    (加杠) during the discarding phase.
+    """
+
+    PUNG_TILE = "BAMBOO_5"
+    OTHER     = ["CIRCLES_1", "EAST", "SOUTH"]
+
+    def _setup(self, client, pid):
+        room_id = _create_and_start(client, pid)
+        _setup_discarding_with_pung_meld(room_id, self.PUNG_TILE, self.OTHER)
+        return room_id
+
+    def test_extend_pung_offered_as_kong_action(self, client):
+        """action_required includes 'kong' when extend-pung is available."""
+        pid  = "epung_offer"
+        room_id = self._setup(client, pid)
+
+        with client.websocket_connect(f"/ws/{room_id}/{pid}") as ws:
+            _drain_until(ws, "game_state")
+            ar = _drain_until(ws, "action_required")
+
+        assert "kong" in ar["actions"]
+        assert "discard" in ar["actions"]
+
+    def test_extend_pung_creates_four_tile_meld(self, client):
+        """Sending kong with the pung tile extends the meld from 3 to 4 tiles."""
+        pid  = "epung_meld"
+        room_id = self._setup(client, pid)
+
+        with client.websocket_connect(f"/ws/{room_id}/{pid}") as ws:
+            _drain_until(ws, "game_state")
+            _drain_until(ws, "action_required")
+
+            ws.send_json({"type": "kong", "tile": self.PUNG_TILE})
+            state_msg = _drain_until(ws, "game_state")
+
+        state = state_msg["state"]
+        my_melds = state["players"][0]["melds"]
+        assert len(my_melds) == 1
+        assert sorted(my_melds[0]) == [self.PUNG_TILE] * 4
+
+    def test_extend_pung_removes_tile_from_hand(self, client):
+        """After extend-pung, the matched hand tile leaves the player's hand."""
+        pid  = "epung_hand"
+        room_id = self._setup(client, pid)
+
+        with client.websocket_connect(f"/ws/{room_id}/{pid}") as ws:
+            _drain_until(ws, "game_state")
+            _drain_until(ws, "action_required")
+            ws.send_json({"type": "kong", "tile": self.PUNG_TILE})
+            state_msg = _drain_until(ws, "game_state")
+
+        hand = state_msg["state"]["players"][0]["hand"]["tiles"]
+        assert self.PUNG_TILE not in hand
+        # Other tiles are unaffected
+        for t in self.OTHER:
+            assert t in hand
+
+    def test_extend_pung_opens_rob_kong_window(self, client):
+        """After extend-pung the server opens a 搶杠 (rob-the-kong) claiming window."""
+        pid  = "epung_phase"
+        room_id = self._setup(client, pid)
+
+        with client.websocket_connect(f"/ws/{room_id}/{pid}") as ws:
+            _drain_until(ws, "game_state")
+            _drain_until(ws, "action_required")
+            ws.send_json({"type": "kong", "tile": self.PUNG_TILE})
+            state_msg = _drain_until(ws, "game_state")
+
+        # Extend-pung triggers a 搶杠 window; other players may try to win
+        # on the extended tile.  Phase must be 'claiming' at this point.
+        # (AI auto-skip tasks don't run in synchronous TestClient, so the
+        # window stays open here.)
+        assert state_msg["state"]["phase"] == "claiming"
+        # The meld is already extended to 4 tiles
+        my_melds = state_msg["state"]["players"][0]["melds"]
+        assert sorted(my_melds[0]) == [self.PUNG_TILE] * 4
+
+    def test_wrong_tile_for_extend_pung_returns_error(self, client):
+        """Sending a tile that is not the pung tile is rejected with an error."""
+        pid  = "epung_badtile"
+        room_id = self._setup(client, pid)
+
+        with client.websocket_connect(f"/ws/{room_id}/{pid}") as ws:
+            _drain_until(ws, "game_state")
+            _drain_until(ws, "action_required")
+            # CIRCLES_1 is in hand but has no matching pung meld
+            ws.send_json({"type": "kong", "tile": "CIRCLES_1"})
+            err = _drain_until(ws, "error")
+
+        assert err["type"] == "error"

@@ -850,25 +850,46 @@ function sendKong() {
     hideClaimOverlay();
     return;
   }
-  if (selectedTile) {
-    // Extend-pung or concealed kong on the selected tile.
-    getSpeech()?.speak('杠！', 'immediate');
-    sendAction('kong', { tile: selectedTile });
-  } else if (gameState) {
-    // Self-drawn kong: auto-detect a 4-of-a-kind in hand.
-    const hand = getHandTiles(gameState.players?.[myPlayerIdx]);
-    const counts = {};
-    hand.forEach(t => counts[t] = (counts[t] || 0) + 1);
-    const kongTile = Object.keys(counts).find(t => counts[t] >= 4);
-    if (kongTile) {
-      getSpeech()?.speak('杠！', 'immediate');
-      sendAction('kong', { tile: kongTile });
-    } else {
-      setStatus('Select a tile for Kong.', 'error');
-      return;
+
+  // Self-drawn or extend-pung kong (discarding phase).
+  // Determine which tile to kong, in priority order:
+  //   1. The currently highlighted (selected) tile.
+  //   2. Extend-pung (加杠): a tile in hand that matches an existing pung meld.
+  //   3. Concealed kong (暗杠): a tile appearing 4 times in hand.
+  const hand  = getHandTiles(gameState?.players?.[myPlayerIdx]);
+  const melds = gameState?.players?.[myPlayerIdx]?.melds || [];
+
+  let tileToKong = selectedTile || null;
+
+  if (!tileToKong) {
+    // Try extend-pung first: find a tile in hand that completes a pung meld.
+    for (const meld of melds) {
+      if (meld.length === 3 && meld[0] === meld[1] && meld[1] === meld[2]
+          && hand.includes(meld[0])) {
+        tileToKong = meld[0];
+        break;
+      }
     }
   }
-  hideClaimOverlay();
+
+  if (!tileToKong) {
+    // Fall back to concealed kong: 4 identical tiles in hand.
+    const counts = {};
+    hand.forEach(t => counts[t] = (counts[t] || 0) + 1);
+    tileToKong = Object.keys(counts).find(t => counts[t] >= 4) || null;
+  }
+
+  if (tileToKong) {
+    getSpeech()?.speak('杠！', 'immediate');
+    sendAction('kong', { tile: tileToKong });
+    // Do NOT call hideClaimOverlay() here: we are not in a claim window.
+    // pendingActions must stay intact until the server responds with
+    // game_state + action_required.  Calling hideClaimOverlay() would clear
+    // pendingActions and leave the player with no buttons if the server
+    // rejects the kong (e.g. wrong tile).
+  } else {
+    setStatus('Select the tile you want to Kong.', 'error');
+  }
 }
 
 function sendWin() {
