@@ -57,7 +57,7 @@ const patchedCode = code.replace(
 
 vm.runInNewContext(patchedCode, sandbox, { filename: filePath })
 
-const { getHandTiles, getHandCount, tileToDisplay, formatPhase, autoSelectChow, escapeHtml, TILE_MAP, sortHandTiles } = globalThis._mahjongTestExports
+const { getHandTiles, getHandCount, tileToDisplay, formatPhase, autoSelectChow, getAllChows, escapeHtml, TILE_MAP, sortHandTiles } = globalThis._mahjongTestExports
 
 /* ==========================================================
    getHandTiles
@@ -371,5 +371,64 @@ describe('sortHandTiles', () => {
     const sorted = sortHandTiles(hand)
     expect(sorted).toEqual(['BAMBOO_1','BAMBOO_2','BAMBOO_3','BAMBOO_4','BAMBOO_5',
                             'BAMBOO_6','BAMBOO_7','BAMBOO_8','BAMBOO_9'])
+  })
+})
+
+describe('getAllChows', () => {
+  it('returns [] for null discarded tile', () => {
+    expect(getAllChows(null, ['BAMBOO_1'])).toEqual([])
+  })
+
+  it('returns [] for honor/flower tiles', () => {
+    expect(getAllChows('EAST', ['EAST', 'SOUTH', 'WEST'])).toEqual([])
+    expect(getAllChows('RED', ['RED', 'GREEN', 'WHITE'])).toEqual([])
+    expect(getAllChows('FLOWER_1', ['FLOWER_1'])).toEqual([])
+  })
+
+  it('returns single option when only one chow is possible', () => {
+    // Discard BAMBOO_5, hand has 3-4 only
+    expect(getAllChows('BAMBOO_5', ['BAMBOO_3', 'BAMBOO_4'])).toEqual([['BAMBOO_3', 'BAMBOO_4']])
+    // Discard BAMBOO_5, hand has 6-7 only
+    expect(getAllChows('BAMBOO_5', ['BAMBOO_6', 'BAMBOO_7'])).toEqual([['BAMBOO_6', 'BAMBOO_7']])
+  })
+
+  it('returns two options when two chows are possible', () => {
+    // Discard BAMBOO_5, hand has 3-4 and 4-6 → combos [3,4] and [4,6]
+    const result = getAllChows('BAMBOO_5', ['BAMBOO_3', 'BAMBOO_4', 'BAMBOO_6'])
+    expect(result).toHaveLength(2)
+    expect(result).toContainEqual(['BAMBOO_3', 'BAMBOO_4'])
+    expect(result).toContainEqual(['BAMBOO_4', 'BAMBOO_6'])
+  })
+
+  it('returns all three options when three chows are possible', () => {
+    // Discard BAMBOO_5, hand has 3,4,6,7 → [3,4], [4,6], [6,7]
+    const result = getAllChows('BAMBOO_5', ['BAMBOO_3', 'BAMBOO_4', 'BAMBOO_6', 'BAMBOO_7'])
+    expect(result).toHaveLength(3)
+    expect(result).toContainEqual(['BAMBOO_3', 'BAMBOO_4'])
+    expect(result).toContainEqual(['BAMBOO_4', 'BAMBOO_6'])
+    expect(result).toContainEqual(['BAMBOO_6', 'BAMBOO_7'])
+  })
+
+  it('returns [] when hand lacks the needed tiles', () => {
+    expect(getAllChows('BAMBOO_5', ['BAMBOO_1', 'CIRCLES_4'])).toEqual([])
+  })
+
+  it('does not cross suits', () => {
+    // Discard BAMBOO_5, hand has CIRCLES 3-4 — different suit, no chow
+    expect(getAllChows('BAMBOO_5', ['CIRCLES_3', 'CIRCLES_4'])).toEqual([])
+  })
+
+  it('works for CIRCLES and CHARACTERS suits', () => {
+    expect(getAllChows('CIRCLES_9', ['CIRCLES_7', 'CIRCLES_8'])).toEqual([['CIRCLES_7', 'CIRCLES_8']])
+    expect(getAllChows('CHARACTERS_1', ['CHARACTERS_2', 'CHARACTERS_3'])).toEqual([['CHARACTERS_2', 'CHARACTERS_3']])
+  })
+
+  it('handles duplicate tiles correctly', () => {
+    // Hand has two BAMBOO_4: both [3,4] and [4,6] combos can each consume one BAMBOO_4.
+    // [6,7] is unavailable (no BAMBOO_7), so expect 2 results.
+    const result = getAllChows('BAMBOO_5', ['BAMBOO_3', 'BAMBOO_4', 'BAMBOO_4', 'BAMBOO_6'])
+    expect(result).toHaveLength(2)
+    expect(result).toContainEqual(['BAMBOO_3', 'BAMBOO_4'])
+    expect(result).toContainEqual(['BAMBOO_4', 'BAMBOO_6'])
   })
 })

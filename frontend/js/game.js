@@ -772,15 +772,17 @@ function sendPung() {
   hideClaimOverlay();
 }
 
-function sendChow() {
-  // Chow requires two companion tiles; for simplicity prompt the user
-  // or pick the first valid pair from hand automatically.
-  // We'll show a simple UI asking which tiles to chow with.
+function sendChow(handTiles) {
+  // handTiles: optional 2-element array of the hand tiles to use.
+  // When omitted (single-option path), auto-selects the only valid combo.
   const tile = document.getElementById('claim-tile-name')?.dataset?.tile;
-  const hand = getHandTiles(gameState?.players?.[myPlayerIdx]);
-
-  // Try to auto-select a valid chow (adjacent tiles)
-  const chowTiles = autoSelectChow(tile, hand);
+  let chowTiles;
+  if (Array.isArray(handTiles) && handTiles.length === 2) {
+    chowTiles = handTiles;
+  } else {
+    const hand = getHandTiles(gameState?.players?.[myPlayerIdx]);
+    chowTiles = autoSelectChow(tile, hand);
+  }
   if (chowTiles) {
     getSpeech()?.speak('吃！', 'immediate');
     sendAction('chow', { tiles: chowTiles });
@@ -791,15 +793,28 @@ function sendChow() {
 }
 
 function autoSelectChow(discardedTile, hand) {
-  if (!discardedTile) return null;
+  const results = getAllChows(discardedTile, hand);
+  return results.length > 0 ? results[0] : null;
+}
+
+/**
+ * Return every valid chow combination for a discarded tile.
+ * Each entry is a 2-element array of hand tiles needed (the third tile
+ * is the discarded tile sent by the server).
+ */
+function getAllChows(discardedTile, hand) {
+  if (!discardedTile) return [];
   const info = TILE_MAP[discardedTile];
-  if (!info || !info.suit) return null; // only suited tiles
+  if (!info || !info.suit) return [];
 
   const num = parseInt(info.label.slice(1));
-  if (isNaN(num)) return null;
+  if (isNaN(num)) return [];
   const suit = info.suit;
 
-  // Possible chow combinations: (n-2,n-1), (n-1,n+1), (n+1,n+2)
+  // Three positions for the discarded tile in a sequence:
+  //   last   (n-2, n-1, n)  → hand needs [n-2, n-1]
+  //   middle (n-1, n, n+1)  → hand needs [n-1, n+1]
+  //   first  (n, n+1, n+2)  → hand needs [n+1, n+2]
   const combos = [
     [num - 2, num - 1],
     [num - 1, num + 1],
@@ -808,8 +823,9 @@ function autoSelectChow(discardedTile, hand) {
 
   const suitMap = { B: 'BAMBOO', C: 'CIRCLES', M: 'CHARACTERS' };
   const prefix  = suitMap[suit];
-  if (!prefix) return null;
+  if (!prefix) return [];
 
+  const results = [];
   for (const combo of combos) {
     if (combo.every(n => n >= 1 && n <= 9)) {
       const needed = combo.map(n => `${prefix}_${n}`);
@@ -819,10 +835,10 @@ function autoSelectChow(discardedTile, hand) {
         if (idx !== -1) { handCopy.splice(idx, 1); return true; }
         return false;
       });
-      if (found) return needed;
+      if (found) results.push(needed);
     }
   }
-  return null;
+  return results;
 }
 
 function sendKong() {
@@ -902,8 +918,26 @@ function showClaimOverlay(tileStr, actions, timeout) {
     actionsEl.appendChild(b);
   }
   if (actionSet.has('chow')) {
-    const b = makeClaimBtn('Chow 吃', 'btn-success', sendChow);
-    actionsEl.appendChild(b);
+    const hand = getHandTiles(gameState?.players?.[myPlayerIdx]);
+    const allChows = getAllChows(tileStr, hand);
+    if (allChows.length <= 1) {
+      // Zero or one option: single generic button (auto-selects the combo).
+      const b = makeClaimBtn('Chow 吃', 'btn-success', sendChow);
+      actionsEl.appendChild(b);
+    } else {
+      // Multiple options: one button per combination showing the 3-tile sequence.
+      allChows.forEach(handTiles => {
+        // Build sorted 3-tile sequence: hand tiles + discarded tile, order by number.
+        const allThree = [...handTiles, tileStr].sort((a, b) => {
+          const na = parseInt((TILE_MAP[a]?.label || '0').slice(1));
+          const nb = parseInt((TILE_MAP[b]?.label || '0').slice(1));
+          return na - nb;
+        });
+        const seqText = allThree.map(t => TILE_MAP[t]?.text || t).join('');
+        const b = makeClaimBtn(`吃 ${seqText}`, 'btn-success', () => sendChow(handTiles));
+        actionsEl.appendChild(b);
+      });
+    }
   }
   if (actionSet.has('kong')) {
     const b = makeClaimBtn('Kong 槓', 'btn-info', sendKong);
@@ -1142,5 +1176,5 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // Allow unit testing in Node/Vitest
 if (typeof globalThis !== 'undefined' && typeof window === 'undefined') {
-  globalThis._mahjongTestExports = { getHandTiles, getHandCount, tileToDisplay, formatPhase, autoSelectChow, escapeHtml, TILE_MAP, sortHandTiles, TILE_SVG_MAP };
+  globalThis._mahjongTestExports = { getHandTiles, getHandCount, tileToDisplay, formatPhase, autoSelectChow, getAllChows, escapeHtml, TILE_MAP, sortHandTiles, TILE_SVG_MAP };
 }
