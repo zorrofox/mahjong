@@ -375,8 +375,7 @@ function handleActionRequired(msg) {
           const tileEl = tiles.filter(el => el.dataset.tile === msg.drawn_tile).at(-1);
           if (tileEl) selectTile(msg.drawn_tile, tileEl);
         }
-        // Announce the drawn tile
-        getSpeech()?.speakTile(msg.drawn_tile);
+        // 不播报自己摸到的牌牌名（避免每次摸牌都念）
       }
     } else {
       setStatus('Your turn — choose an action.', 'info');
@@ -404,7 +403,8 @@ function handleGameOver(msg) {
   const winnerName = msg.winner_id || `Player ${msg.winner_idx + 1}`;
   // Announce win or draw
   if (msg.winner_idx !== null && msg.winner_idx !== undefined && msg.winner_idx >= 0) {
-    getSpeech()?.speak('胡！', 'immediate');
+    getSpeech()?.speak('胡了！', 'immediate');
+    playWinEffect();   // 程序化音效：锣 → 五声音阶 → 和弦 → 闪烁
   } else {
     getSpeech()?.speak('流局', 'immediate');
   }
@@ -771,6 +771,78 @@ function selectTile(tileStr, el) {
   if (el && el.scrollIntoView) {
     el.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
   }
+}
+
+/* ============================================================
+   WIN SOUND EFFECT  (Web Audio API — zero audio files)
+
+   Four-layer procedural fanfare:
+   ① Deep gong  ② Pentatonic rising arpeggio (C E G A C)
+   ③ Full triumphant chord  ④ Sparkle cascade
+   ============================================================ */
+function playWinEffect() {
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return;
+  let ctx;
+  try { ctx = new AC(); } catch (_) { return; }
+
+  const master = ctx.createGain();
+  master.gain.value = 0.45;
+  master.connect(ctx.destination);
+
+  const t = ctx.currentTime;
+
+  /**
+   * Play a sine oscillator with a sharp attack and exponential release.
+   * @param {number} freq     Frequency in Hz
+   * @param {number} start    Start time (AudioContext time)
+   * @param {number} decay    Duration until gain fades to ~0
+   * @param {number} peak     Peak gain (0–1)
+   * @param {string} [type]   Oscillator type (default 'sine')
+   */
+  function osc(freq, start, decay, peak, type = 'sine') {
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = type;
+    o.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, start);
+    g.gain.linearRampToValueAtTime(peak, start + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, start + decay);
+    o.connect(g);
+    g.connect(master);
+    o.start(start);
+    o.stop(start + decay + 0.05);
+  }
+
+  /** Bell tone = fundamental + inharmonic overtone (classic bell ratio 2.76) */
+  function bell(freq, start, decay, peak) {
+    osc(freq,        start, decay,        peak);
+    osc(freq * 2.76, start, decay * 0.55, peak * 0.35);
+  }
+
+  // ── ① Deep resonant gong (t = 0 s) ────────────────────────
+  osc(55,  t, 3.0, 1.0);   // sub-bass rumble
+  osc(110, t, 2.2, 0.75);
+  osc(220, t, 1.4, 0.50);
+  osc(440, t, 0.7, 0.25);
+
+  // ── ② Rising pentatonic arpeggio (t = 0.12 – 0.60 s) ──────
+  // C5 E5 G5 A5 C6  (Chinese pentatonic scale, celebratory feel)
+  [523, 659, 784, 880, 1047].forEach((freq, i) => {
+    bell(freq, t + 0.12 + i * 0.1, 0.85, 0.60);
+  });
+
+  // ── ③ Triumphant full chord (t = 0.85 s) ──────────────────
+  [131, 165, 196, 262].forEach(f => osc(f, t + 0.85, 2.2, 0.50));   // bass
+  [523, 659, 784].forEach(f => bell(f, t + 0.85, 2.0, 0.45));        // mid
+  [1047, 1319, 1568].forEach(f => bell(f, t + 0.90, 1.6, 0.25));     // high
+
+  // ── ④ Sparkle cascade (t = 0.92 – 1.28 s) ─────────────────
+  [2093, 2637, 3136, 3729, 4186, 3729, 3136, 2637, 2093, 2637, 4186]
+    .forEach((f, i) => osc(f, t + 0.92 + i * 0.035, 0.16, 0.18));
+
+  // Auto-close AudioContext when the effect has finished
+  setTimeout(() => { try { ctx.close(); } catch (_) {} }, 4800);
 }
 
 /* ============================================================
