@@ -331,6 +331,15 @@ function handleGameState(state) {
     myPlayerIdx = state.players.findIndex(p => p.id === PLAYER_ID);
   }
 
+  // Auto-close the game-over modal when another player restarts the game.
+  // Without this, the modal stays visible for non-initiators after restart.
+  if (state.phase !== 'ended') {
+    const modal = document.getElementById('game-over-modal');
+    if (modal && !modal.classList.contains('hidden')) {
+      modal.classList.add('hidden');
+    }
+  }
+
   // Announce the discarded tile (covers AI discards arriving via game_state).
   // Bug fix: use 'queue' instead of default 'skip' so the tile name is not
   // silently dropped when another sound (e.g. local player's '碰！') is
@@ -463,13 +472,22 @@ function handleGameOver(msg) {
   } else {
     getSpeech()?.speak('流局', 'immediate');
   }
+
+  // Determine restart authority: only the dealer (庄家) may click "Play Again".
+  // If the dealer seat is occupied by an AI, any human player may restart
+  // (since the AI won't act).  Single-player sessions always allow restart.
+  const dealerIdx = gameState?.dealer_idx ?? 0;
+  const dealerIsAI = gameState?.players?.[dealerIdx]?.id?.startsWith('ai_player_') ?? true;
+  const canRestart = myPlayerIdx === dealerIdx || dealerIsAI;
+
   showGameOverModal(
     winnerName,
     msg.scores || {},
     msg.cumulative_scores || {},
     msg.round_number,
     msg.han_breakdown || [],
-    msg.han_total || 0
+    msg.han_total || 0,
+    canRestart
   );
   setStatus(`Game over! Winner: ${winnerName}`, 'success');
   disableAllActionButtons();
@@ -1206,7 +1224,7 @@ function hideClaimOverlay() {
 /* ============================================================
    GAME OVER MODAL
    ============================================================ */
-function showGameOverModal(winnerName, scores, cumulativeScores, roundNumber, hanBreakdown, hanTotal) {
+function showGameOverModal(winnerName, scores, cumulativeScores, roundNumber, hanBreakdown, hanTotal, canRestart = true) {
   const modal     = document.getElementById('game-over-modal');
   const winnerEl  = document.getElementById('winner-name');
   const scoresEl  = document.getElementById('scores-body');
@@ -1249,6 +1267,21 @@ function showGameOverModal(winnerName, scores, cumulativeScores, roundNumber, ha
     tr.innerHTML = `<td>${escapeHtml(pid)}</td><td>${roundScore}</td><td>${chips}</td>`;
     scoresEl.appendChild(tr);
   });
+
+  // Control "Play Again" button based on dealer authority.
+  // Only the dealer (庄家) may restart; others see a disabled hint.
+  const playAgainBtn = document.getElementById('btn-play-again');
+  if (playAgainBtn) {
+    if (canRestart) {
+      playAgainBtn.disabled = false;
+      playAgainBtn.title = '';
+      playAgainBtn.textContent = 'Play Again 再来一局';
+    } else {
+      playAgainBtn.disabled = true;
+      playAgainBtn.title = '只有庄家可以重开 / Only the dealer can restart';
+      playAgainBtn.textContent = '等待庄家重开…';
+    }
+  }
 
   modal.classList.remove('hidden');
 }
@@ -1400,5 +1433,5 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // Allow unit testing in Node/Vitest
 if (typeof globalThis !== 'undefined' && typeof window === 'undefined') {
-  globalThis._mahjongTestExports = { getHandTiles, getHandCount, tileToDisplay, formatPhase, autoSelectChow, getAllChows, escapeHtml, TILE_MAP, sortHandTiles, TILE_SVG_MAP, makeTileEl, makeClaimBtn, selectTile };
+  globalThis._mahjongTestExports = { getHandTiles, getHandCount, tileToDisplay, formatPhase, autoSelectChow, getAllChows, escapeHtml, TILE_MAP, sortHandTiles, TILE_SVG_MAP, makeTileEl, makeClaimBtn, selectTile, showGameOverModal };
 }

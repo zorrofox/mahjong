@@ -57,7 +57,7 @@ const patchedCode = code.replace(
 
 vm.runInNewContext(patchedCode, sandbox, { filename: filePath })
 
-const { getHandTiles, getHandCount, tileToDisplay, formatPhase, autoSelectChow, getAllChows, escapeHtml, TILE_MAP, sortHandTiles, makeTileEl, makeClaimBtn, selectTile } = globalThis._mahjongTestExports
+const { getHandTiles, getHandCount, tileToDisplay, formatPhase, autoSelectChow, getAllChows, escapeHtml, TILE_MAP, sortHandTiles, makeTileEl, makeClaimBtn, selectTile, showGameOverModal } = globalThis._mahjongTestExports
 
 /* ==========================================================
    getHandTiles
@@ -601,5 +601,58 @@ describe('selectTile — scrollIntoView on mobile', () => {
     const el = makeMockEl(true)
     selectTile('CHARACTERS_4', el)
     expect(el.scrollIntoView).toHaveBeenCalled()
+  })
+})
+
+/* ==========================================================
+   showGameOverModal — dealer restart authority (multiplayer)
+   ========================================================== */
+describe('showGameOverModal — canRestart / dealer authority', () => {
+  // Build minimal DOM mocks for modal elements
+  function makeModalMocks() {
+    const btnPlayAgain = {
+      disabled: false,
+      title: '',
+      textContent: 'Play Again 再来一局',
+    }
+    const elements = {
+      'game-over-modal':          { classList: { remove: vi.fn(), add: vi.fn(), contains: () => true }, style: {} },
+      'winner-name':               { textContent: '' },
+      'scores-body':               { innerHTML: '' },
+      'round-number-label':        { textContent: '' },
+      'han-breakdown-section':     { classList: { remove: vi.fn(), add: vi.fn() } },
+      'han-body':                  { innerHTML: '', appendChild: vi.fn() },
+      'han-total':                 { textContent: '' },
+      'btn-play-again':            btnPlayAgain,
+    }
+    // Temporarily override getElementById in the sandbox
+    const origGetEl = mockDocument.getElementById
+    mockDocument.getElementById = vi.fn(id => elements[id] ?? null)
+    return { elements, btnPlayAgain, restore: () => { mockDocument.getElementById = origGetEl } }
+  }
+
+  it('disables Play Again and sets hint text when canRestart=false', () => {
+    const { btnPlayAgain, restore } = makeModalMocks()
+    showGameOverModal('winner', {}, {}, 1, [], 0, false)
+    expect(btnPlayAgain.disabled).toBe(true)
+    expect(btnPlayAgain.textContent).toContain('等待庄家')
+    expect(btnPlayAgain.title).toBeTruthy()
+    restore()
+  })
+
+  it('enables Play Again with normal text when canRestart=true', () => {
+    const { btnPlayAgain, restore } = makeModalMocks()
+    showGameOverModal('winner', {}, {}, 1, [], 0, true)
+    expect(btnPlayAgain.disabled).toBe(false)
+    expect(btnPlayAgain.textContent).toContain('Play Again')
+    expect(btnPlayAgain.title).toBe('')
+    restore()
+  })
+
+  it('defaults canRestart=true when argument is omitted (backward compat)', () => {
+    const { btnPlayAgain, restore } = makeModalMocks()
+    showGameOverModal('winner', {}, {}, 1, [], 0)  // no canRestart arg
+    expect(btnPlayAgain.disabled).toBe(false)
+    restore()
   })
 })
