@@ -34,7 +34,7 @@ A browser-based multiplayer Mahjong game. Supports 1–4 human players per room;
 
 ## 快速启动 / Quick Start
 
-**依赖**：Python 3.11+
+**本地开发**（依赖 Python 3.11+）
 
 ```bash
 cd backend
@@ -43,6 +43,20 @@ uvicorn main:app --reload --port 8000
 ```
 
 打开浏览器访问 [http://localhost:8000](http://localhost:8000)。
+
+**生产部署（Google Cloud Run + IAP）**
+
+```bash
+# 构建推送镜像
+IMAGE="us-central1-docker.pkg.dev/YOUR_GCP_PROJECT_ID/mahjong-repo/mahjong:latest"
+docker build -t ${IMAGE} . && docker push ${IMAGE}
+
+# 部署更新
+gcloud run deploy mahjong --image=${IMAGE} --region=us-central1 --project=YOUR_GCP_PROJECT_ID
+```
+
+生产地址：`https://YOUR_CLOUD_RUN_URL`（需 Google 身份认证）
+IAP 公网地址：`https://YOUR_APP_DOMAIN`（SSL 证书签发中）
 
 ---
 

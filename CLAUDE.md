@@ -10,13 +10,19 @@
 
 ## 快速启动
 
+**本地开发**
 ```bash
 cd backend
 pip install -r requirements.txt
 uvicorn main:app --reload --port 8000
 ```
-
 打开浏览器访问 `http://localhost:8000`。
+
+**生产环境（Google Cloud Run）**
+
+服务已部署至：`https://YOUR_CLOUD_RUN_URL`（需要 Google 身份认证）
+
+访问受 IAP（Identity-Aware Proxy）保护的公网入口：`https://YOUR_APP_DOMAIN`（SSL 证书签发中，约 10-60 分钟激活）
 
 ---
 
@@ -25,6 +31,9 @@ uvicorn main:app --reload --port 8000
 ```
 majiang/
 ├── CLAUDE.md                        # 本文档
+├── Dockerfile                       # Cloud Run 容器镜像构建
+├── .dockerignore                    # Docker 构建排除规则
+├── .gcloudignore                    # gcloud 部署排除规则
 ├── package.json                     # 前端测试依赖（Vitest）
 ├── vitest.config.js                 # Vitest 覆盖率配置
 ├── backend/
@@ -2251,3 +2260,117 @@ if (speech && speech.isSpeaking()) {
 | 移动端适配 | 竖屏专项优化：top/bottom 全宽布局、声索弹窗紧凑、大厅表格横滑、玩家标签含庄标+筹码 | 横屏优化；E2E 浏览器测试（Playwright） |
 | 测试覆盖 | 447 tests（后端 285 + 前端 95 + 集成 67），含声索窗口、多口吃牌、边张/坎张、碰后加杠、七对色番组合、花牌链、嶺上開花 flag、touch-action/scrollIntoView 移动端交互、手牌排序、加杠/搶杠胡、番数/圈风/本命花规则修正专项测试 | E2E 浏览器测试（Playwright）；lobby Rejoin 流程集成测试 |
 | 多语言 | 界面为中英混合 | i18n 国际化 |
+
+---
+
+## 生产部署：Google Cloud Run + IAP
+
+### 部署架构
+
+```
+用户浏览器
+    │  HTTPS 443
+    ▼
+Global HTTPS Load Balancer (IP: YOUR_LB_STATIC_IP)
+    │  IAP 认证（Google OAuth）
+    ▼
+Backend Service (mahjong-backend) ← IAP enabled
+    │  Serverless NEG
+    ▼
+Cloud Run (mahjong, us-central1)
+    │  ingress: internal-and-cloud-load-balancing
+    ▼
+FastAPI + Uvicorn (PORT 8080)
+  ├── /api/*  → REST 路由
+  ├── /ws/*   → WebSocket 路由
+  └── /*      → 前端静态文件 (frontend/)
+```
+
+**安全模型**：
+- Cloud Run `ingress=internal-and-cloud-load-balancing`：直接访问 Cloud Run URL 返回 403，只有 LB 流量可达
+- IAP 在 LB Backend Service 层强制 Google OAuth 认证
+- 未认证请求被 IAP 重定向到 Google 登录页
+
+### GCP 资源清单
+
+| 资源 | 名称 | 规格 |
+|---|---|---|
+| Cloud Run 服务 | mahjong | 512Mi / 1 CPU / 0-10 实例 |
+| Artifact Registry | mahjong-repo (us-central1) | Docker 格式 |
+| 镜像 | mahjong:latest | python:3.11-slim 基础镜像 |
+| 全局静态 IP | mahjong-ip | YOUR_LB_STATIC_IP |
+| SSL 证书 | mahjong-cert-v2 | Google 托管（PROVISIONING → ACTIVE，约 10-60 分钟）|
+| 负载均衡器 | mahjong-urlmap + mahjong-https-proxy | EXTERNAL_MANAGED |
+| Backend Service | mahjong-backend | IAP enabled |
+| Serverless NEG | mahjong-neg | us-central1 → Cloud Run mahjong |
+
+### 部署命令
+
+```bash
+# 1. 构建并推送镜像
+IMAGE="us-central1-docker.pkg.dev/YOUR_GCP_PROJECT_ID/mahjong-repo/mahjong:latest"
+docker build -t ${IMAGE} .
+docker push ${IMAGE}
+
+# 2. 部署到 Cloud Run
+gcloud run deploy mahjong \
+  --image=${IMAGE} \
+  --platform=managed \
+  --region=us-central1 \
+  --no-allow-unauthenticated \
+  --ingress=internal-and-cloud-load-balancing \
+  --port=8080 \
+  --memory=512Mi --cpu=1 \
+  --min-instances=0 --max-instances=10 \
+  --project=YOUR_GCP_PROJECT_ID
+
+# 3. 测试（需要 identity token）
+TOKEN=$(gcloud auth print-identity-token)
+curl -H "Authorization: Bearer $TOKEN" \
+  https://YOUR_CLOUD_RUN_URL/api/rooms
+```
+
+### 测试结果
+
+| 测试项 | 结果 |
+|---|---|
+| Cloud Run 服务部署 | ✅ 成功，revision mahjong-00001-sfn |
+| GET `/` （首页） | ✅ HTTP 200 |
+| GET `/api/rooms` | ✅ HTTP 200，返回 `[]` |
+| POST `/api/rooms` | ✅ HTTP 200，成功创建房间 |
+| 无 token 直接访问 | ✅ HTTP 403（被正确拒绝） |
+| IAP 在 Backend Service 启用 | ✅ `enabled: True` |
+
+### DNS 与 SSL 配置（已完成）
+
+| 步骤 | 状态 | 详情 |
+|---|---|---|
+| DNS A 记录 | ✅ 已配置 | `YOUR_APP_DOMAIN → YOUR_LB_STATIC_IP` |
+| NS 委派 | ✅ 已修复 | `YOUR_ROOT_DOMAIN` 添加 `YOUR_SUBDOMAIN_ZONE` NS 委派 |
+| DNS 公网解析 | ✅ 正常 | 解析到 `YOUR_LB_STATIC_IP` |
+| SSL 证书 | ⏳ PROVISIONING | `mahjong-cert-v2`，DNS 生效后自动激活（约 10-60 分钟）|
+
+DNS 命令记录：
+```bash
+# 添加 A 记录
+gcloud dns record-sets create YOUR_APP_DOMAIN. \
+  --zone=YOUR_DNS_ZONE_NAME --type=A --ttl=300 --rrdatas=YOUR_LB_STATIC_IP
+
+# 修复父域 NS 委派（原 YOUR_SUBDOMAIN_ZONE 缺少委派导致无法解析）
+gcloud dns record-sets create YOUR_SUBDOMAIN_ZONE. \
+  --zone=huanghaoyu --type=NS --ttl=300 \
+  --rrdatas="ns-cloud-b1.googledomains.com.,ns-cloud-b2.googledomains.com.,\
+             ns-cloud-b3.googledomains.com.,ns-cloud-b4.googledomains.com."
+```
+
+### 后续步骤
+
+1. **SSL 证书激活**：等待 mahjong-cert-v2 状态变为 ACTIVE（自动完成，无需操作）
+2. **IAP 授权用户**：在 GCP Console → Security → IAP → mahjong-backend，添加允许访问的 Google 账号
+3. **访问地址**：`https://YOUR_APP_DOMAIN`（证书激活后可用）
+
+### 注意事项
+
+- Cloud Run 是**无状态**的，游戏状态存储在内存中，实例重启后丢失（多实例时不同用户可能路由到不同实例）
+- CORS 当前设置为 `allow_origins=["*"]`，生产环境建议限制为实际域名
+- WebSocket 连接通过 Load Balancer 时，需确认 LB 的 timeout 设置足够长（默认 30s，建议改为 3600s）
