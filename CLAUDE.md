@@ -55,7 +55,7 @@ majiang/
 │   └── tests/                       # 后端单元测试（pytest）
 │       ├── test_tiles.py            # 72 tests
 │       ├── test_hand.py             # 78 tests
-│       ├── test_game_state.py       # 71 tests
+│       ├── test_game_state.py       # 97 tests
 │       ├── test_ai_player.py        # 23 tests
 │       ├── test_room_manager.py     # 28 tests
 │       └── test_routes.py           # 13 tests
@@ -83,7 +83,7 @@ majiang/
         ├── conftest.py              # TestClient fixtures
         ├── test_rest_api.py         # 14 tests
         ├── test_websocket.py        # 12 tests（含 TestRestartGame）
-        ├── test_claim_window.py     # 34 tests（声索窗口 + 多口吃牌 + 边张/坎张 + 碰后加杠）
+        ├── test_claim_window.py     # 46 tests（声索窗口 + 多口吃牌 + 边张/坎张 + 碰后加杠 + 杠全场景）
         └── test_hand_order.py       # 7 tests（手牌排序验证）
 ```
 
@@ -274,9 +274,9 @@ const TILE_SVG_MAP = {
 | `frontend/css/style.css` | 863 | 样式表 |
 | `frontend/tiles/` | 42 SVG | Cangjie6 港式麻将牌面图片 |
 | **业务代码合计** | **~5,651** | |
-| `backend/tests/` | ~1,800 | 后端单元测试（285 tests） |
+| `backend/tests/` | ~1,800 | 后端单元测试（311 tests） |
 | `frontend/tests/` | ~550 | 前端单元测试（95 tests） |
-| `tests/integration/` | ~1,120 | 集成测试（67 tests） |
+| `tests/integration/` | ~1,120 | 集成测试（79 tests） |
 | **测试代码合计** | **~3,470** | |
 
 ---
@@ -1847,6 +1847,33 @@ function sendKong() {
 
 ---
 
+### 杠牌专项测试（全场景覆盖）
+
+通过全面代码审计发现三个 Bug 并修复，随后编写 37 个专项测试覆盖杠牌所有路径：
+
+**修复的 Bug**：
+
+| Bug | 位置 | 影响 |
+|---|---|---|
+| 加杠（加槓）开启搶杠窗口后 `_handle_claim_window` 未启动，窗口永久卡死 | `websocket.py` kong handler | 加杠后前端无任何操作选项 |
+| AI 只检测暗杠（4 张同牌），从不执行加杠 | `websocket.py` `_run_ai_turn` | AI 碰牌后永不升级为杠 |
+| 暗杠校验失败时 `lingshang_pending` 未清除，后续出牌可能错误计嶺上開花 | `game_state.py` `claim_kong` | 低概率番数计算错误 |
+
+**测试分布（37 个新用例）**：
+
+| 测试类 | 数量 | 覆盖场景 |
+|---|---|---|
+| `TestConcealedKongFull`（单元）| 11 | 暗杠副露形成、手牌减少、补牌、lingshang_pending、筹码、花牌补牌链 last_drawn_tile 正确、失败时清除 flag、顺序两次暗杠 |
+| `TestExtendPungKongFull`（单元）| 7 | 加杠 pending_claims 排除杠者、搶杠无筹码、lingshang、花牌补牌、加杠不可用条件 |
+| `TestClaimedKongFull`（单元）| 8 | 声索杠副露、弃牌堆减少、补牌、lingshang、筹码、last_drawn_tile |
+| `TestConcealedKongIntegration`（集成）| 5 | 暗杠 WS 流程、后续 action_required、花牌补牌的 drawn_tile 非花 |
+| `TestExtendPungKongIntegration`（集成）| 4 | 加杠 WS 流程、搶杠窗口状态、**Bug#1 回归**（窗口关闭后进入 discarding）、筹码 |
+| `TestKongEdgeCases`（集成）| 3 | 声索窗口中的杠、杠者不能搶自己的杠、花牌补牌 drawn_tile |
+
+**关于集成测试的设计说明**：加杠后需要等待 `action_required` 的测试无法使用 `_drain_until` 等待——TestClient 同步环境不能驱动 `asyncio.create_task` 链（`_handle_claim_window` → `_run_ai_turn`）。相关测试改为直接检查 `game_state` 对象，速度快（< 1s）且同样验证了 Bug#1 的修复。
+
+---
+
 ## 测试体系
 
 ### 运行方式
@@ -1900,10 +1927,10 @@ pytest -v
 
 | 层级 | 测试数 |
 |---|---|
-| 后端单元测试 | 285 |
+| 后端单元测试 | 311 |
 | 前端单元测试 | 95 |
-| 集成测试 | 67 |
-| **合计** | **447** |
+| 集成测试 | 79 |
+| **合计** | **485** |
 
 `test_claim_window.py` 策略：通过 REST 开始游戏后直接操控 `room.game_state`，将局面固定到声索阶段（控制手牌、弃牌、已跳过玩家），再通过 WS 连接触发同步 `claim_window` 消息，验证声索结果。
 
@@ -2297,7 +2324,7 @@ for (let i = 0; i < 4; i++) {
 | 计分系统 | 番数驱动结算（unit=2^(n-1)，庄家双倍，杠钱即时，详见功能增强 5） | 天胡/地胡等特殊牌型；庄家轮换；番型加倍上限调整 |
 | AI 强度 | 启发式贪心 | 蒙特卡洛或规则引擎 |
 | 移动端适配 | 竖屏专项优化：top/bottom 全宽布局、声索弹窗紧凑、大厅表格横滑、玩家标签含庄标+筹码 | 横屏优化；E2E 浏览器测试（Playwright） |
-| 测试覆盖 | 447 tests（后端 285 + 前端 95 + 集成 67），含声索窗口、多口吃牌、边张/坎张、碰后加杠、七对色番组合、花牌链、嶺上開花 flag、touch-action/scrollIntoView 移动端交互、手牌排序、加杠/搶杠胡、番数/圈风/本命花规则修正专项测试 | E2E 浏览器测试（Playwright）；lobby Rejoin 流程集成测试 |
+| 测试覆盖 | 485 tests（后端 311 + 前端 95 + 集成 79），含声索窗口、多口吃牌、边张/坎张、碰后加杠、杠全场景（暗杠/加杠/声索杠/搶杠胡）、七对色番组合、花牌链、嶺上開花 flag、touch-action/scrollIntoView 移动端交互、手牌排序、番数/圈风/本命花规则修正专项测试 | E2E 浏览器测试（Playwright）；lobby Rejoin 流程集成测试 |
 | 多语言 | 界面为中英混合 | i18n 国际化 |
 
 ---
