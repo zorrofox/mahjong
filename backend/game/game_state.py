@@ -617,6 +617,9 @@ class GameState:
 
             # ── Concealed kong (暗杠): 4-of-a-kind entirely in hand ──
             if player.hand.count(tile) < 4:
+                # Clear any stale lingshang flag so it doesn't bleed into the
+                # player's next discard after a failed kong attempt.
+                self.lingshang_pending = False
                 raise ValueError(
                     f"Player {player_idx} cannot declare kong with '{tile}': "
                     "no matching pung meld and fewer than 4 copies in hand."

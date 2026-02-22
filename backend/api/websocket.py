@@ -249,15 +249,29 @@ async def _run_ai_turn(room_id: str) -> None:
                     except ValueError:
                         pass
 
-                # Check self-drawn kong
+                # Check self-drawn kong (concealed 暗杠 or extend-pung 加杠)
                 from collections import Counter
                 counts = Counter(player.hand_without_bonus())
+                # Prefer concealed kong (4-of-a-kind in hand) first
                 kong_tile = next((t for t, c in counts.items() if c >= 4), None)
+                # Fall back to extend-pung (1 copy in hand matching a pung meld)
+                if not kong_tile:
+                    pung_tiles = {m[0] for m in player.melds
+                                  if len(m) == 3 and m[0] == m[1] == m[2]}
+                    kong_tile = next((t for t in pung_tiles if counts.get(t, 0) >= 1), None)
                 if kong_tile:
                     try:
                         gs.claim_kong(ai_idx, kong_tile)
                         await _broadcast_game_state(room_id)
-                        continue  # loop again: AI still needs to discard
+                        if gs.phase == "ended":
+                            await _handle_game_over(room_id)
+                            return
+                        if gs.phase == "claiming":
+                            # Extend-pung opened a rob-kong window
+                            if room_id not in _claim_window_active:
+                                asyncio.create_task(_handle_claim_window(room_id))
+                            return
+                        continue  # concealed kong: loop again to discard
                     except ValueError:
                         pass
 
@@ -868,7 +882,13 @@ async def _handle_message(
             await _handle_game_over(room_id)
             return
 
-        if gs.phase != "claiming":
+        if gs.phase == "claiming":
+            # Extend-pung (加杠) opened a rob-kong window.
+            # Without this, the window sits unhandled forever and the player
+            # never receives action_required — "no actions after kong" bug.
+            if room_id not in _claim_window_active:
+                asyncio.create_task(_handle_claim_window(room_id))
+        else:
             asyncio.create_task(_run_ai_turn(room_id))
         return
 
