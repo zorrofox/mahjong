@@ -100,6 +100,9 @@
       display: grid;
       grid-template-columns: 1fr 1fr;
       grid-template-rows: 1fr 1fr;
+      grid-template-areas:
+        "left-pile  top-pile"
+        "my-pile    right-pile";
       gap: 5px;
       flex: 1;
       min-height: 0;
@@ -117,6 +120,13 @@
       gap: 1px;
       overflow: hidden;
       min-height: 0;
+      transition: border-color 0.2s ease, background 0.2s ease;
+    }
+
+    /* 自己的弃牌堆：金色边框 + 淡绿底 */
+    .discard-pile.my-discard-pile {
+      border-color: rgba(212, 160, 23, 0.55);
+      background: rgba(0, 50, 0, 0.35);
     }
 
     .discard-pile-label {
@@ -125,6 +135,12 @@
       color: var(--text-muted);
       text-align: center;
       flex-shrink: 0;
+    }
+
+    /* 自己弃牌堆标签：金色高亮 */
+    .discard-pile.my-discard-pile .discard-pile-label {
+      color: var(--accent);
+      font-weight: 600;
     }
 
     /* My hand within bottom area */
