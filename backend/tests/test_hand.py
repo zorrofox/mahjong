@@ -272,6 +272,40 @@ class TestCanChow:
         result = can_chow(hand, "BAMBOO_9")
         assert len(result) == 1
 
+    def test_chow_kanchan_exact(self):
+        """坎张: only 4-5-6 possible when hand contains just 4 and 6."""
+        result = can_chow(["BAMBOO_4", "BAMBOO_6"], "BAMBOO_5")
+        assert len(result) == 1
+        assert sorted(result[0]) == ["BAMBOO_4", "BAMBOO_5", "BAMBOO_6"]
+
+    def test_chow_tile_2_yields_two_options(self):
+        """Tile 2 at most 2 combos: 1-2-3 and 2-3-4 (offset-2 combo out of range)."""
+        result = can_chow(["BAMBOO_1", "BAMBOO_3", "BAMBOO_3", "BAMBOO_4"], "BAMBOO_2")
+        assert len(result) == 2
+        combos = [sorted(c) for c in result]
+        assert ["BAMBOO_1", "BAMBOO_2", "BAMBOO_3"] in combos
+        assert ["BAMBOO_2", "BAMBOO_3", "BAMBOO_4"] in combos
+
+    def test_chow_tile_8_yields_two_options(self):
+        """Tile 8 at most 2 combos: 6-7-8 and 7-8-9 (offset-0 combo out of range)."""
+        result = can_chow(["BAMBOO_6", "BAMBOO_7", "BAMBOO_7", "BAMBOO_9"], "BAMBOO_8")
+        assert len(result) == 2
+        combos = [sorted(c) for c in result]
+        assert ["BAMBOO_6", "BAMBOO_7", "BAMBOO_8"] in combos
+        assert ["BAMBOO_7", "BAMBOO_8", "BAMBOO_9"] in combos
+
+    def test_chow_1_correct_sequence(self):
+        """Edge low: BAMBOO_1-2-3 is the only valid sequence, not 0-1-2."""
+        result = can_chow(["BAMBOO_2", "BAMBOO_3"], "BAMBOO_1")
+        assert len(result) == 1
+        assert sorted(result[0]) == ["BAMBOO_1", "BAMBOO_2", "BAMBOO_3"]
+
+    def test_chow_9_correct_sequence(self):
+        """Edge high: BAMBOO_7-8-9 is the only valid sequence, not 8-9-10."""
+        result = can_chow(["BAMBOO_7", "BAMBOO_8"], "BAMBOO_9")
+        assert len(result) == 1
+        assert sorted(result[0]) == ["BAMBOO_7", "BAMBOO_8", "BAMBOO_9"]
+
 
 class TestFindMelds:
     def test_find_single_pung(self):
@@ -503,3 +537,167 @@ class TestWindPungs:
         names = [x['name_cn'] for x in result['breakdown']]
         assert '自风碰' not in names
         assert '圈风碰' not in names
+
+
+# ---------------------------------------------------------------------------
+# Edge case: 七对 combined with flush fans
+# ---------------------------------------------------------------------------
+
+
+class TestSevenPairsFlushCombinations:
+    """七对 can combine with 清一色 / 混一色 / 字一色 for extra fan."""
+
+    from game.hand import calculate_han  # noqa: F401 (used in methods)
+
+    # 7 distinct pairs all in bamboo suit (清一色 qualifies)
+    _BAMBOO_7PAIRS = (
+        ["BAMBOO_1"] * 2 + ["BAMBOO_2"] * 2 + ["BAMBOO_3"] * 2 +
+        ["BAMBOO_4"] * 2 + ["BAMBOO_5"] * 2 + ["BAMBOO_6"] * 2 +
+        ["BAMBOO_7"] * 2
+    )
+    # 7 pairs: mixed bamboo + honor tiles (混一色 qualifies)
+    _MIXED_7PAIRS = (
+        ["BAMBOO_1"] * 2 + ["BAMBOO_3"] * 2 + ["BAMBOO_5"] * 2 +
+        ["EAST"] * 2 + ["SOUTH"] * 2 + ["WEST"] * 2 + ["NORTH"] * 2
+    )
+    # 7 pairs: all wind/dragon tiles (字一色 qualifies)
+    _HONORS_7PAIRS = (
+        ["EAST"] * 2 + ["SOUTH"] * 2 + ["WEST"] * 2 + ["NORTH"] * 2 +
+        ["RED"] * 2 + ["GREEN"] * 2 + ["WHITE"] * 2
+    )
+
+    def test_seven_pairs_plus_full_flush(self):
+        """七对 + 清一色 both awarded (+3 and +7)."""
+        from game.hand import calculate_han
+        result = calculate_han(self._BAMBOO_7PAIRS, [], [], ron=True)
+        fan_map = {x['name_cn']: x['fan'] for x in result['breakdown']}
+        assert '七对' in fan_map and fan_map['七对'] == 3
+        assert '清一色' in fan_map and fan_map['清一色'] == 7
+
+    def test_seven_pairs_plus_half_flush(self):
+        """七对 + 混一色 both awarded (+3 and +3)."""
+        from game.hand import calculate_han
+        result = calculate_han(self._MIXED_7PAIRS, [], [], ron=True)
+        fan_map = {x['name_cn']: x['fan'] for x in result['breakdown']}
+        assert '七对' in fan_map
+        assert '混一色' in fan_map and fan_map['混一色'] == 3
+
+    def test_seven_pairs_plus_all_honors(self):
+        """七对 + 字一色 both awarded (+3 and +7)."""
+        from game.hand import calculate_han
+        result = calculate_han(self._HONORS_7PAIRS, [], [], ron=True)
+        fan_map = {x['name_cn']: x['fan'] for x in result['breakdown']}
+        assert '七对' in fan_map
+        assert '字一色' in fan_map and fan_map['字一色'] == 7
+
+    def test_seven_pairs_does_not_trigger_all_pungs(self):
+        """七对 hand must NOT also be awarded 碰碰胡 (they are mutually exclusive)."""
+        from game.hand import calculate_han
+        result = calculate_han(self._BAMBOO_7PAIRS, [], [], ron=True)
+        names = [x['name_cn'] for x in result['breakdown']]
+        assert '碰碰胡' not in names
+
+    def test_seven_pairs_total_fan_full_flush(self):
+        """Total for 七对+清一色 ron (no flowers): 基本分1+无花1+门清1+七对3+清一色7 = 13."""
+        from game.hand import calculate_han
+        result = calculate_han(self._BAMBOO_7PAIRS, [], [], ron=True)
+        assert result['total'] == 13  # 基本分+无花+门清+七对+清一色
+
+
+# ---------------------------------------------------------------------------
+# Edge case: lingshang_pending flag lifecycle
+# ---------------------------------------------------------------------------
+
+
+class TestLingShangPendingInGameState:
+    """Test that lingshang_pending is set and cleared at the right moments."""
+
+    def _state_with_kong(self):
+        """Return a GameState where player 0 can perform a concealed kong."""
+        from game.game_state import GameState
+        gs = GameState(room_id="ls-test", player_ids=["p0", "p1", "p2", "p3"])
+        gs.players[0].hand = (
+            ["BAMBOO_1"] * 4          # will kong
+            + ["BAMBOO_2", "BAMBOO_3", "BAMBOO_4",
+               "CIRCLES_5", "CIRCLES_6", "CIRCLES_7",
+               "EAST", "EAST", "SOUTH"]   # 9 more tiles
+        )
+        for i in range(1, 4):
+            gs.players[i].hand = ["CHARACTERS_1"] * 13
+        gs.phase = "discarding"
+        gs.current_turn = 0
+        gs.last_drawn_tile = "BAMBOO_1"
+        # Put tiles in wall so kong replacement works
+        gs.wall = ["CHARACTERS_2"] * 10
+        return gs
+
+    def test_lingshang_pending_set_after_concealed_kong(self):
+        """After player declares a concealed kong, lingshang_pending becomes True."""
+        gs = self._state_with_kong()
+        assert gs.lingshang_pending is False
+        gs.claim_kong(0, "BAMBOO_1")
+        assert gs.lingshang_pending is True
+
+    def test_lingshang_pending_cleared_after_discard(self):
+        """lingshang_pending resets to False when the player discards."""
+        gs = self._state_with_kong()
+        gs.claim_kong(0, "BAMBOO_1")
+        assert gs.lingshang_pending is True
+        # Player discards any tile from hand (not a kong'd tile)
+        gs.discard_tile(0, "EAST")
+        assert gs.lingshang_pending is False
+
+
+# ---------------------------------------------------------------------------
+# Edge case: bonus tile chain (花牌连续)
+# ---------------------------------------------------------------------------
+
+
+class TestBonusTileChain:
+    """_collect_bonus_tiles should handle consecutive bonus tiles correctly."""
+
+    def _make_gs(self, wall=None):
+        from game.game_state import GameState
+        gs = GameState(room_id="btc-test", player_ids=["p0", "p1", "p2", "p3"])
+        # Use a controlled wall of plain tiles so replacements are predictable.
+        gs.wall = wall if wall is not None else ["BAMBOO_5"] * 20
+        return gs
+
+    def test_single_bonus_tile_collected(self):
+        """A single flower in hand is moved to flowers and replaced by 1 wall tile."""
+        gs = self._make_gs(wall=["CIRCLES_9", "BAMBOO_5"])
+        gs.players[0].hand = ["FLOWER_1", "BAMBOO_1", "BAMBOO_2"]
+        gs._collect_bonus_tiles(0)
+        assert "FLOWER_1" not in gs.players[0].hand
+        assert "FLOWER_1" in gs.players[0].flowers
+        # 1 replacement drawn → hand stays at 3 non-bonus tiles
+        from game.tiles import is_flower_tile
+        normal = [t for t in gs.players[0].hand if not is_flower_tile(t)]
+        assert len(normal) == 3
+
+    def test_two_bonus_tiles_both_collected(self):
+        """Two flowers in hand: both move to flowers, exactly 2 replacements drawn."""
+        # Wall is purely plain tiles so no further chaining occurs.
+        gs = self._make_gs(wall=["CIRCLES_1", "CIRCLES_2", "CIRCLES_3"])
+        gs.players[0].hand = ["FLOWER_1", "FLOWER_2", "BAMBOO_1"]
+        wall_before = len(gs.wall)
+        gs._collect_bonus_tiles(0)
+        assert "FLOWER_1" in gs.players[0].flowers
+        assert "FLOWER_2" in gs.players[0].flowers
+        assert "FLOWER_1" not in gs.players[0].hand
+        assert "FLOWER_2" not in gs.players[0].hand
+        assert len(gs.wall) == wall_before - 2
+
+    def test_bonus_chain_replacement_also_bonus(self):
+        """If replacement tile is also a flower, that flower is also collected."""
+        # wall[-1] is drawn first: FLOWER_3 → then BAMBOO_5
+        gs = self._make_gs(wall=["BAMBOO_5", "FLOWER_3"])
+        gs.players[0].hand = ["FLOWER_1", "BAMBOO_1"]
+        gs._collect_bonus_tiles(0)
+        # FLOWER_1 collected → FLOWER_3 drawn → FLOWER_3 collected → BAMBOO_5 drawn
+        assert "FLOWER_1" in gs.players[0].flowers
+        assert "FLOWER_3" in gs.players[0].flowers
+        from game.tiles import is_flower_tile
+        normal = [t for t in gs.players[0].hand if not is_flower_tile(t)]
+        assert sorted(normal) == ["BAMBOO_1", "BAMBOO_5"]
+        assert len(gs.wall) == 0

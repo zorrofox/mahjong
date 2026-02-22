@@ -579,3 +579,173 @@ class TestClaimWin:
             err = _drain_until(ws, "error")
 
         assert "winning" in err["message"].lower() or "not" in err["message"].lower()
+
+
+# ---------------------------------------------------------------------------
+# Edge-tile chow (边张) and gap chow (坎张)
+# ---------------------------------------------------------------------------
+
+
+class TestClaimChowEdgeTiles:
+    """
+    Verify chow mechanics for boundary (边张) and kanchan (坎张) tiles.
+
+    Edge-low:  discard = BAMBOO_1, hand needs [2, 3]  → only one combo
+    Edge-high: discard = BAMBOO_9, hand needs [7, 8]  → only one combo
+    Kanchan:   discard = BAMBOO_5, hand needs [4, 6]  → only one combo (gap)
+    Two-combo: discard = BAMBOO_2, hand has [1,3] and [3,4] → two valid combos
+    """
+
+    def test_chow_low_edge_one_combo_offered(self, client):
+        """Discard BAMBOO_1: claim_window offers 'chow'; only 1-2-3 is valid."""
+        pid = "edge_low_offer"
+        room_id = _create_and_start(client, pid)
+        _setup_claiming(
+            room_id,
+            ["BAMBOO_2", "BAMBOO_3", "CIRCLES_1"],
+            discard_tile="BAMBOO_1",
+            discarder_idx=3,
+        )
+        with client.websocket_connect(f"/ws/{room_id}/{pid}") as ws:
+            _drain_until(ws, "game_state")
+            cw = _drain_until(ws, "claim_window")
+        assert "chow" in cw["actions"]
+
+    def test_chow_low_edge_forms_correct_meld(self, client):
+        """Successful 1-2-3 chow at low edge; only those tiles leave hand."""
+        pid = "edge_low_meld"
+        room_id = _create_and_start(client, pid)
+        _setup_claiming(
+            room_id,
+            ["BAMBOO_2", "BAMBOO_3", "CIRCLES_1"],
+            discard_tile="BAMBOO_1",
+            discarder_idx=3,
+        )
+        with client.websocket_connect(f"/ws/{room_id}/{pid}") as ws:
+            _drain_until(ws, "game_state")
+            _drain_until(ws, "claim_window")
+            ws.send_json({"type": "chow", "tiles": ["BAMBOO_2", "BAMBOO_3"]})
+            state_msg = _drain_until(ws, "game_state")
+
+        state = state_msg["state"]
+        assert state["phase"] == "discarding"
+        meld = state["players"][0]["melds"][0]
+        assert sorted(meld) == ["BAMBOO_1", "BAMBOO_2", "BAMBOO_3"]
+        hand = state["players"][0]["hand"]["tiles"]
+        assert "BAMBOO_2" not in hand
+        assert "BAMBOO_3" not in hand
+        assert "CIRCLES_1" in hand
+
+    def test_chow_high_edge_forms_correct_meld(self, client):
+        """Successful 7-8-9 chow at high edge."""
+        pid = "edge_high_meld"
+        room_id = _create_and_start(client, pid)
+        _setup_claiming(
+            room_id,
+            ["BAMBOO_7", "BAMBOO_8", "CIRCLES_1"],
+            discard_tile="BAMBOO_9",
+            discarder_idx=3,
+        )
+        with client.websocket_connect(f"/ws/{room_id}/{pid}") as ws:
+            _drain_until(ws, "game_state")
+            _drain_until(ws, "claim_window")
+            ws.send_json({"type": "chow", "tiles": ["BAMBOO_7", "BAMBOO_8"]})
+            state_msg = _drain_until(ws, "game_state")
+
+        meld = state_msg["state"]["players"][0]["melds"][0]
+        assert sorted(meld) == ["BAMBOO_7", "BAMBOO_8", "BAMBOO_9"]
+
+    def test_chow_kanchan_gap_forms_correct_meld(self, client):
+        """坎张: discard=5, hand=[4,6] → only 4-5-6 valid."""
+        pid = "kanchan_meld"
+        room_id = _create_and_start(client, pid)
+        _setup_claiming(
+            room_id,
+            ["BAMBOO_4", "BAMBOO_6", "CIRCLES_1"],
+            discard_tile="BAMBOO_5",
+            discarder_idx=3,
+        )
+        with client.websocket_connect(f"/ws/{room_id}/{pid}") as ws:
+            _drain_until(ws, "game_state")
+            _drain_until(ws, "claim_window")
+            ws.send_json({"type": "chow", "tiles": ["BAMBOO_4", "BAMBOO_6"]})
+            state_msg = _drain_until(ws, "game_state")
+
+        meld = state_msg["state"]["players"][0]["melds"][0]
+        assert sorted(meld) == ["BAMBOO_4", "BAMBOO_5", "BAMBOO_6"]
+
+    def test_chow_kanchan_wrong_tiles_rejected(self, client):
+        """坎张: sending [3,4] when hand only has [4,6] is rejected."""
+        pid = "kanchan_bad"
+        room_id = _create_and_start(client, pid)
+        _setup_claiming(
+            room_id,
+            ["BAMBOO_4", "BAMBOO_6", "CIRCLES_1"],
+            discard_tile="BAMBOO_5",
+            discarder_idx=3,
+        )
+        with client.websocket_connect(f"/ws/{room_id}/{pid}") as ws:
+            _drain_until(ws, "game_state")
+            _drain_until(ws, "claim_window")
+            ws.send_json({"type": "chow", "tiles": ["BAMBOO_3", "BAMBOO_4"]})
+            err = _drain_until(ws, "error")
+        assert err["type"] == "error"
+
+    def test_chow_tile_2_two_combos_first_works(self, client):
+        """Discard BAMBOO_2, hand [1,3,3,4]: pick 1-2-3 combo."""
+        pid = "two_combo_first"
+        room_id = _create_and_start(client, pid)
+        _setup_claiming(
+            room_id,
+            ["BAMBOO_1", "BAMBOO_3", "BAMBOO_3", "BAMBOO_4"],
+            discard_tile="BAMBOO_2",
+            discarder_idx=3,
+        )
+        with client.websocket_connect(f"/ws/{room_id}/{pid}") as ws:
+            _drain_until(ws, "game_state")
+            _drain_until(ws, "claim_window")
+            ws.send_json({"type": "chow", "tiles": ["BAMBOO_1", "BAMBOO_3"]})
+            state_msg = _drain_until(ws, "game_state")
+
+        meld = state_msg["state"]["players"][0]["melds"][0]
+        assert sorted(meld) == ["BAMBOO_1", "BAMBOO_2", "BAMBOO_3"]
+
+    def test_chow_tile_2_two_combos_second_works(self, client):
+        """Discard BAMBOO_2, hand [1,3,3,4]: pick 2-3-4 combo."""
+        pid = "two_combo_second"
+        room_id = _create_and_start(client, pid)
+        _setup_claiming(
+            room_id,
+            ["BAMBOO_1", "BAMBOO_3", "BAMBOO_3", "BAMBOO_4"],
+            discard_tile="BAMBOO_2",
+            discarder_idx=3,
+        )
+        with client.websocket_connect(f"/ws/{room_id}/{pid}") as ws:
+            _drain_until(ws, "game_state")
+            _drain_until(ws, "claim_window")
+            ws.send_json({"type": "chow", "tiles": ["BAMBOO_3", "BAMBOO_4"]})
+            state_msg = _drain_until(ws, "game_state")
+
+        meld = state_msg["state"]["players"][0]["melds"][0]
+        assert sorted(meld) == ["BAMBOO_2", "BAMBOO_3", "BAMBOO_4"]
+
+    def test_chow_hand_tile_count_after_claim(self, client):
+        """Hand tile count is exactly 2 fewer after a chow (2 tiles consumed)."""
+        pid = "chow_count"
+        room_id = _create_and_start(client, pid)
+        initial_hand = ["BAMBOO_3", "BAMBOO_4", "CIRCLES_1", "EAST", "SOUTH"]
+        _setup_claiming(
+            room_id, initial_hand, discard_tile="BAMBOO_5", discarder_idx=3
+        )
+        with client.websocket_connect(f"/ws/{room_id}/{pid}") as ws:
+            _drain_until(ws, "game_state")
+            _drain_until(ws, "claim_window")
+            ws.send_json({"type": "chow", "tiles": ["BAMBOO_3", "BAMBOO_4"]})
+            state_msg = _drain_until(ws, "game_state")
+
+        hand = state_msg["state"]["players"][0]["hand"]["tiles"]
+        # 5 initial − 2 consumed = 3 remaining
+        assert len(hand) == 3
+        assert "CIRCLES_1" in hand
+        assert "EAST" in hand
+        assert "SOUTH" in hand
