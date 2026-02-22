@@ -2388,8 +2388,29 @@ gcloud run services add-iam-policy-binding mahjong \
 2. **IAP 域名白名单**：通过 `gcloud iap web add-iam-policy-binding` 授权访问域名
 3. **访问地址**：`https://YOUR_APP_DOMAIN`（证书激活后可用）
 
+### 已修复的部署 Bug
+
+#### `API_BASE` / `WS_BASE` 硬编码 localhost（关键修复）
+
+**现象**：桌面浏览器可以正常创建房间，手机 Chrome 一直报连接失败。
+
+**根因**：`game.js` 和 `lobby.js` 头部硬编码了 `http://localhost:8000` 和 `ws://localhost:8000`。桌面用户碰巧本地开着开发服务器所以"看起来能用"；手机尝试连接自己的 localhost，当然失败。
+
+**修复**：改为运行时动态判断：
+```javascript
+// lobby.js / game.js
+const _isLocal = hostname === 'localhost' || hostname === '127.0.0.1';
+const API_BASE  = _isLocal ? `http://${host}` : '';          // 生产用相对路径
+const WS_BASE   = _isLocal ? `ws://${host}` : `wss://${host}`;
+```
+
+生产环境 `API_BASE = ''` 使 `fetch('/api/rooms')` 自动用当前域名；`WS_BASE` 使用 `wss://` 走加密 WebSocket。
+
+**诊断过程**：Cloud Run 日志显示游戏页面加载成功，但完全没有 WebSocket 连接记录。用 `curl --http1.1` 单独测试 WebSocket 端点，返回 `101 Switching Protocols` 并正常收到数据——确认后端无问题，问题在前端 URL 构造。
+
 ### 注意事项
 
 - Cloud Run 是**无状态**的，游戏状态存储在内存中，实例重启后丢失（多实例时不同用户可能路由到不同实例）
 - CORS 当前设置为 `allow_origins=["*"]`，生产环境建议限制为实际域名
-- WebSocket 连接通过 Load Balancer 时，需确认 LB 的 timeout 设置足够长（默认 30s，建议改为 3600s）
+- WebSocket 需要 HTTP/1.1（不支持 HTTP/2 升级）；通过 Cloud Load Balancer 时走 `wss://` 正常工作
+- LB Backend Service timeout 对 Serverless NEG 不可配置；WebSocket 连接由 Cloud Run 内部管理
