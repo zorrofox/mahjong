@@ -67,7 +67,7 @@ majiang/
 │   │   ├── FLOWER_1.svg .. FLOWER_4.svg
 │   │   └── SEASON_1.svg .. SEASON_4.svg
 │   └── tests/                       # 前端单元测试（Vitest）
-│       ├── game.test.js             # 54 tests
+│       ├── game.test.js             # 64 tests
 │       └── lobby.test.js            # 19 tests
 └── tests/
     └── integration/                 # 集成测试（pytest + httpx）
@@ -266,7 +266,7 @@ const TILE_SVG_MAP = {
 | `frontend/tiles/` | 42 SVG | Cangjie6 港式麻将牌面图片 |
 | **业务代码合计** | **~5,651** | |
 | `backend/tests/` | ~1,800 | 后端单元测试（285 tests） |
-| `frontend/tests/` | ~550 | 前端单元测试（73 tests） |
+| `frontend/tests/` | ~550 | 前端单元测试（83 tests） |
 | `tests/integration/` | ~1,120 | 集成测试（62 tests） |
 | **测试代码合计** | **~3,470** | |
 
@@ -1740,6 +1740,33 @@ if gs.phase == "claiming" and gs._best_claim is not None \
 | `backend/tests/test_hand.py` | 新增 4 个测试类，共 15 个 edge case 测试 |
 | `tests/integration/test_claim_window.py` | 新增 `TestClaimChowEdgeTiles`，共 8 个集成测试 |
 
+### 前端 Edge Case 测试补充
+
+对上述 20 个 edge case 逐条分析前端可测性后，补充了 10 个纯函数单元测试（`frontend/tests/game.test.js`）：
+
+**有前端等价逻辑并已补测（`getAllChows` + `autoSelectChow`）**：
+
+| Edge case | 前端测试内容 |
+|---|---|
+| 边张低（弃1）| `getAllChows('BAMBOO_1', [2,3])` → 仅返回 `[[2,3]]`，越界组合 [0,1] 被过滤 |
+| 边张高（弃9）| `getAllChows('BAMBOO_9', [7,8])` → 仅返回 `[[7,8]]`，越界组合 [10,11] 被过滤 |
+| 坎张（弃5，手有4-6）| `getAllChows('BAMBOO_5', [4,6])` → 仅返回 `[[4,6]]` |
+| 弃2两口 | `getAllChows('BAMBOO_2', [1,3,3,4])` → 返回 2 口：`[[1,3],[3,4]]` |
+| 弃8两口 | `getAllChows('BAMBOO_8', [6,7,7,9])` → 返回 2 口：`[[6,7],[7,9]]` |
+| `autoSelectChow` 多口取第一口 | 弃2手有[1,3,3,4]时返回 `[1,3]`（第一口），不取第二口 |
+| `autoSelectChow` 边张低/高/坎张 | 各自返回唯一可用组合 |
+
+**纯后端逻辑、前端无等价测试**：
+
+| Edge case | 原因 |
+|---|---|
+| 七对+清一色/混一色/字一色 | `calculate_han` 在服务端执行，前端只渲染结果 |
+| 花牌链（级联补牌）| 服务端 `_collect_bonus_tiles` 自动处理 |
+| lingshang_pending 生命周期 | 服务端 `GameState` 内部状态，不暴露给前端 |
+| 吃后手牌数量精确校验 | 服务端广播 `game_state` 后前端被动渲染 |
+
+**修改文件**：`frontend/tests/game.test.js`（新增 2 个 describe 块，共 10 个测试）
+
 ---
 
 ## 测试体系
@@ -1796,9 +1823,9 @@ pytest -v
 | 层级 | 测试数 |
 |---|---|
 | 后端单元测试 | 285 |
-| 前端单元测试 | 73 |
+| 前端单元测试 | 83 |
 | 集成测试 | 62 |
-| **合计** | **420** |
+| **合计** | **430** |
 
 `test_claim_window.py` 策略：通过 REST 开始游戏后直接操控 `room.game_state`，将局面固定到声索阶段（控制手牌、弃牌、已跳过玩家），再通过 WS 连接触发同步 `claim_window` 消息，验证声索结果。
 
@@ -1908,5 +1935,5 @@ Node.js / jsdom 无 `speechSynthesis`，`SpeechEngine` 构造函数和所有 `sp
 | 计分系统 | 番数驱动结算（unit=2^(n-1)，庄家双倍，杠钱即时，详见功能增强 5） | 天胡/地胡等特殊牌型；庄家轮换；番型加倍上限调整 |
 | AI 强度 | 启发式贪心 | 蒙特卡洛或规则引擎 |
 | 移动端适配 | 桌面优先（1024px+） | 触屏手势支持 |
-| 测试覆盖 | 420 tests（后端 285 + 前端 73 + 集成 62），含声索窗口、多口吃牌、边张/坎张、七对色番组合、花牌链、嶺上開花 flag、手牌排序、加杠/搶杠胡、番数/圈风/本命花规则修正专项测试 | E2E 浏览器测试（Playwright）；lobby Rejoin 流程集成测试 |
+| 测试覆盖 | 430 tests（后端 285 + 前端 83 + 集成 62），含声索窗口、多口吃牌、边张/坎张（前后端均覆盖）、七对色番组合、花牌链、嶺上開花 flag、手牌排序、加杠/搶杠胡、番数/圈风/本命花规则修正专项测试 | E2E 浏览器测试（Playwright）；lobby Rejoin 流程集成测试 |
 | 多语言 | 界面为中英混合 | i18n 国际化 |
