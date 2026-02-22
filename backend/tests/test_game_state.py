@@ -914,3 +914,275 @@ class TestRobTheKong:
         gs.declare_win(1)
         pung = next(m for m in gs.players[0].melds if "BAMBOO_5" in m)
         assert len(pung) == 3
+
+
+# ---------------------------------------------------------------------------
+# Comprehensive kong tests covering all paths
+# ---------------------------------------------------------------------------
+
+
+class TestConcealedKongFull:
+    """暗杠 — 4 identical tiles in hand, declared during own discard turn."""
+
+    def _state(self):
+        gs = make_dealt_game()
+        gs.players[0].hand = (
+            ["BAMBOO_1"] * 4
+            + ["BAMBOO_2", "BAMBOO_3", "CIRCLES_4", "CIRCLES_5",
+               "CHARACTERS_6", "CHARACTERS_7", "EAST"]
+        )
+        gs.phase = "discarding"
+        gs.current_turn = 0
+        gs.wall = ["CIRCLES_9"] * 10  # guaranteed non-flower replacements
+        return gs
+
+    def test_concealed_kong_meld_has_4_tiles(self):
+        gs = self._state()
+        gs.claim_kong(0, "BAMBOO_1")
+        kong_meld = next(m for m in gs.players[0].melds if m[0] == "BAMBOO_1")
+        assert len(kong_meld) == 4
+
+    def test_concealed_kong_removes_tiles_from_hand(self):
+        gs = self._state()
+        before = gs.players[0].hand.count("BAMBOO_1")
+        gs.claim_kong(0, "BAMBOO_1")
+        assert "BAMBOO_1" not in gs.players[0].hand
+        assert before == 4
+
+    def test_concealed_kong_draws_replacement(self):
+        gs = self._state()
+        hand_before = len(gs.players[0].hand)
+        # 4 removed, 1 replacement drawn → hand size unchanged
+        gs.claim_kong(0, "BAMBOO_1")
+        assert len(gs.players[0].hand) == hand_before - 4 + 1
+
+    def test_concealed_kong_lingshang_pending_set(self):
+        gs = self._state()
+        gs.claim_kong(0, "BAMBOO_1")
+        assert gs.lingshang_pending is True
+
+    def test_concealed_kong_phase_stays_discarding(self):
+        gs = self._state()
+        gs.claim_kong(0, "BAMBOO_1")
+        assert gs.phase == "discarding"
+        assert gs.current_turn == 0
+
+    def test_concealed_kong_chip_payment_3_per_kong(self):
+        gs = self._state()
+        gs.claim_kong(0, "BAMBOO_1")
+        konger_id = gs.players[0].id
+        assert gs.kong_chip_transfers.get(konger_id, 0) == 3
+
+    def test_concealed_kong_last_drawn_tile_is_replacement(self):
+        """last_drawn_tile must be the actual replacement in hand, not the bonus tile."""
+        gs = self._state()
+        gs.wall = ["CIRCLES_9"]  # one non-flower replacement
+        gs.claim_kong(0, "BAMBOO_1")
+        assert gs.last_drawn_tile == "CIRCLES_9"
+        assert gs.last_drawn_tile in gs.players[0].hand
+
+    def test_concealed_kong_last_drawn_tile_when_replacement_is_flower(self):
+        """If replacement is a flower, last_drawn_tile should be the NEXT tile, not the flower."""
+        from game.tiles import is_flower_tile
+        gs = self._state()
+        gs.wall = ["BAMBOO_4", "FLOWER_1"]  # wall[-1]=FLOWER_1 drawn first, then BAMBOO_4
+        gs.claim_kong(0, "BAMBOO_1")
+        assert not is_flower_tile(gs.last_drawn_tile), (
+            "last_drawn_tile must be a non-flower tile after bonus collection"
+        )
+        assert gs.last_drawn_tile in gs.players[0].hand
+
+    def test_failed_concealed_kong_clears_lingshang_pending(self):
+        """After a failed kong attempt, lingshang_pending must not remain stale."""
+        gs = self._state()
+        gs.lingshang_pending = True  # simulate stale flag from previous kong
+        with pytest.raises(ValueError):
+            gs.claim_kong(0, "CIRCLES_4")  # CIRCLES_4 appears only once → fails
+        assert gs.lingshang_pending is False
+
+    def test_concealed_kong_not_available_without_4_copies(self):
+        gs = self._state()
+        # Max 3 of any tile → no 4-of-a-kind, no pung meld → no kong available
+        gs.players[0].hand = (
+            ["BAMBOO_1"] * 3 + ["BAMBOO_2"] * 3 + ["BAMBOO_3"] * 3 + ["EAST", "SOUTH"]
+        )
+        gs.players[0].melds = []  # no pung meld either
+        actions = gs.get_available_actions(0)
+        assert "kong" not in actions
+
+    def test_sequential_concealed_kongs(self):
+        """Player can declare two concealed kongs in the same discarding turn."""
+        gs = make_dealt_game()
+        gs.players[0].hand = (
+            ["BAMBOO_1"] * 4 + ["BAMBOO_2"] * 4
+            + ["CIRCLES_1", "CIRCLES_2", "EAST"]
+        )
+        gs.phase = "discarding"
+        gs.current_turn = 0
+        gs.wall = ["CIRCLES_9"] * 10
+        gs.claim_kong(0, "BAMBOO_1")
+        assert gs.phase == "discarding"
+        gs.claim_kong(0, "BAMBOO_2")
+        assert gs.phase == "discarding"
+        assert len(gs.players[0].melds) == 2
+        # Two kongs → konger earns 3+3 = 6 chip-units
+        assert gs.kong_chip_transfers.get(gs.players[0].id, 0) == 6
+
+
+class TestExtendPungKongFull:
+    """加杠 — extend an existing pung meld with a matching tile from hand."""
+
+    def _state(self):
+        gs = make_dealt_game()
+        gs.players[0].melds = [["BAMBOO_5", "BAMBOO_5", "BAMBOO_5"]]
+        gs.players[0].hand = [
+            "BAMBOO_2", "BAMBOO_3", "CIRCLES_4", "CIRCLES_5",
+            "CHARACTERS_7", "CHARACTERS_8", "EAST", "BAMBOO_5",
+        ]
+        gs.phase = "discarding"
+        gs.current_turn = 0
+        gs.wall = ["CIRCLES_9"] * 10
+        return gs
+
+    def test_extend_pung_pending_claims_excludes_konger(self):
+        gs = self._state()
+        gs.claim_kong(0, "BAMBOO_5")
+        assert 0 not in gs._pending_claims
+        assert {1, 2, 3} == gs._pending_claims
+
+    def test_extend_pung_chip_payment_after_all_skip(self):
+        gs = self._state()
+        gs.claim_kong(0, "BAMBOO_5")
+        for i in range(1, 4):
+            gs.skip_claim(i)
+        assert gs.kong_chip_transfers.get(gs.players[0].id, 0) == 3
+
+    def test_extend_pung_lingshang_pending_after_completion(self):
+        gs = self._state()
+        gs.claim_kong(0, "BAMBOO_5")
+        for i in range(1, 4):
+            gs.skip_claim(i)
+        assert gs.lingshang_pending is True
+
+    def test_extend_pung_last_drawn_tile_after_completion(self):
+        gs = self._state()
+        gs.wall = ["CIRCLES_9"]
+        gs.claim_kong(0, "BAMBOO_5")
+        for i in range(1, 4):
+            gs.skip_claim(i)
+        assert gs.last_drawn_tile == "CIRCLES_9"
+        assert gs.last_drawn_tile in gs.players[0].hand
+
+    def test_extend_pung_last_drawn_tile_when_flower_replacement(self):
+        """Flower bonus replacement must not be reported as last_drawn_tile."""
+        from game.tiles import is_flower_tile
+        gs = self._state()
+        gs.wall = ["BAMBOO_4", "FLOWER_2"]  # FLOWER_2 drawn first, then BAMBOO_4
+        gs.claim_kong(0, "BAMBOO_5")
+        for i in range(1, 4):
+            gs.skip_claim(i)
+        assert not is_flower_tile(gs.last_drawn_tile)
+        assert gs.last_drawn_tile in gs.players[0].hand
+
+    def test_rob_kong_no_chip_payment_to_konger(self):
+        """When someone robs the kong (搶杠胡), no kong chip transfer is recorded."""
+        gs = make_dealt_game()
+        gs.players[0].melds = [["BAMBOO_5", "BAMBOO_5", "BAMBOO_5"]]
+        gs.players[0].hand = ["BAMBOO_5", "EAST", "SOUTH", "WEST", "NORTH",
+                               "RED", "GREEN", "WHITE"]
+        # Player 1 can win on BAMBOO_5
+        gs.players[1].hand = (
+            ["BAMBOO_1", "BAMBOO_2", "BAMBOO_3",
+             "CIRCLES_1", "CIRCLES_2", "CIRCLES_3",
+             "CHARACTERS_7", "CHARACTERS_8", "CHARACTERS_9",
+             "BAMBOO_4", "BAMBOO_6", "EAST", "EAST"]
+        )
+        gs.phase = "discarding"
+        gs.current_turn = 0
+        gs.claim_kong(0, "BAMBOO_5")
+        gs.skip_claim(2)
+        gs.skip_claim(3)
+        gs.declare_win(1)
+        # Game ended; konger should NOT have received kong chip payment
+        assert gs.kong_chip_transfers.get(gs.players[0].id, 0) == 0
+
+    def test_extend_pung_not_available_without_matching_hand_tile(self):
+        gs = make_dealt_game()
+        gs.players[0].melds = [["BAMBOO_5", "BAMBOO_5", "BAMBOO_5"]]
+        gs.players[0].hand = ["BAMBOO_1", "BAMBOO_2", "BAMBOO_3",
+                               "CIRCLES_4", "EAST"]  # no BAMBOO_5 in hand
+        gs.phase = "discarding"
+        gs.current_turn = 0
+        actions = gs.get_available_actions(0)
+        assert "kong" not in actions
+
+
+class TestClaimedKongFull:
+    """声索杠 — claiming another player's discard when holding 3 matching tiles."""
+
+    def _setup(self):
+        gs = make_dealt_game()
+        # Discard BAMBOO_7 from player 1
+        gs.players[1].hand = ["BAMBOO_7"] + ["EAST"] * 12
+        gs.phase = "discarding"
+        gs.current_turn = 1
+        gs.discard_tile(1, "BAMBOO_7")
+        # Give player 0 three BAMBOO_7
+        gs.players[0].hand = ["BAMBOO_7"] * 3 + ["CIRCLES_1"]
+        gs._pending_claims = {0, 2, 3}
+        gs._skipped_claims = {2, 3}  # only player 0 claims
+        gs.wall = ["CIRCLES_9"] * 10
+        return gs
+
+    def test_claimed_kong_forms_quad_meld(self):
+        gs = self._setup()
+        gs.claim_kong(0, "BAMBOO_7")
+        kong_meld = next(m for m in gs.players[0].melds if m[0] == "BAMBOO_7")
+        assert len(kong_meld) == 4
+
+    def test_claimed_kong_tile_removed_from_discard_pile(self):
+        gs = self._setup()
+        discard_before = list(gs.discards[1])
+        gs.claim_kong(0, "BAMBOO_7")
+        # The claimed tile is no longer in the discard pile
+        assert gs.discards[1].count("BAMBOO_7") < discard_before.count("BAMBOO_7")
+
+    def test_claimed_kong_draws_replacement(self):
+        gs = self._setup()
+        hand_before = len(gs.players[0].hand)
+        # 3 removed from hand + 1 discard taken + 1 replacement drawn
+        gs.claim_kong(0, "BAMBOO_7")
+        assert len(gs.players[0].hand) == hand_before - 3 + 1
+
+    def test_claimed_kong_phase_becomes_discarding(self):
+        gs = self._setup()
+        gs.claim_kong(0, "BAMBOO_7")
+        assert gs.phase == "discarding"
+        assert gs.current_turn == 0
+
+    def test_claimed_kong_lingshang_pending_set(self):
+        gs = self._setup()
+        gs.claim_kong(0, "BAMBOO_7")
+        assert gs.lingshang_pending is True
+
+    def test_claimed_kong_chip_payment_recorded(self):
+        gs = self._setup()
+        gs.claim_kong(0, "BAMBOO_7")
+        konger_id = gs.players[0].id
+        assert gs.kong_chip_transfers.get(konger_id, 0) == 3
+
+    def test_claimed_kong_last_drawn_tile_correct(self):
+        gs = self._setup()
+        gs.wall = ["CIRCLES_9"]
+        gs.claim_kong(0, "BAMBOO_7")
+        assert gs.last_drawn_tile == "CIRCLES_9"
+
+    def test_claimed_kong_not_available_with_only_2_matching(self):
+        gs = make_dealt_game()
+        gs.players[1].hand = ["BAMBOO_7"] + ["EAST"] * 12
+        gs.phase = "discarding"
+        gs.current_turn = 1
+        gs.discard_tile(1, "BAMBOO_7")
+        gs.players[0].hand = ["BAMBOO_7"] * 2 + ["CIRCLES_1"] * 8  # only 2
+        actions = gs.get_available_actions(0)
+        assert "kong" not in actions

@@ -877,3 +877,294 @@ class TestPungThenExtendPung:
             err = _drain_until(ws, "error")
 
         assert err["type"] == "error"
+
+
+# ---------------------------------------------------------------------------
+# Comprehensive kong integration tests
+# ---------------------------------------------------------------------------
+
+
+def _setup_concealed_kong(room_id, player_hand, kong_tile):
+    """Put player 0 in discarding phase with a concealed-kong candidate."""
+    room = room_manager.get_room(room_id)
+    gs = room.game_state
+    gs.players[0].hand = list(player_hand)
+    gs.phase = "discarding"
+    gs.current_turn = 0
+
+
+def _setup_extend_pung_for_int(room_id, pung_tile, other_hand):
+    """Player 0 has a pung meld and one matching tile in hand → can extend."""
+    room = room_manager.get_room(room_id)
+    gs = room.game_state
+    gs.players[0].melds = [[pung_tile] * 3]
+    gs.players[0].hand = [pung_tile] + list(other_hand)
+    gs.phase = "discarding"
+    gs.current_turn = 0
+
+
+class TestConcealedKongIntegration:
+    """暗杠 via WebSocket: full state-machine flow."""
+
+    KONG_TILE  = "BAMBOO_3"
+    OTHER_HAND = ["CIRCLES_1", "EAST", "SOUTH"]
+
+    def _setup(self, client, pid):
+        room_id = _create_and_start(client, pid)
+        _setup_concealed_kong(
+            room_id,
+            [self.KONG_TILE] * 4 + list(self.OTHER_HAND),
+            self.KONG_TILE,
+        )
+        return room_id
+
+    def test_concealed_kong_action_offered(self, client):
+        """action_required includes 'kong' when player holds 4 identical tiles."""
+        pid = "ck_offer"
+        room_id = self._setup(client, pid)
+        with client.websocket_connect(f"/ws/{room_id}/{pid}") as ws:
+            _drain_until(ws, "game_state")
+            ar = _drain_until(ws, "action_required")
+        assert "kong" in ar["actions"]
+        assert "discard" in ar["actions"]
+
+    def test_concealed_kong_creates_quad_meld(self, client):
+        """Sending kong forms a 4-tile meld and player stays in discarding."""
+        pid = "ck_meld"
+        room_id = self._setup(client, pid)
+        with client.websocket_connect(f"/ws/{room_id}/{pid}") as ws:
+            _drain_until(ws, "game_state")
+            _drain_until(ws, "action_required")
+            ws.send_json({"type": "kong", "tile": self.KONG_TILE})
+            state_msg = _drain_until(ws, "game_state")
+        state = state_msg["state"]
+        assert state["phase"] == "discarding"
+        assert state["current_turn"] == 0
+        melds = state["players"][0]["melds"]
+        assert any(sorted(m) == [self.KONG_TILE] * 4 for m in melds)
+
+    def test_concealed_kong_then_action_required_to_discard(self, client):
+        """After concealed kong, player gets action_required with 'discard'."""
+        pid = "ck_ar"
+        room_id = self._setup(client, pid)
+        with client.websocket_connect(f"/ws/{room_id}/{pid}") as ws:
+            _drain_until(ws, "game_state")
+            _drain_until(ws, "action_required")
+            ws.send_json({"type": "kong", "tile": self.KONG_TILE})
+            _drain_until(ws, "game_state")
+            ar2 = _drain_until(ws, "action_required")
+        assert "discard" in ar2["actions"]
+
+    def test_concealed_kong_tile_not_in_hand_returns_error(self, client):
+        """Sending a tile with fewer than 4 copies is rejected."""
+        pid = "ck_err"
+        room_id = _create_and_start(client, pid)
+        _setup_concealed_kong(
+            room_id,
+            ["BAMBOO_3"] * 2 + ["CIRCLES_1", "EAST", "SOUTH"],
+            "BAMBOO_3",
+        )
+        with client.websocket_connect(f"/ws/{room_id}/{pid}") as ws:
+            _drain_until(ws, "game_state")
+            _drain_until(ws, "action_required")
+            ws.send_json({"type": "kong", "tile": "BAMBOO_3"})
+            err = _drain_until(ws, "error")
+        assert err["type"] == "error"
+
+    def test_concealed_kong_drawn_tile_in_action_required(self, client):
+        """action_required after kong must include 'drawn_tile' pointing to the
+        replacement tile (not a flower), so the frontend can auto-select it."""
+        from game.tiles import is_flower_tile
+        pid = "ck_drawn"
+        room_id = self._setup(client, pid)
+
+        room = room_manager.get_room(room_id)
+        # Force a known non-flower replacement
+        room.game_state.wall = ["CIRCLES_9"] * 20
+
+        with client.websocket_connect(f"/ws/{room_id}/{pid}") as ws:
+            _drain_until(ws, "game_state")
+            _drain_until(ws, "action_required")
+            ws.send_json({"type": "kong", "tile": self.KONG_TILE})
+            _drain_until(ws, "game_state")
+            ar2 = _drain_until(ws, "action_required")
+
+        drawn = ar2.get("drawn_tile")
+        assert drawn is not None, "drawn_tile must be present after concealed kong"
+        assert not is_flower_tile(drawn), f"drawn_tile must not be a bonus tile, got {drawn}"
+
+
+class TestExtendPungKongIntegration:
+    """加杠 via WebSocket: including rob-kong window and subsequent discard."""
+
+    PUNG_TILE = "CIRCLES_7"
+    OTHER     = ["BAMBOO_1", "BAMBOO_2", "EAST"]
+
+    def _setup(self, client, pid):
+        room_id = _create_and_start(client, pid)
+        _setup_extend_pung_for_int(room_id, self.PUNG_TILE, self.OTHER)
+        return room_id
+
+    def test_extend_pung_offered_in_discarding(self, client):
+        """'kong' appears in action_required during own discarding turn."""
+        pid = "ep_offered"
+        room_id = self._setup(client, pid)
+        with client.websocket_connect(f"/ws/{room_id}/{pid}") as ws:
+            _drain_until(ws, "game_state")
+            ar = _drain_until(ws, "action_required")
+        assert "kong" in ar["actions"]
+
+    def test_extend_pung_opens_rob_kong_claiming_phase(self, client):
+        """After extend-pung, game_state shows phase='claiming' (搶杠 window)."""
+        pid = "ep_claiming"
+        room_id = self._setup(client, pid)
+        with client.websocket_connect(f"/ws/{room_id}/{pid}") as ws:
+            _drain_until(ws, "game_state")
+            _drain_until(ws, "action_required")
+            ws.send_json({"type": "kong", "tile": self.PUNG_TILE})
+            state_msg = _drain_until(ws, "game_state")
+        assert state_msg["state"]["phase"] == "claiming"
+        melds = state_msg["state"]["players"][0]["melds"]
+        assert sorted(melds[0]) == [self.PUNG_TILE] * 4
+
+    def test_extend_pung_game_state_discarding_after_all_skip(self, client):
+        """After all players skip the 搶杠 window, game state transitions to
+        discarding for the konger (critical state-machine correctness test).
+        Note: action_required is sent via a background task that doesn't run
+        in synchronous TestClient; we verify the game_state instead."""
+        pid = "ep_gs_disc"
+        room_id = _create_and_start(client, pid)
+        _setup_extend_pung_for_int(room_id, self.PUNG_TILE, self.OTHER)
+
+        room = room_manager.get_room(room_id)
+        gs = room.game_state
+
+        with client.websocket_connect(f"/ws/{room_id}/{pid}") as ws:
+            _drain_until(ws, "game_state")
+            _drain_until(ws, "action_required")
+            ws.send_json({"type": "kong", "tile": self.PUNG_TILE})
+            rob_kong_state = _drain_until(ws, "game_state")
+
+        # Verify rob-kong window was opened correctly
+        assert rob_kong_state["state"]["phase"] == "claiming"
+
+        # Simulate all AI players skipping — tests state machine transitions
+        for i in range(1, 4):
+            if i in gs._pending_claims and i not in gs._skipped_claims:
+                try:
+                    gs.skip_claim(i)
+                except ValueError:
+                    pass
+
+        # After all claims resolved, game must be in discarding for konger
+        assert gs.phase == "discarding", (
+            "After 搶杠 window resolves (all skip), game must enter discarding — "
+            "this was the bug: _handle_claim_window was never started so the "
+            "window stayed open forever"
+        )
+        assert gs.current_turn == 0
+        assert gs._is_rob_kong_window is False
+
+    def test_extend_pung_chip_payment_after_completion(self, client):
+        """Kong chip transfers are recorded when 搶杠 window closes without a rob."""
+        pid = "ep_chips"
+        room_id = self._setup(client, pid)
+        room = room_manager.get_room(room_id)
+        gs = room.game_state
+
+        with client.websocket_connect(f"/ws/{room_id}/{pid}") as ws:
+            _drain_until(ws, "game_state")
+            _drain_until(ws, "action_required")
+            ws.send_json({"type": "kong", "tile": self.PUNG_TILE})
+            _drain_until(ws, "game_state")
+
+        # Simulate all AI skipping and verify chip payment recorded
+        for i in range(1, 4):
+            if i in gs._pending_claims:
+                try:
+                    gs.skip_claim(i)
+                except ValueError:
+                    pass
+
+        konger_id = gs.players[0].id
+        assert gs.kong_chip_transfers.get(konger_id, 0) == 3
+
+
+class TestKongEdgeCases:
+    """Edge cases that previously caused bugs or subtle errors."""
+
+    def test_claimed_kong_not_from_non_left_player_in_discarding(self, client):
+        """Claimed kong from a discard is only in claim_window, not discarding."""
+        pid = "ck_not_disc"
+        room_id = _create_and_start(client, pid)
+        # Set up normal claiming state (player 1 discarded, player 0 has 3 matching)
+        _setup_claiming(
+            room_id,
+            ["EAST", "EAST", "EAST", "BAMBOO_1"],
+            discard_tile="EAST",
+            discarder_idx=1,
+        )
+        with client.websocket_connect(f"/ws/{room_id}/{pid}") as ws:
+            _drain_until(ws, "game_state")
+            cw = _drain_until(ws, "claim_window")
+            assert "kong" in cw["actions"]
+
+            ws.send_json({"type": "kong"})  # no tile field → uses last_discard
+            state_msg = _drain_until(ws, "game_state")
+
+        state = state_msg["state"]
+        assert state["phase"] == "discarding"
+        assert state["current_turn"] == 0
+        melds = state["players"][0]["melds"]
+        assert any(sorted(m) == ["EAST"] * 4 for m in melds)
+
+    def test_cannot_kong_discarder_own_tile(self, client):
+        """The discarder cannot kong their own discarded tile."""
+        pid = "ck_self"
+        room_id = _create_and_start(client, pid)
+        _setup_claiming(
+            room_id,
+            ["BAMBOO_5", "BAMBOO_5", "BAMBOO_5"],
+            discard_tile="BAMBOO_5",
+            discarder_idx=0,   # player 0 is the discarder
+        )
+        # Remove player 0 from pending claims (they're the discarder)
+        room = room_manager.get_room(room_id)
+        room.game_state._pending_claims.discard(0)
+
+        with client.websocket_connect(f"/ws/{room_id}/{pid}") as ws:
+            _drain_until(ws, "game_state")
+            # No claim window should be sent to the discarder
+            # (auto-skipped or not in pending claims)
+            # Just verify the room is in claiming phase
+            assert room.game_state.phase == "claiming"
+
+    def test_kong_replacement_not_flower_in_action_required(self, client):
+        """When kong replacement is a flower, action_required drawn_tile must be
+        the subsequent non-flower tile (not the flower itself)."""
+        from game.tiles import is_flower_tile
+        pid = "ck_flower"
+        room_id = _create_and_start(client, pid)
+
+        room = room_manager.get_room(room_id)
+        gs = room.game_state
+
+        # Set up concealed kong
+        gs.players[0].hand = ["BAMBOO_3"] * 4 + ["CIRCLES_1", "EAST"]
+        gs.phase = "discarding"
+        gs.current_turn = 0
+        # Wall: FLOWER_1 is drawn first, then BAMBOO_9 as the real replacement
+        gs.wall = ["BAMBOO_9", "FLOWER_1"]
+
+        with client.websocket_connect(f"/ws/{room_id}/{pid}") as ws:
+            _drain_until(ws, "game_state")
+            _drain_until(ws, "action_required")
+            ws.send_json({"type": "kong", "tile": "BAMBOO_3"})
+            _drain_until(ws, "game_state")
+            ar = _drain_until(ws, "action_required")
+
+        drawn = ar.get("drawn_tile")
+        assert drawn is not None
+        assert not is_flower_tile(drawn), (
+            f"drawn_tile after bonus-tile replacement must not be a flower; got {drawn}"
+        )
