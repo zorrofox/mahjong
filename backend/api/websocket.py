@@ -386,6 +386,18 @@ async def _handle_claim_window(room_id: str) -> None:
                 except ValueError:
                     pass
 
+        # If a win was claimed during the AI processing loop, skip all remaining pending
+        # claims immediately.  Without this, the loop breaks early (after the winning AI's
+        # declare_win) leaving other players in _pending_claims, causing the code below
+        # to wait the full CLAIM_TIMEOUT (~30 s) before the window resolves.
+        if gs.phase == "claiming" and gs._best_claim is not None and gs._best_claim.get("type") == "win":
+            for _i in list(gs._pending_claims):
+                if _i not in gs._skipped_claims:
+                    try:
+                        gs.skip_claim(_i)
+                    except ValueError:
+                        pass
+
         # If the claim window is still open, wait for human responses with a timeout
         if gs.phase == "claiming":
             try:
