@@ -2408,6 +2408,33 @@ const WS_BASE   = _isLocal ? `ws://${host}` : `wss://${host}`;
 
 **诊断过程**：Cloud Run 日志显示游戏页面加载成功，但完全没有 WebSocket 连接记录。用 `curl --http1.1` 单独测试 WebSocket 端点，返回 `101 Switching Protocols` 并正常收到数据——确认后端无问题，问题在前端 URL 构造。
 
+#### 游戏进行中其他人类玩家无法真正加入（已修复）
+
+**现象**：Player A 创建房间后直接开始游戏，Player B 在大厅点击 Join 进入游戏页，看到牌局但无法操作任何牌。
+
+**根因**：`start_game()` 用 AI 填满空座位（`ai_player_2/3/4`）。新人类玩家通过 REST `/join` 成功加入 `room.human_players`，但 GameState 里没有其座位，`_player_index()` 返回 `None`，WebSocket 连接后所有操作被静默忽略，仅作观战。
+
+**修复**（`backend/api/websocket.py` — `websocket_endpoint`）：
+```python
+# 新人类玩家加入进行中的游戏：自动接管一个 AI 座位
+if player_idx is None and not player_id.startswith("ai_player_") \
+        and room.status == "playing":
+    for i, p in enumerate(gs.players):
+        if p.is_ai and p.id.startswith("ai_player_"):
+            p.id = player_id
+            p.is_ai = False
+            player_idx = i
+            break  # 取第一个可用 AI 座位
+```
+
+玩家接管后立即收到当前 `game_state` 并可正常出牌/碰/吃/胡。
+
+| 场景 | 修复前 | 修复后 |
+|---|---|---|
+| A 开局后 B 加入 | B 只能旁观，无法操作 | B 自动接管一个 AI 座位 |
+| A/B 开局后 C 加入 | 同上 | C 接管下一个 AI 座位 |
+| 4 个座位全被人类占 | 满员，重定向新房间 | 同左（不变）|
+
 ### 注意事项
 
 - Cloud Run 是**无状态**的，游戏状态存储在内存中，实例重启后丢失（多实例时不同用户可能路由到不同实例）
