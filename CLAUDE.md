@@ -76,7 +76,7 @@ majiang/
 │   │   ├── FLOWER_1.svg .. FLOWER_4.svg
 │   │   └── SEASON_1.svg .. SEASON_4.svg
 │   └── tests/                       # 前端单元测试（Vitest）
-│       ├── game.test.js             # 76 tests
+│       ├── game.test.js             # 79 tests
 │       └── lobby.test.js            # 19 tests
 └── tests/
     └── integration/                 # 集成测试（pytest + httpx）
@@ -1874,6 +1874,42 @@ function sendKong() {
 
 ---
 
+## 功能增强：多人结束弹窗管控（庄家主导重开）
+
+**背景**：多人同一房间游戏结束后，所有玩家同时弹出结束弹窗，均可点击"再来一局"，引发竞态（多人同时发 `restart_game`）并造成体验混乱（Player A 重开后 Player B 的弹窗不自动关闭）。
+
+**方案**：A（自动关闭）+ B（庄家专属）组合：
+
+**改动 1 — 自动关闭弹窗（`handleGameState`）**：
+```javascript
+if (state.phase !== 'ended') {
+  const modal = document.getElementById('game-over-modal');
+  if (modal && !modal.classList.contains('hidden')) {
+    modal.classList.add('hidden');  // 其他玩家重开时自动收起
+  }
+}
+```
+当服务端广播新局 `game_state`（phase ≠ 'ended'），所有仍显示弹窗的玩家自动收起。
+
+**改动 2 — 庄家专属"再来一局"（`showGameOverModal`）**：
+```javascript
+const canRestart = myPlayerIdx === dealerIdx   // 我是庄家
+               || dealerIsAI;                 // 庄家是 AI（任何人可重开）
+```
+- 庄家：按钮可点，显示"Play Again 再来一局"
+- 非庄家：按钮禁用，显示"等待庄家重开…"（带 tooltip 说明）
+- 庄家是 AI 时降级为任何人可重开（兜底）
+- 接口向后兼容：`canRestart` 默认 `true`（单人场景不受影响）
+
+**新增测试**（3 个，`frontend/tests/game.test.js`）：
+- `canRestart=false` → 按钮禁用 + 提示文字
+- `canRestart=true` → 按钮可用 + 正常文字
+- 参数缺省 → 默认可用（向后兼容）
+
+**修改文件**：`frontend/js/game.js`（`handleGameState` 自动关闭；`handleGameOver` 计算权限；`showGameOverModal` 接受并应用 `canRestart`）
+
+---
+
 ## 测试体系
 
 ### 运行方式
@@ -1928,9 +1964,9 @@ pytest -v
 | 层级 | 测试数 |
 |---|---|
 | 后端单元测试 | 311 |
-| 前端单元测试 | 95 |
+| 前端单元测试 | 98 |
 | 集成测试 | 79 |
-| **合计** | **485** |
+| **合计** | **488** |
 
 `test_claim_window.py` 策略：通过 REST 开始游戏后直接操控 `room.game_state`，将局面固定到声索阶段（控制手牌、弃牌、已跳过玩家），再通过 WS 连接触发同步 `claim_window` 消息，验证声索结果。
 
@@ -2324,7 +2360,7 @@ for (let i = 0; i < 4; i++) {
 | 计分系统 | 番数驱动结算（unit=2^(n-1)，庄家双倍，杠钱即时，详见功能增强 5） | 天胡/地胡等特殊牌型；庄家轮换；番型加倍上限调整 |
 | AI 强度 | 启发式贪心 | 蒙特卡洛或规则引擎 |
 | 移动端适配 | 竖屏专项优化：top/bottom 全宽布局、声索弹窗紧凑、大厅表格横滑、玩家标签含庄标+筹码 | 横屏优化；E2E 浏览器测试（Playwright） |
-| 测试覆盖 | 485 tests（后端 311 + 前端 95 + 集成 79），含声索窗口、多口吃牌、边张/坎张、碰后加杠、杠全场景（暗杠/加杠/声索杠/搶杠胡）、七对色番组合、花牌链、嶺上開花 flag、touch-action/scrollIntoView 移动端交互、手牌排序、番数/圈风/本命花规则修正专项测试 | E2E 浏览器测试（Playwright）；lobby Rejoin 流程集成测试 |
+| 测试覆盖 | 488 tests（后端 311 + 前端 98 + 集成 79），含声索窗口、多口吃牌、边张/坎张、碰后加杠、杠全场景、七对色番组合、花牌链、嶺上開花 flag、庄家重开权限、touch-action/scrollIntoView 移动端交互、手牌排序、番数/圈风/本命花规则修正专项测试 | E2E 浏览器测试（Playwright）；lobby Rejoin 流程集成测试 |
 | 多语言 | 界面为中英混合 | i18n 国际化 |
 
 ---

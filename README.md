@@ -4,7 +4,7 @@
 
 A browser-based multiplayer Mahjong game. Supports 1–4 human players per room; empty seats are filled by AI.
 
-![Python](https://img.shields.io/badge/Python-3.11-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-0.111-green) ![Tests](https://img.shields.io/badge/tests-485%20passed-brightgreen) ![Tiles](https://img.shields.io/badge/tiles-Cangjie6%20SVG-orange)
+![Python](https://img.shields.io/badge/Python-3.11-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-0.111-green) ![Tests](https://img.shields.io/badge/tests-488%20passed-brightgreen) ![Tiles](https://img.shields.io/badge/tiles-Cangjie6%20SVG-orange)
 
 ---
 
@@ -23,7 +23,7 @@ A browser-based multiplayer Mahjong game. Supports 1–4 human players per room;
 - 摸牌后自动选中刚抓到的牌，出牌按钮立即可用；**双击 / 双指点击手牌直接出牌**（桌面 `dblclick` + 移动端 `touchend` 时间差，合并选牌与打牌两步操作）
 - 庄家（庄）徽标显示在对应玩家名旁；庄家赢则连庄，闲家赢或流局则换庄
 - 手牌自动整理（条 → 饼 → 萬 → 风/字/花季）；**中央弃牌区按空间位置排列**：底部左格始终为自己（金色边框高亮），右为下家，上排为上家和对家
-- 游戏结束后支持一键重开局（保留原房间人类玩家，筹码持续累计）
+- 游戏结束后支持重开局（保留原房间人类玩家，筹码持续累计）；**多人场景**：只有庄家可点"再来一局"（非庄家显示"等待庄家重开…"），其他玩家收到新局 game_state 时弹窗自动关闭，消除竞态混乱
 - 大厅显示各房间实时筹码余额；已结束的房间显示"Rejoin 重回"按钮
 - **中文语音 + 程序化音效**：出牌念牌名，我方及对手碰/吃/杠/胡有语音；胡牌时叠加 Web Audio API 四层程序化音效（锣声→五声音阶→和弦→闪烁），零音频文件；声音优先级机制避免吃/碰乱序和牌名被跳过；操作按钮等待 TTS 播完后出现，音效与界面时序同步
 - **流畅渲染**：差量 DOM 更新（手牌/弃牌堆/副露仅在内容变化时重建）；`active-turn` 焦点切换平滑过渡（CSS transition）；声索/结算弹窗淡入动画；所有文本守卫防止无意义重绘
