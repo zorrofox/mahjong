@@ -24,10 +24,10 @@ let pendingActions = [];
 let inClaimWindow  = false;
 let statusDismissTimer = null;
 let claimCountdownTimer = null;
-// Tracks whether the local player just sent a discard or a claim.
-// Used in handleGameState to suppress redundant sound announcements.
-let _myDiscardSent = null;
-let _myClaimSent   = null;
+// Tracks which claim action the local player most recently sent ('chow' | 'pung' |
+// 'kong' | 'win' | null).  Used in handleGameState to decide whether a meld that
+// appeared for ANOTHER player should cancel a pending local claim sound.
+let _myClaimSent = null;
 
 // Double-tap detection for mobile (touchend-based, shared across all hand tiles).
 let _dblTapTimer = null;
@@ -345,10 +345,7 @@ function handleGameState(state) {
   // silently dropped when another sound (e.g. local player's '碰！') is
   // still playing at the moment this game_state arrives.
   if (prevState && state.last_discard && state.last_discard !== prevState.last_discard) {
-    if (state.last_discard !== _myDiscardSent) {
-      getSpeech()?.speakTile(state.last_discard, 'queue');
-    }
-    _myDiscardSent = null;
+    getSpeech()?.speakTile(state.last_discard, 'queue');
   }
 
   // Detect meld actions (碰/吃/杠) by OTHER players and announce them.
@@ -961,7 +958,6 @@ function sendDiscard() {
     return;
   }
   // Announce the tile being discarded (priority: player action)
-  _myDiscardSent = selectedTile;
   getSpeech()?.speakTile(selectedTile, 'immediate');
   sendAction('discard', { tile: selectedTile });
   selectedTile = null;
