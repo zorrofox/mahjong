@@ -30,6 +30,8 @@
   --border-radius-tile: 4px;
 }
 
+html { touch-action: manipulation; }
+
 html, body {
   width: 100%;
   height: 100%;
@@ -451,9 +453,12 @@ html, body {
   margin-right: 0;
 }
 
-.my-hand .tile:hover {
-  transform: translateY(-6px);
-  filter: drop-shadow(3px 8px 8px rgba(0,0,0,0.55));
+/* Hover effect only on devices that support hover (not touch) */
+@media (hover: hover) {
+  .my-hand .tile:hover {
+    transform: translateY(-6px);
+    filter: drop-shadow(3px 8px 8px rgba(0,0,0,0.55));
+  }
 }
 
 /* Selected tile: lift + gold glow.
@@ -861,3 +866,91 @@ html, body {
 .hidden { display: none !important; }
 .text-muted { color: var(--text-muted); font-size: 0.85rem; }
 .flex-center { display: flex; align-items: center; justify-content: center; }
+
+/* ============================================================
+   MOBILE RESPONSIVE - max-width: 600px
+   ============================================================ */
+@media (max-width: 600px) {
+  /* Board grid shrinks */
+  .board-wrapper {
+    grid-template-columns: 70px 1fr 70px;
+    grid-template-rows: 90px 1fr 90px;
+  }
+
+  /* Compact player areas */
+  .player-area { padding: 3px; }
+
+  /* Topbar compact */
+  #topbar { padding: 4px 8px; font-size: 0.8rem; }
+  #status-bar { padding: 4px 8px; font-size: 0.8rem; }
+
+  /* Hand area: horizontal scroll, allow tile lift */
+  .my-hand {
+    overflow-x: auto;
+    overflow-y: visible;
+    scroll-behavior: smooth;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 10px;
+    gap: 2px;
+  }
+
+  /* Smaller hand tiles on mobile */
+  .my-hand .tile {
+    width: 32px !important;
+    height: 46px !important;
+  }
+  .my-hand .tile .tile-img {
+    width: 32px !important;
+    height: 46px !important;
+  }
+
+  /* Reduced lift for selected tile on mobile */
+  .my-hand .tile.selected {
+    transform: translateY(-6px);
+  }
+
+  /* Allow selected tile to overflow bottom area */
+  #area-bottom {
+    overflow: visible;
+  }
+
+  /* Smaller discard tiles */
+  .discard-pile .tile {
+    width: 20px !important;
+    height: 28px !important;
+  }
+
+  /* Larger touch targets for action buttons */
+  #action-bar {
+    gap: 4px;
+    padding: 4px 4px 6px;
+    flex-wrap: wrap;
+  }
+  #action-bar .btn {
+    min-height: 44px;
+    min-width: 72px;
+    font-size: 0.85rem;
+    padding: 0.5rem 0.7rem;
+    touch-action: manipulation;
+  }
+
+  /* Claim overlay mobile sizing */
+  .claim-box {
+    min-width: min(92vw, 340px);
+    padding: 1.2rem 1rem;
+  }
+  .claim-tile-display .tile {
+    width: 50px !important;
+    height: 70px !important;
+  }
+  .claim-actions {
+    gap: 6px;
+  }
+  .claim-actions .btn {
+    min-height: 44px;
+    touch-action: manipulation;
+  }
+
+  /* Compact countdown bar */
+  .claim-countdown-bar { padding: 4px 8px; font-size: 0.8rem; }
+}

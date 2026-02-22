@@ -188,6 +188,7 @@ function makeTileEl(tileStr, options = {}) {
   if (options.selected) el.classList.add('selected');
   if (options.clickable) {
     el.style.cursor = 'pointer';
+    el.style.touchAction = 'manipulation'; // 消除 iOS 300ms 点击延迟
     el.addEventListener('click', () => selectTile(tileStr, el));
   }
 
@@ -750,6 +751,11 @@ function selectTile(tileStr, el) {
                     || (pendingActions.includes('discard') && !!selectedTile);
     setButtonEnabled('btn-discard', canDiscard);
   }
+
+  // 手机端：选中的牌自动滚动到手牌区中央，方便查看
+  if (el && el.scrollIntoView) {
+    el.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+  }
 }
 
 /* ============================================================
@@ -982,6 +988,7 @@ function makeClaimBtn(text, cls, handler) {
   const btn = document.createElement('button');
   btn.className = `btn ${cls}`;
   btn.textContent = text;
+  btn.style.touchAction = 'manipulation'; // 消除 iOS 300ms 点击延迟
   btn.addEventListener('click', handler);
   return btn;
 }
@@ -1193,6 +1200,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Connect WebSocket
   connect();
+
+  // 手机端：手牌区左右滑动时阻止页面上下滚动穿透
+  const myHandEl = document.getElementById('my-hand');
+  if (myHandEl) {
+    let touchStartX = 0;
+    let touchStartY = 0;
+    myHandEl.addEventListener('touchstart', (e) => {
+      touchStartX = e.touches[0].clientX;
+      touchStartY = e.touches[0].clientY;
+    }, { passive: true });
+    myHandEl.addEventListener('touchmove', (e) => {
+      const dx = Math.abs(e.touches[0].clientX - touchStartX);
+      const dy = Math.abs(e.touches[0].clientY - touchStartY);
+      // 以横向滑动为主时阻止页面纵向滚动
+      if (dx > dy) {
+        e.preventDefault();
+      }
+    }, { passive: false }); // passive:false 才能 preventDefault
+  }
 });
 
 // Allow unit testing in Node/Vitest
