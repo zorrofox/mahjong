@@ -257,7 +257,7 @@
       box-shadow: 0 0 10px rgba(212,160,23,0.35);
     }
 
-    /* ── 桌面 / 平板响应式（宽度断点，竖横屏均适用）──────── */
+    /* ── 桌面 / 平板（宽度断点）──────────────────────────── */
     @media (max-width: 1100px) {
       .board-wrapper {
         grid-template-columns: 160px 1fr 160px;
@@ -265,57 +265,62 @@
       }
     }
 
-    @media (max-width: 860px) {
-      /* 竖屏手机：宽度断点生效，竖屏布局继续工作 */
+    /* ── 手机竖屏专用布局（≤ 600px 宽）────────────────────
+       核心改变：top / bottom 横跨全部三列
+         原来：". top ." / ". bottom ."  → 对面/手牌只占中间列约 145px（极窄）
+         现在："top top top" / "bottom bottom bottom"
+                → 对面玩家 & 我的手牌均铺满全屏宽度
+
+       典型竖屏 375×667：
+         侧边栏 75px × 2 = 150px，中央 375-150-10 = 215px
+         对面/手牌宽 ≈ 355px（大幅改善）
+    ─────────────────────────────────────────────────────── */
+    @media (max-width: 600px) {
+      /* 顶栏：隐藏长 UUID */
       #room-info { display: none; }
       #topbar h1 { font-size: 0.85rem; letter-spacing: 0; }
 
+      /* 所有玩家标签：隐藏（省空间，信息在弃牌堆标签里可见）*/
       #area-left .player-label,
       #area-right .player-label,
       #area-top  .player-label { display: none; }
 
+      /* Grid 重构：top/bottom 跨全列 */
       .board-wrapper {
-        grid-template-columns: 110px 1fr 110px;
-        grid-template-rows: min(65px, 21%) minmax(55px, 1fr) min(135px, 47%);
+        grid-template-areas:
+          "top    top    top"
+          "left   center right"
+          "bottom bottom bottom";
+        grid-template-columns: 75px 1fr 75px;
+        /* top: 最大 80px / bottom: 最大 135px / center: 剩余 */
+        grid-template-rows: min(80px, 14%) minmax(80px, 1fr) min(135px, 36%);
       }
+
+      /* 手牌区：全宽后允许横向滚动 */
+      #my-hand {
+        overflow-x: auto !important;
+        overflow-y: visible !important;
+        scroll-behavior: smooth;
+        -webkit-overflow-scrolling: touch;
+      }
+
+      /* action-bar 不被手牌遮挡 */
       #action-bar { position: relative; z-index: 10; }
+
+      /* 手牌尺寸 */
       .my-hand .tile     { width: 32px !important; height: 46px !important; }
       .my-hand .tile-img { width: 32px !important; height: 46px !important; }
+
+      /* 副露牌尺寸 */
       #my-melds .tile     { width: 22px !important; height: 32px !important; }
       #my-melds .tile-img { width: 22px !important; height: 32px !important; }
-    }
 
-    /* ── 手机横屏专属覆盖（在宽度断点之后，优先级更高）─── */
-    /* 条件：横屏 + 屏高 ≤ 520px，绝大多数手机横屏均满足  */
-    @media (orientation: landscape) and (max-height: 520px) {
-      /* 横屏时屏幕更宽，侧边栏可以更宽（min(px,%)让其随宽度弹性增长）
-         686×393：sidebars = 20%×686 = 137px，center = 686-137-137-10 = 402px
-         844×390：sidebars = min(160px, 20%×844=168px) = 160px, center = 524px */
-      .board-wrapper {
-        grid-template-columns: min(160px, 20%) 1fr min(160px, 20%);
-        grid-template-rows: min(60px, 20%) minmax(55px, 1fr) min(130px, 45%);
-      }
-
-      /* 横屏侧边栏更宽，可以显示极简标签（玩家名截断）*/
-      #area-left .player-label,
-      #area-right .player-label {
-        display: block;
-        font-size: 0.55rem;
-        line-height: 1.2;
-        padding: 0;
-        white-space: nowrap;
+      /* 侧边对手手牌：在 75px 宽列里多行排列，移除高度上限 */
+      #area-left  .opponent-hand,
+      #area-right .opponent-hand {
+        flex-wrap: wrap;
+        max-height: none;
         overflow: hidden;
-        text-overflow: ellipsis;
-        max-width: 100%;
-      }
-      #area-left .player-score,
-      #area-right .player-score { display: none; } /* 只显示名字，隐藏筹码节省空间 */
-    }
-
-    /* 极矮横屏（≤ 400px 高）*/
-    @media (orientation: landscape) and (max-height: 400px) {
-      .board-wrapper {
-        grid-template-rows: min(48px, 17%) minmax(45px, 1fr) min(115px, 42%);
       }
     }
   </style>
