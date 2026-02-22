@@ -2140,6 +2140,47 @@ grid-template-rows: min(80px, 14%) minmax(80px, 1fr) min(135px, 36%);
 
 ---
 
+## 功能增强：双击 / 双指快速出牌
+
+**背景**：玩家出牌需要两步——先点击选中牌，再点击「打」按钮。双击牌可将两步合并为一步。
+
+**实现**（`frontend/js/game.js` — `makeTileEl()`）：
+
+针对桌面和移动端分别处理：
+
+```javascript
+// 桌面：dblclick 可靠
+el.addEventListener('dblclick', () => {
+  if (!pendingActions.includes('discard') || inClaimWindow) return;
+  if (selectedTile !== tileStr) selectTile(tileStr, el);
+  sendDiscard();
+});
+
+// 移动端：touch-action:manipulation 会抑制 dblclick，改用 touchend 时间差
+el.addEventListener('touchend', (e) => {
+  if (_dblTapTimer && _dblTapTile === tileStr) {
+    clearTimeout(_dblTapTimer);
+    e.preventDefault();   // 阻止合成 click（防止 toggle 取消选中）
+    if (!pendingActions.includes('discard') || inClaimWindow) return;
+    if (selectedTile !== tileStr) selectTile(tileStr, el);
+    sendDiscard();
+  } else {
+    _dblTapTile  = tileStr;
+    _dblTapTimer = setTimeout(() => { _dblTapTimer = _dblTapTile = null; }, 300);
+  }
+}, { passive: false });  // passive:false 才能 preventDefault
+```
+
+**为什么移动端不能直接用 `dblclick`**：`touch-action: manipulation` 告知浏览器接管双击手势（禁用双击缩放），导致 `dblclick` 事件可能被抑制。改用 `touchend` 手动计算两次触摸间隔（≤300ms = 双击），并用 `e.preventDefault()` 阻止第二次触摸产生的合成 `click`（否则 `selectTile` 的 toggle 逻辑会取消选中，导致 `sendDiscard` 时 `selectedTile = null`）。
+
+**守卫条件**：
+- `pendingActions.includes('discard')` — 仅在轮到自己出牌时生效
+- `!inClaimWindow` — 声索弹窗期间不触发
+
+**修改文件**：`frontend/js/game.js`（新增模块级 `_dblTapTimer` / `_dblTapTile`；`makeTileEl` clickable 分支加 `dblclick` + `touchend` 监听）
+
+---
+
 ## 已知限制与后续扩展方向
 
 | 项目 | 当前状态 | 可改进方向 |
