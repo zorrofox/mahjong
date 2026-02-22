@@ -57,7 +57,7 @@ const patchedCode = code.replace(
 
 vm.runInNewContext(patchedCode, sandbox, { filename: filePath })
 
-const { getHandTiles, getHandCount, tileToDisplay, formatPhase, autoSelectChow, getAllChows, escapeHtml, TILE_MAP, sortHandTiles } = globalThis._mahjongTestExports
+const { getHandTiles, getHandCount, tileToDisplay, formatPhase, autoSelectChow, getAllChows, escapeHtml, TILE_MAP, sortHandTiles, makeTileEl, makeClaimBtn, selectTile } = globalThis._mahjongTestExports
 
 /* ==========================================================
    getHandTiles
@@ -502,5 +502,104 @@ describe('autoSelectChow - edge cases', () => {
     // autoSelectChow must return the first: [1,3].
     const result = autoSelectChow('BAMBOO_2', ['BAMBOO_1', 'BAMBOO_3', 'BAMBOO_3', 'BAMBOO_4'])
     expect(result).toEqual(['BAMBOO_1', 'BAMBOO_3'])
+  })
+})
+
+/* ==========================================================
+   Mobile UI — makeTileEl touch-action
+   ========================================================== */
+describe('makeTileEl — touch interaction', () => {
+  it('sets touchAction manipulation on clickable tiles', () => {
+    const el = makeTileEl('BAMBOO_5', { clickable: true })
+    expect(el.style.touchAction).toBe('manipulation')
+  })
+
+  it('also sets cursor:pointer on clickable tiles', () => {
+    const el = makeTileEl('BAMBOO_3', { clickable: true })
+    expect(el.style.cursor).toBe('pointer')
+  })
+
+  it('does not set touchAction on non-clickable tiles (default options)', () => {
+    const el = makeTileEl('BAMBOO_5')
+    expect(el.style.touchAction).toBeFalsy()
+  })
+
+  it('does not set touchAction on face-down tiles', () => {
+    // faceDown path returns early before the clickable block
+    const el = makeTileEl('BAMBOO_5', { faceDown: true })
+    expect(el.style.touchAction).toBeFalsy()
+  })
+
+  it('does not set touchAction on explicitly non-clickable tiles', () => {
+    const el = makeTileEl('EAST', { clickable: false })
+    expect(el.style.touchAction).toBeFalsy()
+  })
+})
+
+/* ==========================================================
+   Mobile UI — makeClaimBtn touch-action
+   ========================================================== */
+describe('makeClaimBtn — touch interaction', () => {
+  it('sets touchAction manipulation on every claim button', () => {
+    const btn = makeClaimBtn('Pung 碰', 'btn-primary', () => {})
+    expect(btn.style.touchAction).toBe('manipulation')
+  })
+
+  it('sets touchAction on skip buttons too', () => {
+    const btn = makeClaimBtn('Skip 過', 'btn-secondary', () => {})
+    expect(btn.style.touchAction).toBe('manipulation')
+  })
+
+  it('registers the click handler on the button', () => {
+    const handler = vi.fn()
+    const btn = makeClaimBtn('Win 胡!', 'btn-danger', handler)
+    expect(btn.addEventListener).toHaveBeenCalledWith('click', handler)
+  })
+})
+
+/* ==========================================================
+   Mobile UI — selectTile scrollIntoView
+   ========================================================== */
+describe('selectTile — scrollIntoView on mobile', () => {
+  // Helper: create a minimal tile element mock.
+  // Each test uses a distinct tile string to avoid toggle-deselect behaviour
+  // (selecting the same tile twice toggles it off).
+  function makeMockEl(withScrollIntoView = true) {
+    const el = {
+      classList: { add: vi.fn(), remove: vi.fn(), toggle: vi.fn() },
+      style: {},
+      dataset: {},
+    }
+    if (withScrollIntoView) el.scrollIntoView = vi.fn()
+    return el
+  }
+
+  it('calls scrollIntoView with smooth, center, nearest when available', () => {
+    const el = makeMockEl(true)
+    selectTile('CHARACTERS_1', el)
+    expect(el.scrollIntoView).toHaveBeenCalledOnce()
+    expect(el.scrollIntoView).toHaveBeenCalledWith({
+      behavior: 'smooth',
+      inline: 'center',
+      block: 'nearest',
+    })
+  })
+
+  it('does not throw when element has no scrollIntoView (desktop / JSDOM)', () => {
+    const el = makeMockEl(false)
+    expect(() => selectTile('CHARACTERS_2', el)).not.toThrow()
+  })
+
+  it('adds the selected class to the element', () => {
+    const el = makeMockEl(true)
+    selectTile('CHARACTERS_3', el)
+    expect(el.classList.add).toHaveBeenCalledWith('selected')
+  })
+
+  it('scrollIntoView is called even when gameState is null (no discard logic needed)', () => {
+    // gameState is null in test environment; the scrollIntoView path is unconditional
+    const el = makeMockEl(true)
+    selectTile('CHARACTERS_4', el)
+    expect(el.scrollIntoView).toHaveBeenCalled()
   })
 })

@@ -1223,5 +1223,5 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // Allow unit testing in Node/Vitest
 if (typeof globalThis !== 'undefined' && typeof window === 'undefined') {
-  globalThis._mahjongTestExports = { getHandTiles, getHandCount, tileToDisplay, formatPhase, autoSelectChow, getAllChows, escapeHtml, TILE_MAP, sortHandTiles, TILE_SVG_MAP };
+  globalThis._mahjongTestExports = { getHandTiles, getHandCount, tileToDisplay, formatPhase, autoSelectChow, getAllChows, escapeHtml, TILE_MAP, sortHandTiles, TILE_SVG_MAP, makeTileEl, makeClaimBtn, selectTile };
 }
