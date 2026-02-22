@@ -266,9 +266,36 @@
     }
 
     @media (max-width: 860px) {
+      /* Fix 1: 隐藏顶栏长 UUID，腾出空间给"← Back to Lobby" */
+      #room-info { display: none; }
+      #topbar h1 { font-size: 0.85rem; letter-spacing: 0; }
+
+      /* Fix 2: 侧边栏（110px）依然放不下完整标签，隐藏 */
+      #area-left .player-label,
+      #area-right .player-label { display: none; }
+
+      /* Fix 4: 底部行用 auto 自适应，防止手牌溢出进 action-bar */
       .board-wrapper {
         grid-template-columns: 110px 1fr 110px;
-        grid-template-rows: 110px 1fr 140px;
+        grid-template-rows: 110px 1fr auto;
+      }
+
+      /* Fix 5: action-bar 始终在牌的上方 */
+      #action-bar {
+        position: relative;
+        z-index: 10;
+      }
+
+      /* Fix 3: 副露牌尺寸统一（不含 inline style 的那些） */
+      #my-melds .tile     { width: 28px !important; height: 40px !important; }
+      #my-melds .tile-img { width: 28px !important; height: 40px !important; }
+    }
+
+    @media (max-width: 600px) {
+      /* 更窄设备：侧边栏进一步收缩 */
+      .board-wrapper {
+        grid-template-columns: 70px 1fr 70px;
+        grid-template-rows: 80px 1fr auto;
       }
     }
   </style>
