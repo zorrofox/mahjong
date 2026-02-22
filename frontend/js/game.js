@@ -561,35 +561,64 @@ function renderCenterTable(state, discards, players) {
   const wallEl = document.getElementById('wall-count');
   if (wallEl) wallEl.textContent = state.wall_remaining ?? state.wall_count ?? '?';
 
-  // Discards for each player
+  // Discards for each player — incremental update to avoid SVG re-decode flicker.
+  // Helper: compare two string arrays for equality.
+  const _arrEq = (a, b) => a.length === b.length && a.every((v, k) => v === b[k]);
+
   for (let i = 0; i < 4; i++) {
     const pileEl = document.getElementById(`discard-pile-${i}`);
     if (!pileEl) continue;
 
-    pileEl.innerHTML = '';
+    const pile    = (discards[i] || []);
+    const visible = pile.slice(-12); // show at most last 12 tiles
 
-    // Label
-    const lbl = document.createElement('div');
-    lbl.className = 'discard-pile-label';
-    lbl.textContent = players[i] ? players[i].id : `P${i + 1}`;
-    pileEl.appendChild(lbl);
+    // Update the label text without touching tiles.
+    let lbl = pileEl.querySelector('.discard-pile-label');
+    if (lbl) {
+      lbl.textContent = players[i] ? players[i].id : `P${i + 1}`;
+    } else {
+      lbl = document.createElement('div');
+      lbl.className = 'discard-pile-label';
+      lbl.textContent = players[i] ? players[i].id : `P${i + 1}`;
+      pileEl.prepend(lbl);
+    }
 
-    const pile = (discards[i] || []);
-    // Show last 12 discards to avoid overflow
-    const visible = pile.slice(-12);
-    visible.forEach(tStr => {
-      pileEl.appendChild(makeTileEl(tStr));
-    });
+    // Determine what tiles are currently in the DOM.
+    const existingTileEls  = [...pileEl.querySelectorAll(':scope > .tile')];
+    const existingKeys     = existingTileEls.map(el => el.dataset.tile);
+
+    if (_arrEq(existingKeys, visible)) {
+      // Identical — nothing to do.
+    } else if (visible.length === existingKeys.length + 1 &&
+               _arrEq(existingKeys, visible.slice(0, -1))) {
+      // Normal discard: one tile appended at the end.
+      pileEl.appendChild(makeTileEl(visible[visible.length - 1]));
+    } else if (visible.length === existingKeys.length - 1 &&
+               _arrEq(visible, existingKeys.slice(0, -1))) {
+      // Tile was claimed (pung / chow / kong): remove the last DOM element.
+      existingTileEls[existingTileEls.length - 1].remove();
+    } else {
+      // Full rebuild: new game, window slid past 12, or other structural change.
+      pileEl.innerHTML = '';
+      const rebuildLbl = document.createElement('div');
+      rebuildLbl.className = 'discard-pile-label';
+      rebuildLbl.textContent = players[i] ? players[i].id : `P${i + 1}`;
+      pileEl.appendChild(rebuildLbl);
+      visible.forEach(tStr => pileEl.appendChild(makeTileEl(tStr)));
+    }
   }
 
-  // Last discard highlight
+  // Last discard highlight — incremental.
   const lastDiscardEl = document.getElementById('last-discard');
   if (lastDiscardEl) {
     if (state.last_discard) {
-      lastDiscardEl.innerHTML = `Last: `;
-      lastDiscardEl.appendChild(makeTileEl(state.last_discard));
+      const existing = lastDiscardEl.querySelector('.tile');
+      if (!existing || existing.dataset.tile !== state.last_discard) {
+        lastDiscardEl.innerHTML = 'Last: ';
+        lastDiscardEl.appendChild(makeTileEl(state.last_discard));
+      }
     } else {
-      lastDiscardEl.innerHTML = '';
+      if (lastDiscardEl.innerHTML !== '') lastDiscardEl.innerHTML = '';
     }
   }
 

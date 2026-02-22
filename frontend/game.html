@@ -472,31 +472,40 @@
         }
 
         if (handEl) {
-          handEl.innerHTML = '';
-          const tileCount = getHandCount(player);
-          for (let i = 0; i < tileCount; i++) {
-            const el = document.createElement('span');
-            el.className = 'tile tile-back';
-            el.style.width  = position === 'left' || position === 'right' ? '18px' : '20px';
-            el.style.height = position === 'left' || position === 'right' ? '26px' : '28px';
-            handEl.appendChild(el);
+          // Only rebuild face-down tiles when the count changes.
+          const tileCount    = getHandCount(player);
+          const currentCount = handEl.querySelectorAll('.tile-back').length;
+          if (currentCount !== tileCount) {
+            handEl.innerHTML = '';
+            for (let i = 0; i < tileCount; i++) {
+              const el = document.createElement('span');
+              el.className = 'tile tile-back';
+              el.style.width  = position === 'left' || position === 'right' ? '18px' : '20px';
+              el.style.height = position === 'left' || position === 'right' ? '26px' : '28px';
+              handEl.appendChild(el);
+            }
           }
         }
 
         if (meldsEl) {
-          meldsEl.innerHTML = '';
-          (player.melds || []).forEach(meld => {
-            const group = document.createElement('span');
-            group.className = 'meld-group';
-            meld.forEach(t => {
-              const te = makeTileEl(t);
-              te.style.width  = '16px';
-              te.style.height = '22px';
-              te.style.fontSize = '0.5rem';
-              group.appendChild(te);
+          // Only rebuild melds when they actually change.
+          const newMeldsKey = JSON.stringify(player.melds || []);
+          if (meldsEl.dataset.meldsKey !== newMeldsKey) {
+            meldsEl.dataset.meldsKey = newMeldsKey;
+            meldsEl.innerHTML = '';
+            (player.melds || []).forEach(meld => {
+              const group = document.createElement('span');
+              group.className = 'meld-group';
+              meld.forEach(t => {
+                const te = makeTileEl(t);
+                te.style.width  = '16px';
+                te.style.height = '22px';
+                te.style.fontSize = '0.5rem';
+                group.appendChild(te);
+              });
+              meldsEl.appendChild(group);
             });
-            meldsEl.appendChild(group);
-          });
+          }
         }
       };
 
@@ -514,29 +523,42 @@
         if (scoreEl) scoreEl.textContent = `筹码: ${(state.cumulative_scores || {})[player.id] ?? '–'}`;
 
         if (handEl) {
-          handEl.innerHTML = '';
-          sortHandTiles(getHandTiles(player)).forEach(tileStr => {
-            const el = makeTileEl(tileStr, {
-              clickable: true,
-              selected: tileStr === selectedTile
+          // Only rebuild hand tiles when the tile set changes.
+          // Selection state is updated separately (no DOM rebuild needed).
+          const newTiles    = sortHandTiles(getHandTiles(player));
+          const newTilesKey = newTiles.join(',');
+          if (handEl.dataset.tilesKey !== newTilesKey) {
+            handEl.dataset.tilesKey = newTilesKey;
+            handEl.innerHTML = '';
+            newTiles.forEach(tileStr => {
+              const el = makeTileEl(tileStr, { clickable: true });
+              handEl.appendChild(el);
             });
-            handEl.appendChild(el);
+          }
+          // Always sync selection without triggering a full rebuild.
+          handEl.querySelectorAll('.tile').forEach(el => {
+            el.classList.toggle('selected', el.dataset.tile === selectedTile);
           });
         }
 
         if (meldsEl) {
-          meldsEl.innerHTML = '';
-          (player.melds || []).forEach(meld => {
-            const group = document.createElement('span');
-            group.className = 'meld-group';
-            meld.forEach(t => group.appendChild(makeTileEl(t)));
-            meldsEl.appendChild(group);
-          });
-          (player.flowers || []).forEach(t => {
-            const el = makeTileEl(t);
-            el.style.marginLeft = '3px';
-            meldsEl.appendChild(el);
-          });
+          // Only rebuild melds/flowers when they change.
+          const newMeldsKey = JSON.stringify([...(player.melds || []), ...(player.flowers || [])]);
+          if (meldsEl.dataset.meldsKey !== newMeldsKey) {
+            meldsEl.dataset.meldsKey = newMeldsKey;
+            meldsEl.innerHTML = '';
+            (player.melds || []).forEach(meld => {
+              const group = document.createElement('span');
+              group.className = 'meld-group';
+              meld.forEach(t => group.appendChild(makeTileEl(t)));
+              meldsEl.appendChild(group);
+            });
+            (player.flowers || []).forEach(t => {
+              const el = makeTileEl(t);
+              el.style.marginLeft = '3px';
+              meldsEl.appendChild(el);
+            });
+          }
         }
 
         const bottomArea = document.getElementById('area-bottom');
