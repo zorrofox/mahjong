@@ -431,4 +431,76 @@ describe('getAllChows', () => {
     expect(result).toContainEqual(['BAMBOO_3', 'BAMBOO_4'])
     expect(result).toContainEqual(['BAMBOO_4', 'BAMBOO_6'])
   })
+
+  // ── edge-tile and kanchan cases mirroring the backend edge-case suite ──
+
+  it('edge low: discard BAMBOO_1 yields exactly one option [2,3]', () => {
+    // Only combo [num+1, num+2] = [2,3] is in range; [num-2,num-1]=[-1,0] and
+    // [num-1,num+1]=[0,2] are filtered because 0 < 1.
+    const result = getAllChows('BAMBOO_1', ['BAMBOO_2', 'BAMBOO_3'])
+    expect(result).toHaveLength(1)
+    expect(result).toContainEqual(['BAMBOO_2', 'BAMBOO_3'])
+  })
+
+  it('edge high: discard BAMBOO_9 yields exactly one option [7,8]', () => {
+    // Only combo [num-2,num-1]=[7,8] is in range; [num-1,num+1]=[8,10] and
+    // [num+1,num+2]=[10,11] are filtered because 10 > 9.
+    const result = getAllChows('BAMBOO_9', ['BAMBOO_7', 'BAMBOO_8'])
+    expect(result).toHaveLength(1)
+    expect(result).toContainEqual(['BAMBOO_7', 'BAMBOO_8'])
+  })
+
+  it('kanchan (坎张): discard BAMBOO_5 with only BAMBOO_4 and BAMBOO_6 in hand yields [4,6]', () => {
+    // [num-2,num-1]=[3,4]: BAMBOO_3 absent → invalid
+    // [num-1,num+1]=[4,6]: both in hand → valid
+    // [num+1,num+2]=[6,7]: BAMBOO_7 absent → invalid
+    const result = getAllChows('BAMBOO_5', ['BAMBOO_4', 'BAMBOO_6'])
+    expect(result).toHaveLength(1)
+    expect(result).toContainEqual(['BAMBOO_4', 'BAMBOO_6'])
+  })
+
+  it('discard BAMBOO_2 with hand [1,3,3,4] yields two options', () => {
+    // [num-2,num-1]=[0,1]: 0 out of range → filtered
+    // [num-1,num+1]=[1,3]: BAMBOO_1 and BAMBOO_3 in hand → valid
+    // [num+1,num+2]=[3,4]: BAMBOO_3 and BAMBOO_4 in hand → valid
+    const result = getAllChows('BAMBOO_2', ['BAMBOO_1', 'BAMBOO_3', 'BAMBOO_3', 'BAMBOO_4'])
+    expect(result).toHaveLength(2)
+    expect(result).toContainEqual(['BAMBOO_1', 'BAMBOO_3'])
+    expect(result).toContainEqual(['BAMBOO_3', 'BAMBOO_4'])
+  })
+
+  it('discard BAMBOO_8 with hand [6,7,7,9] yields two options', () => {
+    // [num-2,num-1]=[6,7]: BAMBOO_6 and BAMBOO_7 in hand → valid
+    // [num-1,num+1]=[7,9]: BAMBOO_7 and BAMBOO_9 in hand → valid
+    // [num+1,num+2]=[9,10]: 10 out of range → filtered
+    const result = getAllChows('BAMBOO_8', ['BAMBOO_6', 'BAMBOO_7', 'BAMBOO_7', 'BAMBOO_9'])
+    expect(result).toHaveLength(2)
+    expect(result).toContainEqual(['BAMBOO_6', 'BAMBOO_7'])
+    expect(result).toContainEqual(['BAMBOO_7', 'BAMBOO_9'])
+  })
+})
+
+describe('autoSelectChow - edge cases', () => {
+  it('returns null for null tile', () => {
+    expect(autoSelectChow(null, ['BAMBOO_1'])).toBeNull()
+  })
+
+  it('returns the only option for edge-low tile (discard 1)', () => {
+    expect(autoSelectChow('BAMBOO_1', ['BAMBOO_2', 'BAMBOO_3'])).toEqual(['BAMBOO_2', 'BAMBOO_3'])
+  })
+
+  it('returns the only option for edge-high tile (discard 9)', () => {
+    expect(autoSelectChow('BAMBOO_9', ['BAMBOO_7', 'BAMBOO_8'])).toEqual(['BAMBOO_7', 'BAMBOO_8'])
+  })
+
+  it('returns the only option for kanchan (discard 5, hand [4,6])', () => {
+    expect(autoSelectChow('BAMBOO_5', ['BAMBOO_4', 'BAMBOO_6'])).toEqual(['BAMBOO_4', 'BAMBOO_6'])
+  })
+
+  it('returns the first option when multiple chows are available', () => {
+    // For discard 2 with hand [1,3,3,4], getAllChows yields [[1,3],[3,4]] in order;
+    // autoSelectChow must return the first: [1,3].
+    const result = autoSelectChow('BAMBOO_2', ['BAMBOO_1', 'BAMBOO_3', 'BAMBOO_3', 'BAMBOO_4'])
+    expect(result).toEqual(['BAMBOO_1', 'BAMBOO_3'])
+  })
 })
