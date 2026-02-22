@@ -871,10 +871,18 @@ html, body {
    MOBILE RESPONSIVE - max-width: 600px
    ============================================================ */
 @media (max-width: 600px) {
-  /* Board grid shrinks */
+  /* ── Fix 1: 隐藏顶栏 Room/Player UUID，腾出空间给"← 返回大厅"按钮 ── */
+  #room-info { display: none; }
+  #topbar h1 { font-size: 0.85rem; letter-spacing: 0; }
+
+  /* ── Fix 2: 侧边栏（70px）放不下玩家标签，直接隐藏，保留手牌显示 ── */
+  #area-left .player-label,
+  #area-right .player-label { display: none; }
+
+  /* ── Fix 4: 底部 grid row 用 auto 自适应内容高度，避免手牌溢出进 action-bar ── */
   .board-wrapper {
     grid-template-columns: 70px 1fr 70px;
-    grid-template-rows: 90px 1fr 90px;
+    grid-template-rows: auto 1fr auto; /* 原 90px 1fr 90px → auto 让内容定高 */
   }
 
   /* Compact player areas */
@@ -883,6 +891,22 @@ html, body {
   /* Topbar compact */
   #topbar { padding: 4px 8px; font-size: 0.8rem; }
   #status-bar { padding: 4px 8px; font-size: 0.8rem; }
+
+  /* ── Fix 5: action-bar z-index 兜底，确保按钮始终在手牌之上 ── */
+  #action-bar {
+    gap: 4px;
+    padding: 4px 4px 6px;
+    flex-wrap: wrap;
+    position: relative;
+    z-index: 10;
+  }
+  #action-bar .btn {
+    min-height: 44px;
+    min-width: 72px;
+    font-size: 0.85rem;
+    padding: 0.5rem 0.7rem;
+    touch-action: manipulation;
+  }
 
   /* Hand area: horizontal scroll, allow tile lift */
   .my-hand {
@@ -914,24 +938,20 @@ html, body {
     overflow: visible;
   }
 
+  /* ── Fix 3: 我的副露牌（my-melds）手机端统一尺寸，与手牌协调 ── */
+  #my-melds .tile {
+    width: 28px !important;
+    height: 40px !important;
+  }
+  #my-melds .tile .tile-img {
+    width: 28px !important;
+    height: 40px !important;
+  }
+
   /* Smaller discard tiles */
   .discard-pile .tile {
     width: 20px !important;
     height: 28px !important;
-  }
-
-  /* Larger touch targets for action buttons */
-  #action-bar {
-    gap: 4px;
-    padding: 4px 4px 6px;
-    flex-wrap: wrap;
-  }
-  #action-bar .btn {
-    min-height: 44px;
-    min-width: 72px;
-    font-size: 0.85rem;
-    padding: 0.5rem 0.7rem;
-    touch-action: manipulation;
   }
 
   /* Claim overlay mobile sizing */
