@@ -389,33 +389,43 @@ function handleGameState(state) {
 
 function handleActionRequired(msg) {
   if (msg.player_idx === myPlayerIdx) {
+    // 立即记录 pendingActions（双击出牌等逻辑依赖此值），
+    // 但延迟显示操作按钮，等待上一轮 AI 动作的语音播完，
+    // 使音效与界面操作在时序上保持一致（最长等 1.5 秒）。
     pendingActions = msg.actions || [];
-    updateActionButtons(pendingActions);
 
-    if (pendingActions.includes('discard')) {
-      setStatus('Your turn — select a tile to discard.', 'info');
+    const showUI = () => {
+      updateActionButtons(pendingActions);
 
-      // Auto-select the just-drawn tile when the server tells us which it is.
-      if (msg.drawn_tile) {
-        // Deselect any previous selection first.
-        const prev = document.querySelector('.my-hand .tile.selected');
-        if (prev) prev.classList.remove('selected');
-        selectedTile = null;
+      if (pendingActions.includes('discard')) {
+        setStatus('Your turn — select a tile to discard.', 'info');
 
-        // Find the drawn tile element in the hand and select it.
-        const handEl = document.getElementById('my-hand');
-        if (handEl) {
-          // There may be duplicates; pick the last one (hand is sorted so the
-          // drawn tile is usually at the end before sort, but use dataset match).
-          const tiles = [...handEl.querySelectorAll('.tile[data-tile]')];
-          // Select the last element matching drawn_tile (avoids duplicate ambiguity).
-          const tileEl = tiles.filter(el => el.dataset.tile === msg.drawn_tile).at(-1);
-          if (tileEl) selectTile(msg.drawn_tile, tileEl);
+        // Auto-select the just-drawn tile when the server tells us which it is.
+        if (msg.drawn_tile) {
+          // Deselect any previous selection first.
+          const prev = document.querySelector('.my-hand .tile.selected');
+          if (prev) prev.classList.remove('selected');
+          selectedTile = null;
+
+          // Find the drawn tile element in the hand and select it.
+          const handEl = document.getElementById('my-hand');
+          if (handEl) {
+            const tiles = [...handEl.querySelectorAll('.tile[data-tile]')];
+            const tileEl = tiles.filter(el => el.dataset.tile === msg.drawn_tile).at(-1);
+            if (tileEl) selectTile(msg.drawn_tile, tileEl);
+          }
+          // 不播报自己摸到的牌牌名（避免每次摸牌都念）
         }
-        // 不播报自己摸到的牌牌名（避免每次摸牌都念）
+      } else {
+        setStatus('Your turn — choose an action.', 'info');
       }
+    };
+
+    const speech = getSpeech();
+    if (speech && speech.isSpeaking()) {
+      speech.onSilent(showUI, 1500); // 最长等 1.5 秒
     } else {
-      setStatus('Your turn — choose an action.', 'info');
+      showUI();
     }
   } else {
     pendingActions = [];

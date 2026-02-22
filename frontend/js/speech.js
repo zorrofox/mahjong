@@ -32,10 +32,11 @@ function tileToSpeech(tileStr) {
    SpeechEngine class
    ============================================================ */
 class SpeechEngine {
-  #voice   = null;
-  #enabled = true;
-  #active  = false;   // true while an utterance is being spoken
-  #queue   = [];      // at most 1 pending action announcement
+  #voice      = null;
+  #enabled    = true;
+  #active     = false;   // true while an utterance is being spoken
+  #queue      = [];      // at most 1 pending action announcement
+  #silentCbs  = [];      // callbacks waiting for TTS to go silent
 
   constructor() {
     this._loadPrefs();
@@ -93,11 +94,50 @@ class SpeechEngine {
     this.#queue   = [];
     speechSynthesis?.cancel();
     this._savePrefs();
+    this.#fireSilentCbs(); // 禁用时视为静默，立即触发所有等待回调
   }
   isEnabled() { return this.#enabled; }
   hasVoice()  { return this.#voice !== null; }
 
+  /**
+   * 返回 true 表示 TTS 正在播报（或队列中有待播内容）。
+   * 未启用 / 无语音时始终返回 false。
+   */
+  isSpeaking() {
+    if (!this.#enabled || !this.#voice) return false;
+    if (typeof speechSynthesis === 'undefined')  return false;
+    return this.#active || speechSynthesis.speaking;
+  }
+
+  /**
+   * 当 TTS 播完并静默时执行 callback。
+   * 若当前已静默则立即执行；否则最多等待 maxWaitMs 毫秒（默认 1500ms）
+   * 以防语音卡住导致界面永久冻结。
+   *
+   * 典型用途：人类玩家收到 action_required 时，等上一轮 AI 的语音播完
+   * 再显示操作按钮，使音效与界面操作在时序上保持一致。
+   */
+  onSilent(callback, maxWaitMs = 1500) {
+    if (!this.isSpeaking()) {
+      callback();
+      return;
+    }
+    // 安全超时：避免 TTS 意外卡住时界面永久等待
+    const timer = setTimeout(() => {
+      this.#silentCbs = this.#silentCbs.filter(c => c !== wrapped);
+      callback();
+    }, maxWaitMs);
+    const wrapped = () => { clearTimeout(timer); callback(); };
+    this.#silentCbs.push(wrapped);
+  }
+
   /* ---------- Private ---------- */
+
+  /** Drain and invoke all pending onSilent callbacks. */
+  #fireSilentCbs() {
+    const cbs = this.#silentCbs.splice(0);
+    cbs.forEach(cb => cb());
+  }
 
   #speakNow(text) {
     if (typeof speechSynthesis === 'undefined') return;
@@ -116,11 +156,14 @@ class SpeechEngine {
       this.#active = false;
       if (this.#queue.length > 0) {
         this.#speakNow(this.#queue.shift());
+      } else {
+        this.#fireSilentCbs(); // 队列耗尽 → 触发等待回调
       }
     };
     utt.onerror = () => {
       this.#active = false;
       this.#queue  = [];
+      this.#fireSilentCbs(); // 出错也触发，避免 UI 卡住
     };
 
     speechSynthesis.speak(utt);
