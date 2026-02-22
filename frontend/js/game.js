@@ -25,6 +25,10 @@ let claimCountdownTimer = null;
 // appeared for ANOTHER player should cancel a pending local claim sound.
 let _myClaimSent = null;
 
+// Double-tap detection for mobile (touchend-based, shared across all hand tiles).
+let _dblTapTimer = null;
+let _dblTapTile  = null;
+
 /* ---------- Speech engine singleton ---------- */
 let _speech = null;
 function getSpeech() {
@@ -195,13 +199,38 @@ function makeTileEl(tileStr, options = {}) {
     el.style.touchAction = 'manipulation'; // 消除 iOS 300ms 点击延迟
     el.addEventListener('click', () => selectTile(tileStr, el));
 
-    // 双击 / 双击触屏：若当前可以出牌则直接打出该张牌，无需再点"打"按钮
+    // ── 双击出牌（桌面）──────────────────────────────────────
+    // dblclick 在桌面可靠；移动端由 touchend 另行处理。
     el.addEventListener('dblclick', () => {
       if (!pendingActions.includes('discard') || inClaimWindow) return;
-      // dblclick 之前两次 click 事件可能将牌选中再取消选中；重新选中后出牌
       if (selectedTile !== tileStr) selectTile(tileStr, el);
       sendDiscard();
     });
+
+    // ── 双击出牌（移动端：自定义 touchend 时间差检测）───────
+    // touch-action:manipulation 会阻止浏览器生成 dblclick，
+    // 因此用 touchend 手动检测 300ms 内的两次点击。
+    el.addEventListener('touchend', (e) => {
+      if (_dblTapTimer && _dblTapTile === tileStr) {
+        // 第二次点击在 300ms 内 → 双击
+        clearTimeout(_dblTapTimer);
+        _dblTapTimer = null;
+        _dblTapTile  = null;
+        // 阻止后续合成的 click 事件（防止 toggle 取消选中）
+        e.preventDefault();
+        if (!pendingActions.includes('discard') || inClaimWindow) return;
+        if (selectedTile !== tileStr) selectTile(tileStr, el);
+        sendDiscard();
+      } else {
+        // 第一次点击 → 等待第二次
+        clearTimeout(_dblTapTimer);
+        _dblTapTile  = tileStr;
+        _dblTapTimer = setTimeout(() => {
+          _dblTapTimer = null;
+          _dblTapTile  = null;
+        }, 300);
+      }
+    }, { passive: false }); // passive:false 才能调用 preventDefault
   }
 
   return el;
