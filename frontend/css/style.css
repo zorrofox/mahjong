@@ -619,6 +619,9 @@ html, body {
   text-align: center;
   min-width: 300px;
   box-shadow: 0 8px 32px rgba(0,0,0,0.7);
+  /* 全局安全网：内容超出屏高时允许滚动 */
+  max-height: 92vh;
+  overflow-y: auto;
 }
 
 .claim-box h3 {
@@ -679,6 +682,86 @@ html, body {
   gap: 10px;
   justify-content: center;
   flex-wrap: wrap;
+}
+
+/* ── 手机端声索弹窗：竖横屏通用紧凑布局 ────────────────────
+   目标：整个弹窗高度 ≤ 200px，无需滚动即可看到所有按钮。
+   策略：
+   1. 删除冗余的 h3 标题（"Claim Tile?" 明显无需说明）
+   2. 删除 "Tile: xxx" 文字段落（牌面图已能表达）
+   3. 牌面图 + 倒计时 并排显示（节省 ~60px 高度）
+   4. 缩小所有字号、间距、按钮高度
+   ──────────────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .claim-box {
+    /* 紧凑 flex 列，子元素均匀间距 */
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.8rem;
+    min-width: unset;
+    width: min(96vw, 360px);
+    max-height: 88vh;
+    overflow-y: auto;
+  }
+
+  /* h3 "Claim Tile?" — 全宽占一行，但缩小；可以用 display:none 彻底隐藏 */
+  .claim-box h3 {
+    width: 100%;
+    font-size: 0.9rem;
+    margin: 0;
+    display: none;       /* 去掉标题，省出一行高度 */
+  }
+
+  /* 倒计时栏：取消 margin，不再独占一行，与牌面图并排 */
+  .claim-countdown-bar {
+    flex: 1;             /* 占据牌面图右侧剩余宽度 */
+    flex-direction: column;
+    align-items: center;
+    margin: 0;
+    font-size: 0.72rem;
+    gap: 2px;
+    min-width: 80px;
+  }
+
+  /* 倒计时数字缩小 */
+  .claim-countdown { font-size: 1.1rem; }
+
+  /* 牌面图：不再独占一行，固定宽度与倒计时并排 */
+  .claim-tile-display {
+    flex: 0 0 auto;
+    margin: 0;
+  }
+  .claim-tile-display .tile {
+    width: 40px !important;
+    height: 56px !important;
+  }
+  .claim-tile-display .tile .tile-img {
+    width: 40px !important;
+    height: 56px !important;
+  }
+
+  /* "Tile: xxx" 文字段落 — 隐藏（牌面图已表达） */
+  .claim-box > p { display: none; }
+
+  /* 操作按钮区：全宽，按钮稍小以容纳多口吃牌 */
+  .claim-actions {
+    width: 100%;
+    gap: 6px;
+    justify-content: center;
+  }
+  .claim-actions .btn {
+    min-height: 38px;
+    min-width: 60px;
+    padding: 0.25rem 0.55rem;
+    font-size: 0.82rem;
+    touch-action: manipulation;
+  }
+
+  /* 倒计时条紧凑 */
+  .claim-countdown-bar { padding: 0; }
 }
 
 /* ---------- Game Over Modal ---------- */
@@ -954,23 +1037,5 @@ html, body {
     height: 28px !important;
   }
 
-  /* Claim overlay mobile sizing */
-  .claim-box {
-    min-width: min(92vw, 340px);
-    padding: 1.2rem 1rem;
-  }
-  .claim-tile-display .tile {
-    width: 50px !important;
-    height: 70px !important;
-  }
-  .claim-actions {
-    gap: 6px;
-  }
-  .claim-actions .btn {
-    min-height: 44px;
-    touch-action: manipulation;
-  }
-
-  /* Compact countdown bar */
-  .claim-countdown-bar { padding: 4px 8px; font-size: 0.8rem; }
+  /* 声索弹窗在 600px 宽度断点的旧规则已迁移至上方 @media(max-width:900px) 统一处理 */
 }
