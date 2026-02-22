@@ -257,7 +257,7 @@
       box-shadow: 0 0 10px rgba(212,160,23,0.35);
     }
 
-    /* Responsive */
+    /* ── 桌面 / 平板响应式（宽度断点，竖横屏均适用）──────── */
     @media (max-width: 1100px) {
       .board-wrapper {
         grid-template-columns: 160px 1fr 160px;
@@ -266,49 +266,57 @@
     }
 
     @media (max-width: 860px) {
-      /* Fix 1: 隐藏顶栏长 UUID */
+      /* 竖屏手机：宽度断点生效，竖屏布局继续工作 */
       #room-info { display: none; }
       #topbar h1 { font-size: 0.85rem; letter-spacing: 0; }
 
-      /* Fix 2: 侧边栏 + 顶部玩家标签均隐藏（省出高度）*/
       #area-left .player-label,
       #area-right .player-label,
       #area-top  .player-label { display: none; }
 
-      /* Fix 4: 用 min(px, %) 让行高随视口高度弹性缩放。
-         矮屏（<450px board-height）时以百分比为准，高屏以 px 上限为准。
-         公式：top≈21% / center≥1fr / bottom≈47%
-         例：277px board → 58px top + 58px center + 130px bottom
-             484px board → 65px top + 284px center + 135px bottom */
       .board-wrapper {
         grid-template-columns: 110px 1fr 110px;
         grid-template-rows: min(65px, 21%) minmax(55px, 1fr) min(135px, 47%);
       }
-
-      /* Fix 5: action-bar 始终在牌的上方 */
-      #action-bar {
-        position: relative;
-        z-index: 10;
-      }
-
-      /* Fix 手牌缩小（860px 断点同样使用 32×46，与 600px 一致，节省底部行高）*/
+      #action-bar { position: relative; z-index: 10; }
       .my-hand .tile     { width: 32px !important; height: 46px !important; }
       .my-hand .tile-img { width: 32px !important; height: 46px !important; }
-
-      /* Fix 3: 副露牌缩小以适应弹性底部行 */
       #my-melds .tile     { width: 22px !important; height: 32px !important; }
       #my-melds .tile-img { width: 22px !important; height: 32px !important; }
     }
 
-    @media (max-width: 600px) {
-      /* 更窄设备：侧边栏进一步收缩，行高同样用 min() */
+    /* ── 手机横屏专属覆盖（在宽度断点之后，优先级更高）─── */
+    /* 条件：横屏 + 屏高 ≤ 520px，绝大多数手机横屏均满足  */
+    @media (orientation: landscape) and (max-height: 520px) {
+      /* 横屏时屏幕更宽，侧边栏可以更宽（min(px,%)让其随宽度弹性增长）
+         686×393：sidebars = 20%×686 = 137px，center = 686-137-137-10 = 402px
+         844×390：sidebars = min(160px, 20%×844=168px) = 160px, center = 524px */
       .board-wrapper {
-        grid-template-columns: 70px 1fr 70px;
-        grid-template-rows: min(60px, 20%) minmax(50px, 1fr) min(130px, 45%);
+        grid-template-columns: min(160px, 20%) 1fr min(160px, 20%);
+        grid-template-rows: min(60px, 20%) minmax(55px, 1fr) min(130px, 45%);
       }
-      /* 更小副露牌 */
-      #my-melds .tile     { width: 20px !important; height: 28px !important; }
-      #my-melds .tile-img { width: 20px !important; height: 28px !important; }
+
+      /* 横屏侧边栏更宽，可以显示极简标签（玩家名截断）*/
+      #area-left .player-label,
+      #area-right .player-label {
+        display: block;
+        font-size: 0.55rem;
+        line-height: 1.2;
+        padding: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 100%;
+      }
+      #area-left .player-score,
+      #area-right .player-score { display: none; } /* 只显示名字，隐藏筹码节省空间 */
+    }
+
+    /* 极矮横屏（≤ 400px 高）*/
+    @media (orientation: landscape) and (max-height: 400px) {
+      .board-wrapper {
+        grid-template-rows: min(48px, 17%) minmax(45px, 1fr) min(115px, 42%);
+      }
     }
   </style>
 </head>
