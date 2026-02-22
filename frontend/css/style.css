@@ -715,16 +715,21 @@ html, body {
     display: none;       /* 去掉标题，省出一行高度 */
   }
 
-  /* 倒计时栏：取消 margin，不再独占一行，与牌面图并排 */
+  /* 倒计时栏：与牌面图并排（保持 row 方向，避免"s"换行）
+     隐藏冗长的"自动跳过 / Auto-skip in"文字，只保留数字 + "s" */
   .claim-countdown-bar {
-    flex: 1;             /* 占据牌面图右侧剩余宽度 */
-    flex-direction: column;
+    flex: 1;
+    flex-direction: row;   /* ← 保持横向，消除"s"换行问题 */
+    flex-wrap: nowrap;
     align-items: center;
+    justify-content: center;
     margin: 0;
     font-size: 0.72rem;
     gap: 2px;
-    min-width: 80px;
+    min-width: 60px;
   }
+  /* 隐藏长标签"自动跳过 / Auto-skip in"（第一个 label span），保留"s" */
+  .claim-countdown-bar .claim-countdown-label:first-child { display: none; }
 
   /* 倒计时数字缩小 */
   .claim-countdown { font-size: 1.1rem; }
@@ -762,6 +767,27 @@ html, body {
 
   /* 倒计时条紧凑 */
   .claim-countdown-bar { padding: 0; }
+
+  /* ── 游戏结束弹窗按钮（竖屏手机）──────────────────────────
+     三个按钮（Close / Play Again 再来一局 / Back to Lobby）在
+     345px 内容宽里横排放不下，改为纵向堆叠，各自全宽。 */
+  .modal-box {
+    padding: 1.2rem 1rem;
+    width: min(96vw, 380px);
+  }
+  .modal-box h2 { font-size: 1.3rem; }
+  .modal-box .winner-name { font-size: 1rem; }
+  .modal-actions {
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 1rem;
+  }
+  .modal-actions .btn {
+    width: 100%;
+    padding: 0.55rem 1rem;
+    font-size: 0.88rem;
+    touch-action: manipulation;
+  }
 }
 
 /* ---------- Game Over Modal ---------- */
