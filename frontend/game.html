@@ -266,20 +266,23 @@
     }
 
     @media (max-width: 860px) {
-      /* Fix 1: 隐藏顶栏长 UUID，腾出空间给"← Back to Lobby" */
+      /* Fix 1: 隐藏顶栏长 UUID */
       #room-info { display: none; }
       #topbar h1 { font-size: 0.85rem; letter-spacing: 0; }
 
-      /* Fix 2: 侧边栏（110px）放不下完整标签，隐藏 */
+      /* Fix 2: 侧边栏 + 顶部玩家标签均隐藏（省出高度）*/
       #area-left .player-label,
-      #area-right .player-label { display: none; }
+      #area-right .player-label,
+      #area-top  .player-label { display: none; }
 
-      /* Fix 4 (修正): 底部行用【固定高度】，不用 auto。
-         auto 会随副露牌出现而无限扩张，把 1fr 中间行（left/center/right）压成一条缝。
-         155px = label(20) + gap(4) + hand(80) + gap(4) + melds(32+最多1行)(≤47) = ~155px */
+      /* Fix 4: 用 min(px, %) 让行高随视口高度弹性缩放。
+         矮屏（<450px board-height）时以百分比为准，高屏以 px 上限为准。
+         公式：top≈21% / center≥1fr / bottom≈47%
+         例：277px board → 58px top + 58px center + 130px bottom
+             484px board → 65px top + 284px center + 135px bottom */
       .board-wrapper {
         grid-template-columns: 110px 1fr 110px;
-        grid-template-rows: 110px 1fr 155px;
+        grid-template-rows: min(65px, 21%) minmax(55px, 1fr) min(135px, 47%);
       }
 
       /* Fix 5: action-bar 始终在牌的上方 */
@@ -288,16 +291,20 @@
         z-index: 10;
       }
 
-      /* Fix 3: 副露牌在移动端缩小，确保所有副露都能在 155px 行高内显示 */
+      /* Fix 手牌缩小（860px 断点同样使用 32×46，与 600px 一致，节省底部行高）*/
+      .my-hand .tile     { width: 32px !important; height: 46px !important; }
+      .my-hand .tile-img { width: 32px !important; height: 46px !important; }
+
+      /* Fix 3: 副露牌缩小以适应弹性底部行 */
       #my-melds .tile     { width: 22px !important; height: 32px !important; }
       #my-melds .tile-img { width: 22px !important; height: 32px !important; }
     }
 
     @media (max-width: 600px) {
-      /* 更窄设备：侧边栏进一步收缩，底部同样用固定高度 */
+      /* 更窄设备：侧边栏进一步收缩，行高同样用 min() */
       .board-wrapper {
         grid-template-columns: 70px 1fr 70px;
-        grid-template-rows: 80px 1fr 140px;
+        grid-template-rows: min(60px, 20%) minmax(50px, 1fr) min(130px, 45%);
       }
       /* 更小副露牌 */
       #my-melds .tile     { width: 20px !important; height: 28px !important; }
