@@ -4,7 +4,7 @@
 
 A browser-based multiplayer Mahjong game. Supports 1–4 human players per room; empty seats are filled by AI.
 
-![Python](https://img.shields.io/badge/Python-3.11-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-0.111-green) ![Tests](https://img.shields.io/badge/tests-349%20passed-brightgreen) ![Tiles](https://img.shields.io/badge/tiles-Cangjie6%20SVG-orange)
+![Python](https://img.shields.io/badge/Python-3.11-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-0.111-green) ![Tests](https://img.shields.io/badge/tests-382%20passed-brightgreen) ![Tiles](https://img.shields.io/badge/tiles-Cangjie6%20SVG-orange)
 
 ---
 
@@ -26,6 +26,7 @@ A browser-based multiplayer Mahjong game. Supports 1–4 human players per room;
 - 游戏结束后支持一键重开局（保留原房间人类玩家，筹码持续累计）
 - 大厅显示各房间实时筹码余额；已结束的房间显示"Rejoin 重回"按钮
 - **中文语音播报**：出牌念牌名（三万/七饼/东风/发财/白板…），我方及对手碰/吃/杠/胡均有语音；牌名播完后对手操作语音顺序衔接不重叠；基于 Web Speech API，零音频文件
+- **流畅渲染**：差量 DOM 更新（手牌/弃牌堆/副露仅在内容变化时重建）；`active-turn` 焦点切换平滑过渡（CSS transition）；声索/结算弹窗淡入动画；所有文本守卫防止无意义重绘
 - 响应式绿毡牌桌界面
 
 ---
@@ -50,7 +51,7 @@ uvicorn main:app --reload --port 8000
 ├── backend/
 │   ├── game/          # 游戏引擎（牌型、胡牌、状态机、AI、番数计算）
 │   ├── api/           # FastAPI 路由 + WebSocket 处理
-│   └── tests/         # 后端单元测试（237 tests）
+│   └── tests/         # 后端单元测试（270 tests）
 ├── frontend/
 │   ├── js/            # 大厅 + 游戏客户端
 │   ├── tiles/         # Cangjie6 港式麻将 SVG 牌面（42 张）

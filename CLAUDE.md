@@ -44,11 +44,11 @@ majiang/
 │   │   ├── routes.py                # REST 接口：列出/创建/加入/开始房间
 │   │   └── websocket.py             # WebSocket 游戏事件处理、AI 自动操作
 │   └── tests/                       # 后端单元测试（pytest）
-│       ├── test_tiles.py            # 74 tests
-│       ├── test_hand.py             # 47 tests
-│       ├── test_game_state.py       # 54 tests
+│       ├── test_tiles.py            # 72 tests
+│       ├── test_hand.py             # 63 tests
+│       ├── test_game_state.py       # 71 tests
 │       ├── test_ai_player.py        # 23 tests
-│       ├── test_room_manager.py     # 26 tests
+│       ├── test_room_manager.py     # 28 tests
 │       └── test_routes.py           # 13 tests
 ├── frontend/
 │   ├── index.html                   # 大厅页：房间列表、创建/加入
@@ -252,23 +252,23 @@ const TILE_SVG_MAP = {
 
 | 文件 | 行数 | 说明 |
 |---|---|---|
-| `game/game_state.py` | 828 | 核心状态机 |
+| `game/game_state.py` | 994 | 核心状态机 |
 | `game/ai_player.py` | 371 | AI 逻辑 |
-| `game/hand.py` | 313 | 胡牌算法 |
+| `game/hand.py` | 594 | 胡牌算法 + 番数计算 |
 | `game/tiles.py` | 201 | 牌型定义 |
 | `game/room_manager.py` | 244 | 房间管理 |
-| `api/websocket.py` | 806 | WebSocket 处理 |
+| `api/websocket.py` | 888 | WebSocket 处理 |
 | `api/routes.py` | 102 | REST 接口 |
 | `main.py` | 54 | 应用入口 |
-| `frontend/js/game.js` | 948 | 游戏客户端（含 TILE_SVG_MAP + Cangjie6 渲染） |
+| `frontend/js/game.js` | 1,146 | 游戏客户端（含 TILE_SVG_MAP + Cangjie6 渲染） |
 | `frontend/js/lobby.js` | 194 | 大厅客户端 |
-| `frontend/css/style.css` | 753 | 样式表 |
+| `frontend/css/style.css` | 863 | 样式表 |
 | `frontend/tiles/` | 42 SVG | Cangjie6 港式麻将牌面图片 |
-| **业务代码合计** | **~4,757** | |
-| `backend/tests/` | ~1,540 | 后端单元测试（237 tests） |
+| **业务代码合计** | **~5,651** | |
+| `backend/tests/` | ~1,800 | 后端单元测试（270 tests） |
 | `frontend/tests/` | ~550 | 前端单元测试（64 tests） |
 | `tests/integration/` | ~1,120 | 集成测试（48 tests） |
-| **测试代码合计** | **~3,210** | |
+| **测试代码合计** | **~3,470** | |
 
 ---
 
@@ -1569,6 +1569,92 @@ for f in flowers:
 
 ---
 
+### Bug 14：AI 玩家荣和后约 60 秒才显示结束弹窗
+
+**发现时间**：正常游玩观察
+**现象**：轮到 AI 玩家荣和（打出的牌被另一 AI 碰后再打出，第三 AI 叫胡），游戏结束弹窗要等约 60 秒才出现。
+
+**根本原因**：`_handle_claim_window` 处理 AI 声索时，若某 AI 调用 `declare_win(i)` 成功，代码立即 `break` 退出 for 循环。但此时循环中尚未处理的其他 AI 仍留在 `_pending_claims` 中，导致 `_check_claim_window_closed()` 判断窗口未关闭（还有玩家未响应），游戏状态仍停在 `"claiming"` 阶段。
+
+随后第 390 行执行：
+
+```python
+await asyncio.wait_for(_wait_for_claim_window(room_id), timeout=CLAIM_TIMEOUT)
+```
+
+`CLAIM_TIMEOUT = 30` 秒被完整等待，而如果连续出现两次这样的声索窗口，总延迟达到约 60 秒。
+
+**修复方案**：在 AI 处理循环结束后，若检测到已存在胜利声索（`gs._best_claim["type"] == "win"`），立即强制跳过所有剩余 `_pending_claims`，使窗口即时关闭：
+
+```python
+if gs.phase == "claiming" and gs._best_claim is not None \
+        and gs._best_claim.get("type") == "win":
+    for _i in list(gs._pending_claims):
+        if _i not in gs._skipped_claims:
+            try:
+                gs.skip_claim(_i)
+            except ValueError:
+                pass
+```
+
+**修改文件**：`backend/api/websocket.py` — `_handle_claim_window`（AI 处理循环与超时等待之间）
+
+---
+
+### 性能优化：非顺序切换玩家焦点时屏幕闪烁
+
+**发现时间**：正常游玩（碰牌/吃牌后焦点跳转到非下家时）
+**现象**：每次 `game_state` 消息到达时整个桌面闪烁，在碰/吃/杠等非顺序玩家切换时尤为明显。
+
+**根本原因**（三处）：
+
+1. **`active-turn` 类无 CSS 过渡**：`.player-area` 没有 `transition` 属性，金色边框/阴影在玩家间瞬间跳变。
+2. **弃牌堆全量重建**：每次 `game_state` 都执行 `pileEl.innerHTML = ''` 后重建所有 SVG 牌元素，浏览器强制重新解码缓存图像。
+3. **手牌全量重建**：即使手牌内容未变（如别人碰牌），也清空并重建所有 SVG 牌面元素。
+
+**修复方案**：
+
+1. **CSS 过渡**（`style.css`）：为 `.player-area` 添加 `transition: border-color 0.25s ease, box-shadow 0.25s ease`，使焦点切换平滑淡入淡出。
+2. **弃牌堆差量更新**（`game.js` `renderCenterTable`）：
+   - 相同 → 无操作
+   - 末尾新增 1 张 → 仅 `appendChild`
+   - 末尾移除 1 张（被声索）→ 仅 `.remove()` 最后一个元素
+   - 其他（新局、窗口滑动）→ 全量重建
+3. **手牌差量更新**（`game.html` `renderMyHand`）：以 `dataset.tilesKey` 缓存当前牌组 key，内容未变时跳过 `innerHTML` 重建，仅同步 `.selected` 状态。
+
+**修改文件**：
+
+| 文件 | 改动 |
+|---|---|
+| `frontend/css/style.css` | `.player-area` 新增 `transition` |
+| `frontend/js/game.js` | `renderCenterTable` 改为增量更新 |
+| `frontend/game.html` | `renderMyHand` 加 tilesKey 守卫；`renderOpponent` 手牌改增量加减 |
+
+---
+
+### 性能优化：前端渲染残余闪烁源全面消除
+
+**发现时间**：系统性 code review
+**现象**：即使手牌本身未变，每次 `game_state` 仍有多处不必要的 DOM 写入和 CSS 重计算。
+
+**根本原因与修复**（逐项）：
+
+| 问题 | 修复 |
+|---|---|
+| 对手背面牌：count 变化时 `innerHTML=''` 全量重建 | 改为逐个 `appendChild`/`.remove()`，不清空容器 |
+| opponent label：每次无条件写 `innerHTML` | 用 `dataset.labelKey` 守卫，内容不变时跳过 |
+| active-turn：每帧无条件 `classList.toggle` | 先 `contains()` 检查，只在真正变化时切换（3 处） |
+| selectedTile 同步：每帧遍历所有手牌 DOM | 用 `dataset.selectedTile` 追踪，不变时跳过整个循环 |
+| nameEl/scoreEl：每次无条件写 DOM | 比较新旧值，相同则跳过 |
+| 弃牌堆滑动窗口（>12 张）：落入全量重建 | 识别"移除第一张+追加最后一张"场景，改增量操作 |
+| wall count / phase 文本：每帧重复赋值 | 加 `textContent` 相等判断守卫 |
+| `setStatus`：高频相同内容重复写 | 比较 msg + className，相同直接返回 |
+| 声索弹窗/结束弹窗：`display:none→flex` 瞬间弹出 | 新增 `overlayFadeIn` 关键帧动画（opacity 0→1，0.15s/0.2s） |
+
+**修改文件**：`frontend/game.html`、`frontend/js/game.js`、`frontend/css/style.css`
+
+---
+
 ## 测试体系
 
 ### 运行方式
@@ -1617,6 +1703,15 @@ pytest -v
 | `test_websocket.py` | 12 | WS 连接、游戏状态结构、手牌可见性、重开局（TestRestartGame） |
 | `test_claim_window.py` | 15 | 碰/吃/杠/过/胡 完整声索窗口流程 |
 | `test_hand_order.py` | 7 | 服务端不排序验证 + Python 复现 JS 排序算法 |
+
+### 测试总量
+
+| 层级 | 测试数 |
+|---|---|
+| 后端单元测试 | 270 |
+| 前端单元测试 | 64 |
+| 集成测试 | 48 |
+| **合计** | **382** |
 
 `test_claim_window.py` 策略：通过 REST 开始游戏后直接操控 `room.game_state`，将局面固定到声索阶段（控制手牌、弃牌、已跳过玩家），再通过 WS 连接触发同步 `claim_window` 消息，验证声索结果。
 
@@ -1726,5 +1821,5 @@ Node.js / jsdom 无 `speechSynthesis`，`SpeechEngine` 构造函数和所有 `sp
 | 计分系统 | 番数驱动结算（unit=2^(n-1)，庄家双倍，杠钱即时，详见功能增强 5） | 天胡/地胡等特殊牌型；庄家轮换；番型加倍上限调整 |
 | AI 强度 | 启发式贪心 | 蒙特卡洛或规则引擎 |
 | 移动端适配 | 桌面优先（1024px+） | 触屏手势支持 |
-| 测试覆盖 | 333 tests（后端 269 + 前端 64），含声索窗口、手牌排序、加杠/搶杠胡、番数/圈风/本命花规则修正专项测试 | E2E 浏览器测试（Playwright）；lobby Rejoin 流程集成测试 |
+| 测试覆盖 | 382 tests（后端 270 + 前端 64 + 集成 48），含声索窗口、手牌排序、加杠/搶杠胡、番数/圈风/本命花规则修正专项测试 | E2E 浏览器测试（Playwright）；lobby Rejoin 流程集成测试 |
 | 多语言 | 界面为中英混合 | i18n 国际化 |
