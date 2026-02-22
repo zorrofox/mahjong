@@ -194,6 +194,14 @@ function makeTileEl(tileStr, options = {}) {
     el.style.cursor = 'pointer';
     el.style.touchAction = 'manipulation'; // 消除 iOS 300ms 点击延迟
     el.addEventListener('click', () => selectTile(tileStr, el));
+
+    // 双击 / 双击触屏：若当前可以出牌则直接打出该张牌，无需再点"打"按钮
+    el.addEventListener('dblclick', () => {
+      if (!pendingActions.includes('discard') || inClaimWindow) return;
+      // dblclick 之前两次 click 事件可能将牌选中再取消选中；重新选中后出牌
+      if (selectedTile !== tileStr) selectTile(tileStr, el);
+      sendDiscard();
+    });
   }
 
   return el;
@@ -403,7 +411,7 @@ function handleGameOver(msg) {
   const winnerName = msg.winner_id || `Player ${msg.winner_idx + 1}`;
   // Announce win or draw
   if (msg.winner_idx !== null && msg.winner_idx !== undefined && msg.winner_idx >= 0) {
-    getSpeech()?.speak('胡了！', 'immediate');
+    getSpeech()?.speak('胡！', 'immediate');
     playWinEffect();   // 程序化音效：锣 → 五声音阶 → 和弦 → 闪烁
   } else {
     getSpeech()?.speak('流局', 'immediate');
