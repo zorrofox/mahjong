@@ -45,7 +45,7 @@ majiang/
 │   │   └── websocket.py             # WebSocket 游戏事件处理、AI 自动操作
 │   └── tests/                       # 后端单元测试（pytest）
 │       ├── test_tiles.py            # 72 tests
-│       ├── test_hand.py             # 63 tests
+│       ├── test_hand.py             # 78 tests
 │       ├── test_game_state.py       # 71 tests
 │       ├── test_ai_player.py        # 23 tests
 │       ├── test_room_manager.py     # 28 tests
@@ -74,7 +74,7 @@ majiang/
         ├── conftest.py              # TestClient fixtures
         ├── test_rest_api.py         # 14 tests
         ├── test_websocket.py        # 12 tests（含 TestRestartGame）
-        ├── test_claim_window.py     # 21 tests（声索窗口 + 多口吃牌）
+        ├── test_claim_window.py     # 29 tests（声索窗口 + 多口吃牌 + 边张/坎张）
         └── test_hand_order.py       # 7 tests（手牌排序验证）
 ```
 
@@ -265,9 +265,9 @@ const TILE_SVG_MAP = {
 | `frontend/css/style.css` | 863 | 样式表 |
 | `frontend/tiles/` | 42 SVG | Cangjie6 港式麻将牌面图片 |
 | **业务代码合计** | **~5,651** | |
-| `backend/tests/` | ~1,800 | 后端单元测试（270 tests） |
+| `backend/tests/` | ~1,800 | 后端单元测试（285 tests） |
 | `frontend/tests/` | ~550 | 前端单元测试（73 tests） |
-| `tests/integration/` | ~1,120 | 集成测试（54 tests） |
+| `tests/integration/` | ~1,120 | 集成测试（62 tests） |
 | **测试代码合计** | **~3,470** | |
 
 ---
@@ -1682,6 +1682,66 @@ if gs.phase == "claiming" and gs._best_claim is not None \
 
 ---
 
+### Edge Case 测试专项（全面覆盖）
+
+**背景**：系统性 code review 发现 20 个潜在 edge case，逐一分析当前行为后补充测试。
+
+**新增测试（23 个，分布于 2 个文件）**：
+
+**`backend/tests/test_hand.py`（15 个，4 个新测试类）**：
+
+`TestCanChow` 新增（6 个）：
+- `test_chow_kanchan_exact`：坎张，弃 5 手有 4-6 → 仅返回 [4,5,6] 一口
+- `test_chow_tile_2_yields_two_options`：弃 2 手有 1-3-3-4 → 返回两口（1-2-3 和 2-3-4）
+- `test_chow_tile_8_yields_two_options`：弃 8 手有 6-7-7-9 → 返回两口（6-7-8 和 7-8-9）
+- `test_chow_1_correct_sequence`：边张低，仅 [1,2,3]，无越界（0-1-2 不合法）
+- `test_chow_9_correct_sequence`：边张高，仅 [7,8,9]，无越界（8-9-10 不合法）
+
+`TestSevenPairsFlushCombinations`（5 个）：
+- 七对+清一色 同时给 +3+7；七对+混一色 +3+3；七对+字一色 +3+7
+- 七对不触发碰碰胡（两者互斥）
+- 七对+清一色荣和 total fan = 13（基本分+无花+门清+七对+清一色）
+
+`TestLingShangPendingInGameState`（2 个）：
+- 暗杠后 `lingshang_pending = True`
+- 打牌后 `lingshang_pending = False`
+
+`TestBonusTileChain`（3 个）：
+- 单张花牌收取，1 张补牌消耗
+- 两张花牌同时收取，恰好 2 张补牌消耗
+- 补牌本身也是花牌时级联收取（FLOWER_1 → 补出 FLOWER_3 → 再补 BAMBOO_5）
+
+**`tests/integration/test_claim_window.py`（8 个，`TestClaimChowEdgeTiles`）**：
+- 边张低（弃 BAMBOO_1）：声索窗口含 chow；执行后副露 [1,2,3]
+- 边张高（弃 BAMBOO_9）：副露 [7,8,9]
+- 坎张（弃 5 手有 4-6）：副露 [4,5,6]；错误牌组被拒绝
+- 弃 2 两口：分别选 [1,2,3] 和 [2,3,4] 各自生效
+- 吃后手牌数精确校验（原始 5 张 → 消耗 2 → 剩余 3 张）
+
+**Edge case 分析结论**（完整清单见下表）：
+
+| Edge case | 结论 |
+|---|---|
+| 七对+清一色/混一色/字一色 | ✅ 代码正确，增加测试验证 |
+| 七对不触发碰碰胡 | ✅ 互斥路径正确 |
+| 嶺上開花荣和不给 | ✅ 已有测试，再次确认 |
+| lingshang_pending 暗杠设 / 打牌清 | ✅ 新增测试验证 |
+| 花牌级联替换 | ✅ while 循环正确处理，新增测试 |
+| 花牌替换时牌墙为空 | ⚠️ 手牌少 1 张（warning 而非结束游戏），极罕见设计权衡 |
+| 边张/坎张吃法 | ✅ 新增单元+集成测试全覆盖 |
+| 弃2/弃8 两口选择 | ✅ 新增测试验证 |
+| 吃后手牌数量精确 | ✅ 集成测试验证 |
+| pung vs kong 同优先级 | ✅ 不可能同时发生（4 张牌限制），设计合理 |
+
+**修改文件**：
+
+| 文件 | 改动 |
+|---|---|
+| `backend/tests/test_hand.py` | 新增 4 个测试类，共 15 个 edge case 测试 |
+| `tests/integration/test_claim_window.py` | 新增 `TestClaimChowEdgeTiles`，共 8 个集成测试 |
+
+---
+
 ## 测试体系
 
 ### 运行方式
@@ -1728,17 +1788,17 @@ pytest -v
 |---|---|---|
 | `test_rest_api.py` | 14 | 全部 REST 端点（列出/创建/加入/开始房间） |
 | `test_websocket.py` | 12 | WS 连接、游戏状态结构、手牌可见性、重开局（TestRestartGame） |
-| `test_claim_window.py` | 21 | 碰/吃/杠/过/胡 完整声索窗口流程；多口吃牌三选一 |
+| `test_claim_window.py` | 29 | 碰/吃/杠/过/胡 完整声索窗口流程；多口吃牌三选一；边张/坎张 edge cases |
 | `test_hand_order.py` | 7 | 服务端不排序验证 + Python 复现 JS 排序算法 |
 
 ### 测试总量
 
 | 层级 | 测试数 |
 |---|---|
-| 后端单元测试 | 270 |
+| 后端单元测试 | 285 |
 | 前端单元测试 | 73 |
-| 集成测试 | 54 |
-| **合计** | **397** |
+| 集成测试 | 62 |
+| **合计** | **420** |
 
 `test_claim_window.py` 策略：通过 REST 开始游戏后直接操控 `room.game_state`，将局面固定到声索阶段（控制手牌、弃牌、已跳过玩家），再通过 WS 连接触发同步 `claim_window` 消息，验证声索结果。
 
@@ -1848,5 +1908,5 @@ Node.js / jsdom 无 `speechSynthesis`，`SpeechEngine` 构造函数和所有 `sp
 | 计分系统 | 番数驱动结算（unit=2^(n-1)，庄家双倍，杠钱即时，详见功能增强 5） | 天胡/地胡等特殊牌型；庄家轮换；番型加倍上限调整 |
 | AI 强度 | 启发式贪心 | 蒙特卡洛或规则引擎 |
 | 移动端适配 | 桌面优先（1024px+） | 触屏手势支持 |
-| 测试覆盖 | 397 tests（后端 270 + 前端 73 + 集成 54），含声索窗口、多口吃牌、手牌排序、加杠/搶杠胡、番数/圈风/本命花规则修正专项测试 | E2E 浏览器测试（Playwright）；lobby Rejoin 流程集成测试 |
+| 测试覆盖 | 420 tests（后端 285 + 前端 73 + 集成 62），含声索窗口、多口吃牌、边张/坎张、七对色番组合、花牌链、嶺上開花 flag、手牌排序、加杠/搶杠胡、番数/圈风/本命花规则修正专项测试 | E2E 浏览器测试（Playwright）；lobby Rejoin 流程集成测试 |
 | 多语言 | 界面为中英混合 | i18n 国际化 |
