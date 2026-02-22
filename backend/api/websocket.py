@@ -614,6 +614,24 @@ async def websocket_endpoint(ws: WebSocket, room_id: str, player_id: str):
                     player_id, player_idx,
                 )
 
+        # New human player joining a game already in progress: assign them to
+        # an available AI seat so they can actually play instead of spectating.
+        # This allows multiple human players to join at different times —
+        # each takes over the next available AI-controlled seat.
+        if player_idx is None and not player_id.startswith("ai_player_") and room.status == "playing":
+            for i, p in enumerate(gs.players):
+                if p.is_ai and p.id.startswith("ai_player_"):
+                    p.id = player_id
+                    p.is_ai = False
+                    player_idx = i
+                    if player_id not in room.human_players:
+                        room.human_players.append(player_id)
+                    logger.info(
+                        "Player %s joined in-progress game; took over AI seat %d",
+                        player_id, i,
+                    )
+                    break
+
         state_dict = gs.to_dict(viewing_player_idx=player_idx)
         await _send(ws, {"type": "game_state", "state": state_dict})
 

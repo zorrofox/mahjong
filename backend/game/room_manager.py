@@ -136,7 +136,10 @@ class RoomManager:
         if player_id in room.human_players:
             return room, False
 
-        # If the room is full, create a new room and join that.
+        # If the room is full (4 human players already), redirect to a new room.
+        # Note: a "playing" room with fewer than 4 human players still has
+        # available AI seats — the joining player will take one over via the
+        # WebSocket handler, so we do NOT redirect them.
         if room.is_full:
             room = self.create_room()
             was_redirected = True
@@ -146,7 +149,7 @@ class RoomManager:
             )
 
         room.human_players.append(player_id)
-        logger.info("Player %s joined room %s", player_id, room.id)
+        logger.info("Player %s joined room %s (status=%s)", player_id, room.id, room.status)
         return room, was_redirected
 
     def remove_player(self, room_id: str, player_id: str) -> None:
