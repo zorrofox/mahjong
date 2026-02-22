@@ -74,7 +74,7 @@ majiang/
         ├── conftest.py              # TestClient fixtures
         ├── test_rest_api.py         # 14 tests
         ├── test_websocket.py        # 12 tests（含 TestRestartGame）
-        ├── test_claim_window.py     # 29 tests（声索窗口 + 多口吃牌 + 边张/坎张）
+        ├── test_claim_window.py     # 34 tests（声索窗口 + 多口吃牌 + 边张/坎张 + 碰后加杠）
         └── test_hand_order.py       # 7 tests（手牌排序验证）
 ```
 
@@ -267,7 +267,7 @@ const TILE_SVG_MAP = {
 | **业务代码合计** | **~5,651** | |
 | `backend/tests/` | ~1,800 | 后端单元测试（285 tests） |
 | `frontend/tests/` | ~550 | 前端单元测试（83 tests） |
-| `tests/integration/` | ~1,120 | 集成测试（62 tests） |
+| `tests/integration/` | ~1,120 | 集成测试（67 tests） |
 | **测试代码合计** | **~3,470** | |
 
 ---
@@ -1682,6 +1682,75 @@ if gs.phase == "claiming" and gs._best_claim is not None \
 
 ---
 
+### Bug 修复：碰后点击杠导致所有操作失效
+
+**发现时间**：用户报告（在能杠的情况下选择碰，底部操作栏仍显示杠按钮，点击后游戏卡死）
+
+**现象**：手中有 3 张相同牌时，对家出同一张牌，声索窗口出现碰/杠选项。玩家选碰后，底部操作栏出现杠按钮（加杠/extend-pung 选项）。点击杠后所有按钮消失，游戏不可操作。
+
+**根本原因（两处独立 bug，位于 `frontend/js/game.js` `sendKong()`）**：
+
+**Bug A — `hideClaimOverlay()` 在非声索窗口时被调用**：
+
+```javascript
+// 修复前：末尾无条件调用 hideClaimOverlay()
+function sendKong() {
+  if (inClaimWindow) { ...; return; }
+  if (selectedTile) {
+    sendAction('kong', { tile: selectedTile });
+  } else {
+    // 自动检测...
+  }
+  hideClaimOverlay(); // ← BUG：不在声索窗口时也被调用
+                       //       → pendingActions = [] → 按钮全消失
+                       //       → 服务端返回 error 后无 action_required 恢复
+}
+```
+
+**Bug B — 加杠牌检测遗漏"手中1张+碰副露"场景**：
+
+```javascript
+// 修复前：仅检测手中 4 张相同（暗杠），遗漏加杠（手中1张+碰副露3张）
+const kongTile = Object.keys(counts).find(t => counts[t] >= 4);
+```
+
+玩家碰后手中只有 1 张该牌（已有碰副露），counts 不可能 >= 4，自动检测永远失败。
+
+**修复方案**：
+
+```javascript
+function sendKong() {
+  if (inClaimWindow) { ...; hideClaimOverlay(); return; }
+  // 优先级：已选中的牌 > 加杠（手中1张+碰副露）> 暗杠（手中4张）
+  let tileToKong = selectedTile || null;
+  if (!tileToKong) {
+    for (const meld of melds) {  // 先找加杠
+      if (meld.length === 3 && meld[0] === meld[1] && meld[1] === meld[2]
+          && hand.includes(meld[0])) { tileToKong = meld[0]; break; }
+    }
+  }
+  if (!tileToKong) {  // 再找暗杠
+    const counts = {}; hand.forEach(t => counts[t] = (counts[t] || 0) + 1);
+    tileToKong = Object.keys(counts).find(t => counts[t] >= 4) || null;
+  }
+  if (tileToKong) {
+    sendAction('kong', { tile: tileToKong });
+    // 不调用 hideClaimOverlay()，由服务端 action_required 更新 UI
+  } else {
+    setStatus('Select the tile you want to Kong.', 'error');
+  }
+}
+```
+
+**修改文件**：
+
+| 文件 | 改动 |
+|---|---|
+| `frontend/js/game.js` | `sendKong()` 修复两处 bug：hideClaimOverlay 只在声索窗口内调用；加杠检测优先于暗杠检测 |
+| `tests/integration/test_claim_window.py` | 新增 `TestPungThenExtendPung`（5 个集成测试）：加杠可用性、四张副露形成、手牌减少、搶杠窗口、错误牌被拒绝 |
+
+---
+
 ### Edge Case 测试专项（全面覆盖）
 
 **背景**：系统性 code review 发现 20 个潜在 edge case，逐一分析当前行为后补充测试。
@@ -1824,8 +1893,8 @@ pytest -v
 |---|---|
 | 后端单元测试 | 285 |
 | 前端单元测试 | 83 |
-| 集成测试 | 62 |
-| **合计** | **430** |
+| 集成测试 | 67 |
+| **合计** | **435** |
 
 `test_claim_window.py` 策略：通过 REST 开始游戏后直接操控 `room.game_state`，将局面固定到声索阶段（控制手牌、弃牌、已跳过玩家），再通过 WS 连接触发同步 `claim_window` 消息，验证声索结果。
 
@@ -1935,5 +2004,5 @@ Node.js / jsdom 无 `speechSynthesis`，`SpeechEngine` 构造函数和所有 `sp
 | 计分系统 | 番数驱动结算（unit=2^(n-1)，庄家双倍，杠钱即时，详见功能增强 5） | 天胡/地胡等特殊牌型；庄家轮换；番型加倍上限调整 |
 | AI 强度 | 启发式贪心 | 蒙特卡洛或规则引擎 |
 | 移动端适配 | 桌面优先（1024px+） | 触屏手势支持 |
-| 测试覆盖 | 430 tests（后端 285 + 前端 83 + 集成 62），含声索窗口、多口吃牌、边张/坎张（前后端均覆盖）、七对色番组合、花牌链、嶺上開花 flag、手牌排序、加杠/搶杠胡、番数/圈风/本命花规则修正专项测试 | E2E 浏览器测试（Playwright）；lobby Rejoin 流程集成测试 |
+| 测试覆盖 | 435 tests（后端 285 + 前端 83 + 集成 67），含声索窗口、多口吃牌、边张/坎张、碰后加杠、七对色番组合、花牌链、嶺上開花 flag、手牌排序、加杠/搶杠胡、番数/圈风/本命花规则修正专项测试 | E2E 浏览器测试（Playwright）；lobby Rejoin 流程集成测试 |
 | 多语言 | 界面为中英混合 | i18n 国际化 |

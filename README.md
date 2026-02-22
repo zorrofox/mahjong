@@ -4,7 +4,7 @@
 
 A browser-based multiplayer Mahjong game. Supports 1–4 human players per room; empty seats are filled by AI.
 
-![Python](https://img.shields.io/badge/Python-3.11-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-0.111-green) ![Tests](https://img.shields.io/badge/tests-430%20passed-brightgreen) ![Tiles](https://img.shields.io/badge/tiles-Cangjie6%20SVG-orange)
+![Python](https://img.shields.io/badge/Python-3.11-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-0.111-green) ![Tests](https://img.shields.io/badge/tests-435%20passed-brightgreen) ![Tiles](https://img.shields.io/badge/tiles-Cangjie6%20SVG-orange)
 
 ---
 
@@ -57,7 +57,7 @@ uvicorn main:app --reload --port 8000
 │   ├── tiles/         # Cangjie6 港式麻将 SVG 牌面（42 张）
 │   └── tests/         # 前端单元测试（83 tests）
 └── tests/
-    └── integration/   # REST + WebSocket 集成测试（62 tests）
+    └── integration/   # REST + WebSocket 集成测试（67 tests）
 ```
 
 ---
