@@ -350,7 +350,9 @@ class GameState:
         if replacement is not None:
             self.players[konger_idx].hand.append(replacement)
             self._collect_bonus_tiles(konger_idx)
-            self.last_drawn_tile = replacement
+            # replacement may itself be a bonus tile; use hand[-1] after collection
+            hand = self.players[konger_idx].hand
+            self.last_drawn_tile = hand[-1] if hand else replacement
             self.lingshang_pending = True
         else:
             self.phase = "ended"
@@ -481,7 +483,9 @@ class GameState:
         player.hand.append(tile)
         self._collect_bonus_tiles(player_idx)
         self.phase = "discarding"
-        self.last_drawn_tile = tile
+        # If the drawn tile was a bonus tile (花/季), _collect_bonus_tiles replaced it.
+        # last_drawn_tile must point to the actual non-bonus tile now in hand.
+        self.last_drawn_tile = player.hand[-1] if player.hand else tile
 
         # Check for self-drawn win
         # (Caller must explicitly call declare_win to confirm)
@@ -625,7 +629,8 @@ class GameState:
             if replacement is not None:
                 player.hand.append(replacement)
                 self._collect_bonus_tiles(player_idx)
-                self.last_drawn_tile = replacement
+                # replacement may itself be a bonus tile; use hand[-1] after collection
+                self.last_drawn_tile = player.hand[-1] if player.hand else replacement
                 self.lingshang_pending = True
             else:
                 self.phase = "ended"
