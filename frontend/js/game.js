@@ -29,6 +29,11 @@ let claimCountdownTimer = null;
 // appeared for ANOTHER player should cancel a pending local claim sound.
 let _myClaimSent = null;
 
+// Tracks whether the local player just sent a discard or a win claim.
+// Used to suppress redundant sound announcements from server broadcasts.
+let _myDiscardSent = null;
+let _myWinSent = false;
+
 // Double-tap detection for mobile (touchend-based, shared across all hand tiles).
 let _dblTapTimer = null;
 let _dblTapTile  = null;
@@ -345,7 +350,10 @@ function handleGameState(state) {
   // silently dropped when another sound (e.g. local player's '碰！') is
   // still playing at the moment this game_state arrives.
   if (prevState && state.last_discard && state.last_discard !== prevState.last_discard) {
-    getSpeech()?.speakTile(state.last_discard, 'queue');
+    if (state.last_discard !== _myDiscardSent) {
+      getSpeech()?.speakTile(state.last_discard, 'queue');
+    }
+    _myDiscardSent = null;
   }
 
   // Detect meld actions (碰/吃/杠) by OTHER players and announce them.
@@ -467,11 +475,14 @@ function handleGameOver(msg) {
   const winnerName = msg.winner_id || `Player ${msg.winner_idx + 1}`;
   // Announce win or draw
   if (msg.winner_idx !== null && msg.winner_idx !== undefined && msg.winner_idx >= 0) {
-    getSpeech()?.speak('胡！', 'immediate');
-    playWinEffect();   // 程序化音效：锣 → 五声音阶 → 和弦 → 闪烁
+    if (!_myWinSent) {
+      getSpeech()?.speak('胡！', 'immediate');
+      playWinEffect();   // 程序化音效：锣 → 五声音阶 → 和弦 → 闪烁
+    }
   } else {
     getSpeech()?.speak('流局', 'immediate');
   }
+  _myWinSent = false;
 
   // Determine restart authority: only the dealer (庄家) may click "Play Again".
   // If the dealer seat is occupied by an AI, any human player may restart
@@ -958,6 +969,7 @@ function sendDiscard() {
     return;
   }
   // Announce the tile being discarded (priority: player action)
+  _myDiscardSent = selectedTile;
   getSpeech()?.speakTile(selectedTile, 'immediate');
   sendAction('discard', { tile: selectedTile });
   selectedTile = null;
@@ -1094,7 +1106,9 @@ function sendKong() {
 
 function sendWin() {
   _myClaimSent = 'win';
+  _myWinSent = true;
   getSpeech()?.speak('胡！', 'immediate');
+  playWinEffect(); // 提前播放特效，增加反馈的即时性
   sendAction('win');
   hideClaimOverlay();
 }
