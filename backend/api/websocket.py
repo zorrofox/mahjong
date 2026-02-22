@@ -62,8 +62,8 @@ CLAIM_TIMEOUT = 30.0
 CHIP_CAP = 64
 
 # AI action delay range (seconds) – makes AI feel natural
-AI_DELAY_MIN = 0.5
-AI_DELAY_MAX = 1.0
+AI_DELAY_MIN = 0.2
+AI_DELAY_MAX = 0.6
 
 
 # ---------------------------------------------------------------------------
@@ -345,60 +345,60 @@ async def _handle_claim_window(room_id: str) -> None:
         if gs.phase == "claiming":
             await _send_claim_window(room_id, tile)
 
-        # Immediately process AI claim decisions
+        # Collect AI claim decisions and introduce a simulated human delay
+        ai_decisions = []
         for i, player in enumerate(gs.players):
-            if i == discarder_idx:
+            if i == discarder_idx or not player.is_ai:
                 continue
-            if not player.is_ai:
-                continue
-            if gs.phase != "claiming":
-                break
-            if i not in gs._pending_claims:
+            if gs.phase != "claiming" or i not in gs._pending_claims:
                 continue
 
-            # Determine which claim types the AI can make
             available = gs.get_available_actions(i)
 
             if "win" in available and _ai.decide_claim(player.hand_without_bonus(), player.melds, tile, "win"):
-                try:
-                    gs.declare_win(i)
-                    break
-                except ValueError:
-                    pass
+                ai_decisions.append((i, "win", None))
+                continue
 
-            claimed = False
             if "kong" in available and _ai.decide_claim(player.hand_without_bonus(), player.melds, tile, "kong"):
-                try:
-                    gs.claim_kong(i, tile)
-                    claimed = True
-                except ValueError:
-                    pass
+                ai_decisions.append((i, "kong", tile))
+                continue
 
-            if not claimed and "pung" in available and _ai.decide_claim(player.hand_without_bonus(), player.melds, tile, "pung"):
-                try:
-                    gs.claim_pung(i)
-                    claimed = True
-                except ValueError:
-                    pass
+            if "pung" in available and _ai.decide_claim(player.hand_without_bonus(), player.melds, tile, "pung"):
+                ai_decisions.append((i, "pung", None))
+                continue
 
-            if not claimed and "chow" in available and _ai.decide_claim(player.hand_without_bonus(), player.melds, tile, "chow"):
+            if "chow" in available and _ai.decide_claim(player.hand_without_bonus(), player.melds, tile, "chow"):
                 from game.hand import can_chow
                 possible_chows = can_chow(player.hand_without_bonus(), tile)
                 if possible_chows:
-                    # Pick the best chow
                     best_chow = possible_chows[0]
                     hand_tiles = [t for t in best_chow if t != tile]
-                    try:
-                        gs.claim_chow(i, hand_tiles)
-                        claimed = True
-                    except ValueError:
-                        pass
+                    ai_decisions.append((i, "chow", hand_tiles))
+                    continue
 
-            if not claimed and gs.phase == "claiming" and i in gs._pending_claims:
-                try:
-                    gs.skip_claim(i)
-                except ValueError:
-                    pass
+            ai_decisions.append((i, "skip", None))
+
+        # Add random delay to simulate human reaction time for claims
+        if any(d[1] != "skip" for d in ai_decisions):
+            await asyncio.sleep(random.uniform(1.2, 2.5))
+        elif ai_decisions:
+            # Slight delay even if all AI just skip, to avoid instantaneous closing
+            await asyncio.sleep(random.uniform(0.3, 0.8))
+
+        # Now apply the AI decisions
+        for i, action, data in ai_decisions:
+            if gs.phase != "claiming" or i not in gs._pending_claims:
+                continue
+            try:
+                if action == "win":
+                    gs.declare_win(i)
+                    break # A win resolves or short-circuits further lower priority claims
+                elif action == "kong": gs.claim_kong(i, data)
+                elif action == "pung": gs.claim_pung(i)
+                elif action == "chow": gs.claim_chow(i, data)
+                elif action == "skip": gs.skip_claim(i)
+            except ValueError:
+                pass
 
         # If a win was claimed during the AI processing loop, skip all remaining pending
         # claims immediately.  Without this, the loop breaks early (after the winning AI's
