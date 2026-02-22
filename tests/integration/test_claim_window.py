@@ -246,6 +246,142 @@ class TestClaimChow:
 
 
 # ---------------------------------------------------------------------------
+# Chow — multiple options
+# ---------------------------------------------------------------------------
+# Scenario: player holds BAMBOO_3, BAMBOO_4, BAMBOO_6, BAMBOO_7 and
+# the left player (seat 3) discards BAMBOO_5.  Three valid chow sequences
+# exist:
+#   A) 三四五  hand tiles = [BAMBOO_3, BAMBOO_4]
+#   B) 四五六  hand tiles = [BAMBOO_4, BAMBOO_6]
+#   C) 五六七  hand tiles = [BAMBOO_6, BAMBOO_7]
+# ---------------------------------------------------------------------------
+
+
+class TestClaimChowMultipleOptions:
+    HAND = ["BAMBOO_3", "BAMBOO_4", "BAMBOO_6", "BAMBOO_7", "CIRCLES_1"]
+    DISCARD = "BAMBOO_5"
+    DISCARDER = 3  # player 0's immediate left → chow is allowed
+
+    def _setup(self, client, pid):
+        room_id = _create_and_start(client, pid)
+        _setup_claiming(
+            room_id, self.HAND, discard_tile=self.DISCARD, discarder_idx=self.DISCARDER
+        )
+        return room_id
+
+    def test_chow_action_offered_with_multiple_options(self, client):
+        """'chow' appears in claim_window when player has multiple valid sequences."""
+        pid = "multi_chow_offer"
+        room_id = self._setup(client, pid)
+
+        with client.websocket_connect(f"/ws/{room_id}/{pid}") as ws:
+            _drain_until(ws, "game_state")
+            cw = _drain_until(ws, "claim_window")
+
+        assert cw["tile"] == self.DISCARD
+        assert "chow" in cw["actions"]
+
+    def test_chow_option_a_san_si_wu(self, client):
+        """Player picks 三四五 (hand tiles 3-4); correct meld formed."""
+        pid = "multi_chow_a"
+        room_id = self._setup(client, pid)
+
+        with client.websocket_connect(f"/ws/{room_id}/{pid}") as ws:
+            _drain_until(ws, "game_state")
+            _drain_until(ws, "claim_window")
+            ws.send_json({"type": "chow", "tiles": ["BAMBOO_3", "BAMBOO_4"]})
+            state_msg = _drain_until(ws, "game_state")
+
+        state = state_msg["state"]
+        assert state["phase"] == "discarding"
+        meld = state["players"][0]["melds"][0]
+        assert sorted(meld) == ["BAMBOO_3", "BAMBOO_4", "BAMBOO_5"]
+
+        hand = state["players"][0]["hand"]["tiles"]
+        assert "BAMBOO_3" not in hand
+        assert "BAMBOO_4" not in hand
+        # Remaining tiles that were not consumed
+        assert "BAMBOO_6" in hand
+        assert "BAMBOO_7" in hand
+        assert "CIRCLES_1" in hand
+
+    def test_chow_option_b_si_wu_liu(self, client):
+        """Player picks 四五六 (hand tiles 4-6); correct meld formed."""
+        pid = "multi_chow_b"
+        room_id = self._setup(client, pid)
+
+        with client.websocket_connect(f"/ws/{room_id}/{pid}") as ws:
+            _drain_until(ws, "game_state")
+            _drain_until(ws, "claim_window")
+            ws.send_json({"type": "chow", "tiles": ["BAMBOO_4", "BAMBOO_6"]})
+            state_msg = _drain_until(ws, "game_state")
+
+        state = state_msg["state"]
+        assert state["phase"] == "discarding"
+        meld = state["players"][0]["melds"][0]
+        assert sorted(meld) == ["BAMBOO_4", "BAMBOO_5", "BAMBOO_6"]
+
+        hand = state["players"][0]["hand"]["tiles"]
+        assert "BAMBOO_4" not in hand
+        assert "BAMBOO_6" not in hand
+        assert "BAMBOO_3" in hand
+        assert "BAMBOO_7" in hand
+        assert "CIRCLES_1" in hand
+
+    def test_chow_option_c_wu_liu_qi(self, client):
+        """Player picks 五六七 (hand tiles 6-7); correct meld formed."""
+        pid = "multi_chow_c"
+        room_id = self._setup(client, pid)
+
+        with client.websocket_connect(f"/ws/{room_id}/{pid}") as ws:
+            _drain_until(ws, "game_state")
+            _drain_until(ws, "claim_window")
+            ws.send_json({"type": "chow", "tiles": ["BAMBOO_6", "BAMBOO_7"]})
+            state_msg = _drain_until(ws, "game_state")
+
+        state = state_msg["state"]
+        assert state["phase"] == "discarding"
+        meld = state["players"][0]["melds"][0]
+        assert sorted(meld) == ["BAMBOO_5", "BAMBOO_6", "BAMBOO_7"]
+
+        hand = state["players"][0]["hand"]["tiles"]
+        assert "BAMBOO_6" not in hand
+        assert "BAMBOO_7" not in hand
+        assert "BAMBOO_3" in hand
+        assert "BAMBOO_4" in hand
+        assert "CIRCLES_1" in hand
+
+    def test_chow_invalid_tiles_rejected(self, client):
+        """Sending tiles that don't form a valid chow returns an error."""
+        pid = "multi_chow_invalid"
+        room_id = self._setup(client, pid)
+
+        with client.websocket_connect(f"/ws/{room_id}/{pid}") as ws:
+            _drain_until(ws, "game_state")
+            _drain_until(ws, "claim_window")
+            # BAMBOO_1 and BAMBOO_2 are not in the player's hand
+            ws.send_json({"type": "chow", "tiles": ["BAMBOO_1", "BAMBOO_2"]})
+            err = _drain_until(ws, "error")
+
+        assert err["type"] == "error"
+
+    def test_chow_tiles_not_in_hand_rejected(self, client):
+        """Sending a syntactically valid sequence whose tiles aren't in hand is rejected."""
+        pid = "multi_chow_not_in_hand"
+        room_id = self._setup(client, pid)
+
+        with client.websocket_connect(f"/ws/{room_id}/{pid}") as ws:
+            _drain_until(ws, "game_state")
+            _drain_until(ws, "claim_window")
+            # BAMBOO_3 and BAMBOO_4 form a valid chow with BAMBOO_5,
+            # but let's try a combo using BAMBOO_2 which isn't in hand
+            ws.send_json({"type": "chow", "tiles": ["BAMBOO_2", "BAMBOO_3"]})
+            err = _drain_until(ws, "error")
+
+        assert err["type"] == "error"
+
+
+# ---------------------------------------------------------------------------
 # Kong (claimed)
 # ---------------------------------------------------------------------------
 
