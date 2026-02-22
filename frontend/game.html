@@ -120,7 +120,8 @@
       gap: 1px;
       overflow: hidden;
       min-height: 0;
-      transition: border-color 0.2s ease, background 0.2s ease;
+      /* No transition: grid-area / border / background are set once at init;
+         any transition here fires on every game_state broadcast and causes flicker. */
     }
 
     /* 自己的弃牌堆：金色边框 + 淡绿底 */

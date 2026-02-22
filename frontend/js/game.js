@@ -33,6 +33,10 @@ let _myClaimSent = null;
 let _dblTapTimer = null;
 let _dblTapTile  = null;
 
+// Discard pile spatial layout: set once after myPlayerIdx is known, never again.
+// Running on every game_state causes repeated style recalculations and flicker.
+let _discardLayoutReady = false;
+
 /* ---------- Speech engine singleton ---------- */
 let _speech = null;
 function getSpeech() {
@@ -631,25 +635,19 @@ function renderCenterTable(state, discards, players) {
     if (wallEl.textContent !== wallTxt) wallEl.textContent = wallTxt;
   }
 
-  // Assign each discard pile to its spatial grid-area based on the player's
-  // position relative to myPlayerIdx:
-  //   rel 0 → me        → bottom-left  (my-pile)
-  //   rel 1 → right     → bottom-right (right-pile)
-  //   rel 2 → opposite  → top-right    (top-pile)
-  //   rel 3 → left      → top-left     (left-pile)
-  if (myPlayerIdx >= 0) {
+  // Assign each discard pile to its spatial grid-area — ONE TIME ONLY.
+  // myPlayerIdx is fixed for the entire session; re-running every frame
+  // triggers repeated style recalculation and causes visual flicker.
+  if (!_discardLayoutReady && myPlayerIdx >= 0) {
     const areaByRel = ['my-pile', 'right-pile', 'top-pile', 'left-pile'];
     for (let i = 0; i < 4; i++) {
       const rel = (i - myPlayerIdx + 4) % 4;
       const el  = document.getElementById(`discard-pile-${i}`);
       if (!el) continue;
-      const area = areaByRel[rel];
-      if (el.style.gridArea !== area) el.style.gridArea = area;
-      const isMe = rel === 0;
-      if (el.classList.contains('my-discard-pile') !== isMe) {
-        el.classList.toggle('my-discard-pile', isMe);
-      }
+      el.style.gridArea = areaByRel[rel];
+      el.classList.toggle('my-discard-pile', rel === 0);
     }
+    _discardLayoutReady = true;
   }
 
   // Discards for each player — incremental update to avoid SVG re-decode flicker.
