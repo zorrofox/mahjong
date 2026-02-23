@@ -378,17 +378,12 @@ function handleGameState(state) {
           // the sound plays naturally after the discard tile name.
           const mode = _myClaimSent ? 'immediate' : 'queue';
           getSpeech()?.speak(sound, mode);
-          // Play matching SFX alongside the voice announcement
-          if (sound === '碰') playPungEffect();
-          else if (sound === '吃') playChowEffect();
-          else if (sound === '杠') playKongEffect();
         }
       } else if (currMelds.length === prevMelds.length) {
         // Check for extend-pung → kong (same meld count, but one meld grew to 4)
         currMelds.forEach((meld, mi) => {
           if (prevMelds[mi] && meld.length === 4 && prevMelds[mi].length === 3) {
             getSpeech()?.speak('杠', 'queue');
-            playKongEffect();
           }
         });
       }
@@ -894,160 +889,6 @@ function selectTile(tileStr, el) {
 }
 
 /* ============================================================
-   MELD SOUND EFFECTS  (Web Audio API — zero audio files)
-
-   playChowEffect — rising three-note chime (吃 / Chow)
-   playPungEffect — double tile clack         (碰 / Pung)
-   playKongEffect — heavy low strike          (杠 / Kong)
-   ============================================================ */
-
-/**
- * playChowEffect — three ascending bell tones representing a claimed sequence.
- */
-function playChowEffect() {
-  const AC = window.AudioContext || window.webkitAudioContext;
-  if (!AC) return;
-  let ctx;
-  try { ctx = new AC(); } catch (_) { return; }
-
-  const master = ctx.createGain();
-  master.gain.value = 0.32;
-  master.connect(ctx.destination);
-
-  const t = ctx.currentTime;
-
-  function chime(freq, start, decay, peak) {
-    const o = ctx.createOscillator();
-    const g = ctx.createGain();
-    o.type = 'sine';
-    o.frequency.value = freq;
-    g.gain.setValueAtTime(0.0001, start);
-    g.gain.linearRampToValueAtTime(peak, start + 0.008);
-    g.gain.exponentialRampToValueAtTime(0.0001, start + decay);
-    o.connect(g); g.connect(master);
-    o.start(start); o.stop(start + decay + 0.05);
-    // Mild 2nd harmonic for bell colour
-    const o2 = ctx.createOscillator();
-    const g2 = ctx.createGain();
-    o2.type = 'sine';
-    o2.frequency.value = freq * 2.0;
-    g2.gain.setValueAtTime(0.0001, start);
-    g2.gain.linearRampToValueAtTime(peak * 0.20, start + 0.008);
-    g2.gain.exponentialRampToValueAtTime(0.0001, start + decay * 0.5);
-    o2.connect(g2); g2.connect(master);
-    o2.start(start); o2.stop(start + decay + 0.05);
-  }
-
-  // E5 → G5 → C6 (ascending pentatonic fragment)
-  chime(659,  t,        0.50, 0.75);
-  chime(784,  t + 0.11, 0.50, 0.75);
-  chime(1047, t + 0.22, 0.55, 0.75);
-
-  setTimeout(() => { try { ctx.close(); } catch (_) {} }, 1500);
-}
-
-/**
- * playPungEffect — two sharp wooden clacks, like two tiles snapping together.
- */
-function playPungEffect() {
-  const AC = window.AudioContext || window.webkitAudioContext;
-  if (!AC) return;
-  let ctx;
-  try { ctx = new AC(); } catch (_) { return; }
-
-  const master = ctx.createGain();
-  master.gain.value = 0.38;
-  master.connect(ctx.destination);
-
-  const t = ctx.currentTime;
-
-  function clack(start) {
-    // Short noise burst shaped by a band-pass filter → woody tile sound
-    const bufLen = Math.floor(ctx.sampleRate * 0.055);
-    const buffer = ctx.createBuffer(1, bufLen, ctx.sampleRate);
-    const data   = buffer.getChannelData(0);
-    for (let i = 0; i < bufLen; i++) data[i] = Math.random() * 2 - 1;
-
-    const noise  = ctx.createBufferSource();
-    noise.buffer = buffer;
-
-    const filter = ctx.createBiquadFilter();
-    filter.type            = 'bandpass';
-    filter.frequency.value = 1400;
-    filter.Q.value         = 2.5;
-
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(1.0, start);
-    g.gain.exponentialRampToValueAtTime(0.0001, start + 0.055);
-
-    noise.connect(filter); filter.connect(g); g.connect(master);
-    noise.start(start); noise.stop(start + 0.08);
-  }
-
-  clack(t);           // first clack
-  clack(t + 0.10);    // second clack ~100 ms later
-
-  setTimeout(() => { try { ctx.close(); } catch (_) {} }, 1000);
-}
-
-/**
- * playKongEffect — single deep thud with resonant body; heavier than pung.
- */
-function playKongEffect() {
-  const AC = window.AudioContext || window.webkitAudioContext;
-  if (!AC) return;
-  let ctx;
-  try { ctx = new AC(); } catch (_) { return; }
-
-  const master = ctx.createGain();
-  master.gain.value = 0.38;
-  master.connect(ctx.destination);
-
-  const t = ctx.currentTime;
-
-  function osc(freq, start, decay, peak, type = 'sine') {
-    const o = ctx.createOscillator();
-    const g = ctx.createGain();
-    o.type = type;
-    o.frequency.value = freq;
-    g.gain.setValueAtTime(0.0001, start);
-    g.gain.linearRampToValueAtTime(peak, start + 0.010);
-    g.gain.exponentialRampToValueAtTime(0.0001, start + decay);
-    o.connect(g); g.connect(master);
-    o.start(start); o.stop(start + decay + 0.05);
-  }
-
-  // Deep low-pitched thud layered with harmonic body
-  osc(70,  t, 0.55, 1.0);   // sub-bass
-  osc(140, t, 0.38, 0.65);  // low body
-  osc(280, t, 0.22, 0.30);  // mid harmonic
-  osc(560, t, 0.10, 0.15);  // high transient click
-
-  // Short filtered noise burst for the impact "smack"
-  const bufLen = Math.floor(ctx.sampleRate * 0.04);
-  const buffer = ctx.createBuffer(1, bufLen, ctx.sampleRate);
-  const data   = buffer.getChannelData(0);
-  for (let i = 0; i < bufLen; i++) data[i] = Math.random() * 2 - 1;
-
-  const noise  = ctx.createBufferSource();
-  noise.buffer = buffer;
-
-  const filter = ctx.createBiquadFilter();
-  filter.type            = 'bandpass';
-  filter.frequency.value = 800;
-  filter.Q.value         = 1.5;
-
-  const ng = ctx.createGain();
-  ng.gain.setValueAtTime(0.75, t);
-  ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.04);
-
-  noise.connect(filter); filter.connect(ng); ng.connect(master);
-  noise.start(t); noise.stop(t + 0.06);
-
-  setTimeout(() => { try { ctx.close(); } catch (_) {} }, 1500);
-}
-
-/* ============================================================
    WIN SOUND EFFECT  (Web Audio API — zero audio files)
 
    Four-layer procedural fanfare:
@@ -1137,7 +978,6 @@ function sendDiscard() {
 function sendPung() {
   _myClaimSent = 'pung';
   getSpeech()?.speak('碰！', 'immediate');
-  playPungEffect();
   sendAction('pung');
   hideClaimOverlay();
 }
@@ -1156,7 +996,6 @@ function sendChow(handTiles) {
   if (chowTiles) {
     _myClaimSent = 'chow';
     getSpeech()?.speak('吃！', 'immediate');
-    playChowEffect();
     sendAction('chow', { tiles: chowTiles });
     hideClaimOverlay();
   } else {
@@ -1219,7 +1058,6 @@ function sendKong() {
     // Server uses gs.last_discard when no tile is specified.
     _myClaimSent = 'kong';
     getSpeech()?.speak('杠！', 'immediate');
-    playKongEffect();
     sendAction('kong');
     hideClaimOverlay();
     return;
@@ -1255,7 +1093,6 @@ function sendKong() {
 
   if (tileToKong) {
     getSpeech()?.speak('杠！', 'immediate');
-    playKongEffect();
     sendAction('kong', { tile: tileToKong });
     // Do NOT call hideClaimOverlay() here: we are not in a claim window.
     // pendingActions must stay intact until the server responds with
