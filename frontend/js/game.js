@@ -368,22 +368,24 @@ function handleGameState(state) {
         // New meld appeared (pung / chow / claimed kong).
         const newMeld = currMelds[currMelds.length - 1];
         if (newMeld && newMeld.length >= 3) {
-          const sound = newMeld[0] === newMeld[1]
-            ? (newMeld.length >= 4 ? '杠' : '碰')
-            : '吃';
+          const isKong   = newMeld[0] === newMeld[1] && newMeld.length >= 4;
+          const isPung   = newMeld[0] === newMeld[1] && !isKong;
+          const sound    = isKong ? '杠' : (isPung ? '碰' : '吃');
+          const sfxType  = isKong ? 'kong' : (isPung ? 'pung' : 'chow');
           // Bug fix: if the local player had just submitted a claim action
           // (sendChow → '吃！' queued/playing) but ANOTHER player's meld
           // won instead, use 'immediate' to cancel the local '吃！' and
           // announce the actual winner's action.  Otherwise use 'queue' so
           // the sound plays naturally after the discard tile name.
           const mode = _myClaimSent ? 'immediate' : 'queue';
-          getSpeech()?.speak(sound, mode);
+          // Sequential: TTS first, then SFX after TTS finishes (no overlap).
+          _speakAndSFX(sound, sfxType, mode);
         }
       } else if (currMelds.length === prevMelds.length) {
         // Check for extend-pung → kong (same meld count, but one meld grew to 4)
         currMelds.forEach((meld, mi) => {
           if (prevMelds[mi] && meld.length === 4 && prevMelds[mi].length === 3) {
-            getSpeech()?.speak('杠', 'queue');
+            _speakAndSFX('杠', 'kong', 'queue');
           }
         });
       }
@@ -889,6 +891,110 @@ function selectTile(tileStr, el) {
 }
 
 /* ============================================================
+   MELD SOUND EFFECTS  (Web Audio API — zero audio files)
+
+   Distinct percussive tile-click sounds for:
+     碰 (Pung)  — two sharp clicks in quick succession
+     吃 (Chow)  — one smooth tile placement
+     杠 (Kong)  — four heavier clicks with deep resonance
+
+   Called AFTER TTS finishes via _speakAndSFX() / onSilent().
+   ============================================================ */
+function playMeldSFX(type) {
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return;
+  let ctx;
+  try { ctx = new AC(); } catch (_) { return; }
+
+  const master = ctx.createGain();
+  master.gain.value = 0.5;
+  master.connect(ctx.destination);
+
+  /**
+   * One percussive tile "click":
+   *  - sawtooth transient for the sharp attack
+   *  - sine body tone for the thud/resonance
+   * @param {number} at     AudioContext time offset (seconds)
+   * @param {number} pitch  Frequency multiplier (1.0 = default)
+   * @param {number} vol    Volume multiplier (0–1)
+   */
+  function tileClick(at, pitch = 1.0, vol = 1.0) {
+    // Sharp transient (sawtooth burst, very short)
+    const o1 = ctx.createOscillator();
+    const g1 = ctx.createGain();
+    o1.type = 'sawtooth';
+    o1.frequency.value = 900 * pitch;
+    g1.gain.setValueAtTime(0.0001, at);
+    g1.gain.linearRampToValueAtTime(0.55 * vol, at + 0.002);
+    g1.gain.exponentialRampToValueAtTime(0.0001, at + 0.04);
+    o1.connect(g1); g1.connect(master);
+    o1.start(at); o1.stop(at + 0.05);
+
+    // Body thud (sine tone, slightly longer)
+    const o2 = ctx.createOscillator();
+    const g2 = ctx.createGain();
+    o2.type = 'sine';
+    o2.frequency.value = 300 * pitch;
+    g2.gain.setValueAtTime(0.0001, at);
+    g2.gain.linearRampToValueAtTime(0.40 * vol, at + 0.005);
+    g2.gain.exponentialRampToValueAtTime(0.0001, at + 0.13);
+    o2.connect(g2); g2.connect(master);
+    o2.start(at); o2.stop(at + 0.15);
+  }
+
+  const t = ctx.currentTime;
+
+  if (type === 'pung') {
+    // 碰: two tiles slapped together
+    tileClick(t,        1.10, 1.00);
+    tileClick(t + 0.07, 1.00, 0.85);
+  } else if (type === 'chow') {
+    // 吃: one smooth tile slide into a sequence
+    tileClick(t, 0.90, 0.85);
+  } else if (type === 'kong') {
+    // 杠: four tiles, heavier, with deep resonance
+    tileClick(t,        0.78, 1.00);
+    tileClick(t + 0.06, 0.75, 0.95);
+    tileClick(t + 0.12, 0.72, 0.90);
+    tileClick(t + 0.18, 0.70, 0.85);
+    // Extra low-frequency resonance to convey weight of 4 tiles
+    const ro = ctx.createOscillator();
+    const rg = ctx.createGain();
+    ro.type = 'sine';
+    ro.frequency.value = 110;
+    rg.gain.setValueAtTime(0.0001, t);
+    rg.gain.linearRampToValueAtTime(0.35, t + 0.012);
+    rg.gain.exponentialRampToValueAtTime(0.0001, t + 0.50);
+    ro.connect(rg); rg.connect(master);
+    ro.start(t); ro.stop(t + 0.55);
+  }
+
+  // Auto-close AudioContext after the sound finishes
+  const dur = type === 'kong' ? 800 : 400;
+  setTimeout(() => { try { ctx.close(); } catch (_) {} }, dur);
+}
+
+/**
+ * Speak TTS text then play a meld SFX sequentially (no overlap).
+ * If TTS is unavailable or disabled, SFX plays immediately as fallback.
+ *
+ * @param {string} text     Chinese text to speak (e.g. '碰！')
+ * @param {string} sfxType  SFX type passed to playMeldSFX ('pung'|'chow'|'kong')
+ * @param {string} mode     TTS speak mode ('immediate'|'queue'|'skip')
+ */
+function _speakAndSFX(text, sfxType, mode = 'immediate') {
+  const speech = getSpeech();
+  if (speech) {
+    speech.speak(text, mode);
+    // Fire SFX after TTS finishes (onSilent fires immediately if TTS unavailable/disabled)
+    speech.onSilent(() => playMeldSFX(sfxType), 1500);
+  } else {
+    // No speech engine at all — play SFX immediately
+    playMeldSFX(sfxType);
+  }
+}
+
+/* ============================================================
    WIN SOUND EFFECT  (Web Audio API — zero audio files)
 
    Four-layer procedural fanfare:
@@ -977,7 +1083,7 @@ function sendDiscard() {
 
 function sendPung() {
   _myClaimSent = 'pung';
-  getSpeech()?.speak('碰！', 'immediate');
+  _speakAndSFX('碰！', 'pung');
   sendAction('pung');
   hideClaimOverlay();
 }
@@ -995,7 +1101,7 @@ function sendChow(handTiles) {
   }
   if (chowTiles) {
     _myClaimSent = 'chow';
-    getSpeech()?.speak('吃！', 'immediate');
+    _speakAndSFX('吃！', 'chow');
     sendAction('chow', { tiles: chowTiles });
     hideClaimOverlay();
   } else {
@@ -1057,7 +1163,7 @@ function sendKong() {
     // Claiming a kong from another player's discard.
     // Server uses gs.last_discard when no tile is specified.
     _myClaimSent = 'kong';
-    getSpeech()?.speak('杠！', 'immediate');
+    _speakAndSFX('杠！', 'kong');
     sendAction('kong');
     hideClaimOverlay();
     return;
@@ -1092,7 +1198,7 @@ function sendKong() {
   }
 
   if (tileToKong) {
-    getSpeech()?.speak('杠！', 'immediate');
+    _speakAndSFX('杠！', 'kong');
     sendAction('kong', { tile: tileToKong });
     // Do NOT call hideClaimOverlay() here: we are not in a claim window.
     // pendingActions must stay intact until the server responds with

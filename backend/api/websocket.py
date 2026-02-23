@@ -65,6 +65,12 @@ CHIP_CAP = 64
 AI_DELAY_MIN = 0.5
 AI_DELAY_MAX = 1.0
 
+# AI claim-decision thinking delay (seconds) — simulates the time a human would
+# take to look at the discarded tile and decide whether to claim it.
+# Applied once before processing all AI claim decisions in _handle_claim_window.
+AI_CLAIM_DELAY_MIN = 1.5
+AI_CLAIM_DELAY_MAX = 3.0
+
 
 # ---------------------------------------------------------------------------
 # Helper: send / broadcast utilities
@@ -345,7 +351,24 @@ async def _handle_claim_window(room_id: str) -> None:
         if gs.phase == "claiming":
             await _send_claim_window(room_id, tile)
 
-        # Immediately process AI claim decisions
+        # Thinking delay: give human players time to see the discarded tile and
+        # their claim options before any AI decision is processed.
+        # Applied once for the whole AI group (not per-player) so total overhead
+        # is predictable.  If the claim window is already resolved (e.g. a human
+        # responded instantly) the AI loop exits immediately on the phase check.
+        if gs.phase == "claiming":
+            has_ai_claimers = any(
+                i != discarder_idx
+                and gs.players[i].is_ai
+                and i in gs._pending_claims
+                for i in range(len(gs.players))
+            )
+            if has_ai_claimers:
+                await asyncio.sleep(
+                    random.uniform(AI_CLAIM_DELAY_MIN, AI_CLAIM_DELAY_MAX)
+                )
+
+        # Process AI claim decisions
         for i, player in enumerate(gs.players):
             if i == discarder_idx:
                 continue
