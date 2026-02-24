@@ -894,14 +894,58 @@ html, body {
 
 /* ---------- New-game deal transition ---------- */
 /* Applied briefly when a new hand is dealt (dealer rotation / restart).
-   Fades the board out, then CSS transition fades it back in once the
-   new game_state is rendered, hiding the innerHTML-clear jitter. */
+   Fades the board out, then tile-by-tile dealing animation plays. */
 .board-wrapper {
-  transition: opacity 0.25s ease;
+  transition: opacity 0.15s ease;
 }
 .board-wrapper.board-dealing {
   opacity: 0;
-  transition: none; /* instant dim so fade-in starts from invisible */
+  transition: none; /* instant dim so dealing starts from invisible */
+}
+
+/* ── Deal-in keyframes (four player directions) ── */
+@keyframes deal-from-bottom {
+  0%   { opacity: 0; transform: translateY(55px) scale(0.65) rotateX(70deg); }
+  60%  { opacity: 1; transform: translateY(-5px) scale(1.08) rotateX(0deg); }
+  100% { opacity: 1; transform: translateY(0)   scale(1)    rotateX(0deg); }
+}
+@keyframes deal-from-top {
+  0%   { opacity: 0; transform: translateY(-45px) scale(0.65); }
+  60%  { opacity: 1; transform: translateY(4px)   scale(1.08); }
+  100% { opacity: 1; transform: translateY(0)     scale(1); }
+}
+@keyframes deal-from-left {
+  0%   { opacity: 0; transform: translateX(-45px) scale(0.65); }
+  60%  { opacity: 1; transform: translateX(4px)   scale(1.08); }
+  100% { opacity: 1; transform: translateX(0)     scale(1); }
+}
+@keyframes deal-from-right {
+  0%   { opacity: 0; transform: translateX(45px) scale(0.65); }
+  60%  { opacity: 1; transform: translateX(-4px) scale(1.08); }
+  100% { opacity: 1; transform: translateX(0)    scale(1); }
+}
+
+.tile.deal-in-bottom {
+  animation: deal-from-bottom 0.38s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+.tile.deal-in-top {
+  animation: deal-from-top    0.30s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+.tile.deal-in-left {
+  animation: deal-from-left   0.30s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+.tile.deal-in-right {
+  animation: deal-from-right  0.30s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+
+/* Shimmer on the center table when dealing starts */
+@keyframes deal-shimmer {
+  0%   { box-shadow: 0 0 0   0   rgba(255,215,0,0); }
+  40%  { box-shadow: 0 0 28px 8px rgba(255,215,0,0.55); }
+  100% { box-shadow: 0 0 0   0   rgba(255,215,0,0); }
+}
+.center-table.dealing-shimmer {
+  animation: deal-shimmer 0.7s ease-out both;
 }
 
 /* ---------- Speech toggle button ---------- */

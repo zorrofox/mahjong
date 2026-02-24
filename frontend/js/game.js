@@ -42,6 +42,10 @@ let _dblTapTile  = null;
 // Running on every game_state causes repeated style recalculations and flicker.
 let _discardLayoutReady = false;
 
+// Deal animation: track which round we last animated so the same round_number
+// arriving multiple times (reconnect, board re-render) doesn't re-trigger.
+let _lastDealRound = -1;
+
 /* ---------- Speech engine singleton ---------- */
 let _speech = null;
 function getSpeech() {
@@ -404,16 +408,32 @@ function handleGameState(state) {
   pendingActions = [];
   selectedTile = null;
 
+  // Detect a freshly-dealt hand so we can play the dealing animation.
+  // Only fires when a previous state existed and the round number ticked up
+  // (covers "Play Again" restarts).  Pure reconnects (prevState=null) are
+  // excluded — no need to re-animate an already-running game.
+  const newRound  = state.round_number  ?? 0;
+  const prevRound = prevState?.round_number ?? 0;
+  const isDealEvent =
+    prevState !== null &&
+    state.phase !== 'ended' &&
+    newRound > prevRound &&
+    newRound !== _lastDealRound;
+
+  if (isDealEvent) _lastDealRound = newRound;
+
   renderBoard(state);
   updateActionButtonsForState(state);
 
-  // If the board was hidden for a new-game deal transition, fade it back in now.
-  // requestAnimationFrame ensures the render has painted before we start the transition.
+  // Fade the board back in (removes the instant-hide class set by "Play Again").
   const boardEl = document.querySelector('.board-wrapper');
   if (boardEl?.classList.contains('board-dealing')) {
-    requestAnimationFrame(() => {
-      boardEl.classList.remove('board-dealing'); // CSS transition: opacity 0 → 1
-    });
+    requestAnimationFrame(() => boardEl.classList.remove('board-dealing'));
+  }
+
+  // Trigger tile-by-tile deal animation after the new frame has painted.
+  if (isDealEvent) {
+    requestAnimationFrame(() => _triggerDealAnimation());
   }
 }
 
@@ -1631,6 +1651,143 @@ document.addEventListener('DOMContentLoaded', () => {
     }, { passive: false }); // passive:false 才能 preventDefault
   }
 });
+
+/* ============================================================
+   DEALING ANIMATION + SOUND EFFECTS
+   ============================================================ */
+
+/**
+ * Shuffling sound: filtered white-noise burst (~450ms) — simulates tiles
+ * being mixed on a table.
+ */
+function _playShuffleSound() {
+  const ctx = _getAC();
+  if (!ctx) return;
+  try {
+    const sr  = ctx.sampleRate;
+    const len = Math.floor(sr * 0.45);
+    const buf = ctx.createBuffer(1, len, sr);
+    const d   = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) {
+      // Envelope: fast attack (10%), long decay; slight random amplitude flutter
+      const t   = i / len;
+      const env = t < 0.10 ? t / 0.10 : Math.pow(1 - (t - 0.10) / 0.90, 1.8);
+      d[i] = (Math.random() * 2 - 1) * env * (0.6 + Math.random() * 0.4);
+    }
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    // Band-pass centred ~900 Hz to get the papery tile-shuffle timbre
+    const bp  = ctx.createBiquadFilter();
+    bp.type   = 'bandpass';
+    bp.frequency.value = 900;
+    bp.Q.value         = 1.2;
+    const hp  = ctx.createBiquadFilter();
+    hp.type   = 'highpass';
+    hp.frequency.value = 300;
+    const g   = ctx.createGain();
+    g.gain.value = 0.45;
+    src.connect(bp); bp.connect(hp); hp.connect(g); g.connect(ctx.destination);
+    src.start();
+  } catch (_) {}
+}
+
+/**
+ * Single tile-place sound: short woody click/clack.
+ * Noise transient + decaying sine for the resonant body.
+ */
+function _playTileClackSound() {
+  const ctx = _getAC();
+  if (!ctx) return;
+  try {
+    const now = ctx.currentTime;
+    // Noise transient (the sharp "clack" attack)
+    const nLen = Math.floor(ctx.sampleRate * 0.04);
+    const nBuf = ctx.createBuffer(1, nLen, ctx.sampleRate);
+    const nd   = nBuf.getChannelData(0);
+    for (let i = 0; i < nLen; i++) {
+      nd[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / nLen, 4);
+    }
+    const noise = ctx.createBufferSource();
+    noise.buffer = nBuf;
+    // Tonal body: tile resonance (600–850 Hz, decays in ~100ms)
+    const osc = ctx.createOscillator();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(680 + Math.random() * 170, now);
+    osc.frequency.exponentialRampToValueAtTime(280, now + 0.09);
+    const oscG = ctx.createGain();
+    oscG.gain.setValueAtTime(0.18, now);
+    oscG.gain.exponentialRampToValueAtTime(0.001, now + 0.11);
+    const noiseG = ctx.createGain();
+    noiseG.gain.value = 0.3;
+    const master = ctx.createGain();
+    master.gain.value = 0.75;
+    osc.connect(oscG);   oscG.connect(master);
+    noise.connect(noiseG); noiseG.connect(master);
+    master.connect(ctx.destination);
+    noise.start(now);
+    osc.start(now); osc.stop(now + 0.13);
+  } catch (_) {}
+}
+
+/**
+ * Main dealing animation.  Called once per new hand, after renderBoard()
+ * has painted the fresh tiles.
+ *
+ * Timeline:
+ *   t =   0 ms  shuffle sound + TTS "发牌" + center shimmer
+ *   t = 280 ms  tiles begin appearing: my hand from below, opponents
+ *               from their respective directions.  Each tile is staggered
+ *               by STAGGER ms with an audible clack.
+ */
+function _triggerDealAnimation() {
+  const DELAY   = 280;  // ms before first tile appears
+  const STAGGER = 68;   // ms between consecutive tiles
+
+  // ── sounds & TTS ──────────────────────────────────────────────────────
+  _playShuffleSound();
+  getSpeech()?.speak('发牌', 'immediate');
+
+  // Shimmer the center table
+  const centerEl = document.querySelector('.center-table');
+  if (centerEl) {
+    centerEl.classList.remove('dealing-shimmer'); // reset if already set
+    void centerEl.offsetWidth;                    // force reflow to restart
+    centerEl.classList.add('dealing-shimmer');
+    centerEl.addEventListener('animationend',
+      () => centerEl.classList.remove('dealing-shimmer'), { once: true });
+  }
+
+  // ── helper: stamp one tile with animation + clack sound ───────────────
+  function animTile(tile, cssClass, delayMs) {
+    tile.style.animationDelay = `${delayMs}ms`;
+    tile.classList.add(cssClass);
+    setTimeout(_playTileClackSound, delayMs);
+    tile.addEventListener('animationend', () => {
+      tile.classList.remove(cssClass);
+      tile.style.animationDelay = '';
+    }, { once: true });
+  }
+
+  // ── my hand (slide up from below, face-up) ────────────────────────────
+  const myHand = document.getElementById('my-hand');
+  if (myHand) {
+    [...myHand.querySelectorAll('.tile')].forEach((tile, i) =>
+      animTile(tile, 'deal-in-bottom', DELAY + i * STAGGER));
+  }
+
+  // ── opponent hands (face-down tiles, from their direction) ────────────
+  const oppConfig = [
+    { id: 'top-hand',   cls: 'deal-in-top'   },
+    { id: 'left-hand',  cls: 'deal-in-left'  },
+    { id: 'right-hand', cls: 'deal-in-right' },
+  ];
+  oppConfig.forEach(({ id, cls }) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    [...el.querySelectorAll('.tile-back')].forEach((tile, i) =>
+      animTile(tile, cls, DELAY + 40 + i * (STAGGER - 18)));
+  });
+}
 
 // Allow unit testing in Node/Vitest
 if (typeof globalThis !== 'undefined' && typeof window === 'undefined') {
