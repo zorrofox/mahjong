@@ -1168,3 +1168,164 @@ class TestKongEdgeCases:
         assert not is_flower_tile(drawn), (
             f"drawn_tile after bonus-tile replacement must not be a flower; got {drawn}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Human win force-closes claim window (multi-human regression)
+#
+# Scenario: two human players share a claim window.  Player A can win (荣和);
+# Player B can pung.  When A sends "win", the server should immediately
+# force-skip B's pending claim rather than waiting up to CLAIM_TIMEOUT (30 s)
+# for B to respond.  Without the fix, the game stalls until the timeout fires.
+# ---------------------------------------------------------------------------
+
+
+class TestHumanWinForcesClaimWindowClose:
+    """Human win in a shared claim window resolves immediately."""
+
+    def _setup_two_human_claim(self, client):
+        """
+        Create a room with two human players, start the game, and put the
+        game into a claiming state where:
+          - Seat 0 ("winner") can win (荣和) on the discarded tile EAST.
+          - Seat 1 ("punger") can pung the discarded tile EAST.
+          - Seat 2 (AI) is the discarder.
+          - Seat 3 (AI) is pre-skipped.
+        Both seat 0 and seat 1 remain in _pending_claims (no pre-skip for 1).
+        """
+        room_id = client.post("/api/rooms").json()["id"]
+        client.post(f"/api/rooms/{room_id}/join", json={"player_id": "winner"})
+        client.post(f"/api/rooms/{room_id}/join", json={"player_id": "punger"})
+        client.post(f"/api/rooms/{room_id}/start")
+
+        room = room_manager.get_room(room_id)
+        gs = room.game_state
+
+        # Seat 0: winning hand — add EAST to complete 4 sequences + pair
+        gs.players[0].hand = [
+            "BAMBOO_1", "BAMBOO_2", "BAMBOO_3",
+            "BAMBOO_4", "BAMBOO_5", "BAMBOO_6",
+            "BAMBOO_7", "BAMBOO_8", "BAMBOO_9",
+            "CIRCLES_1", "CIRCLES_1", "CIRCLES_1",
+            "EAST",   # pair tile; adding another EAST = win
+        ]
+        # Seat 1: holds two EASTs → can pung the discarded EAST
+        gs.players[1].hand = [
+            "EAST", "EAST",
+            "BAMBOO_1", "BAMBOO_2", "BAMBOO_3",
+            "CIRCLES_2", "CIRCLES_3", "CIRCLES_4",
+            "CHARACTERS_7", "CHARACTERS_8", "CHARACTERS_9",
+            "SOUTH", "SOUTH",
+        ]
+
+        # Seat 2 (AI) discards EAST — triggers the claim window
+        discard_tile = "EAST"
+        gs.discards[2].append(discard_tile)
+        gs.last_discard = discard_tile
+        gs.last_discard_player = 2
+        gs.current_turn = 2
+        gs.phase = "claiming"
+        # Seats 0, 1, and 3 are pending; only seat 3 (AI) is pre-skipped
+        gs._pending_claims = {0, 1, 3}
+        gs._skipped_claims = {3}
+        gs._best_claim = None
+
+        return room_id, room, gs
+
+    def test_human_win_force_skips_pending_punger(self, client):
+        """
+        When player A wins in a claim window where player B has a pending pung
+        option, the game must end immediately without waiting for B to respond.
+        The game_over message must arrive before the claim timeout (30 s).
+        """
+        room_id, room, gs = self._setup_two_human_claim(client)
+
+        with client.websocket_connect(f"/ws/{room_id}/winner") as ws:
+            _drain_until(ws, "game_state")
+            cw = _drain_until(ws, "claim_window")
+            assert "win" in cw["actions"], "winner should see win option"
+
+            ws.send_json({"type": "win"})
+
+            # Game must end immediately — no 30-second wait.
+            # game_over arrives after _broadcast_game_state + _handle_game_over.
+            game_over = _drain_until(ws, "game_over", max_msgs=12)
+
+        assert game_over["winner_id"] == "winner"
+        assert gs.phase == "ended"
+        assert room.status == "ended"
+
+    def test_pending_punger_does_not_get_meld(self, client):
+        """
+        After the winner's claim resolves, the punger (seat 1) must NOT have
+        formed a pung meld — the force-skip overrode their pending claim.
+        Note: _skipped_claims is cleared by _resolve_claims(), so we verify
+        the outcome (no meld formed) rather than the internal set state.
+        """
+        room_id, room, gs = self._setup_two_human_claim(client)
+
+        with client.websocket_connect(f"/ws/{room_id}/winner") as ws:
+            _drain_until(ws, "game_state")
+            _drain_until(ws, "claim_window")
+            ws.send_json({"type": "win"})
+            _drain_until(ws, "game_over", max_msgs=12)
+
+        # Seat 1 (punger) should NOT have formed a pung meld — winner takes priority.
+        assert gs.winner == "winner", "winner should be the declared winner"
+        pung_melds = [m for m in gs.players[1].melds if len(m) == 3 and m[0] == m[1]]
+        assert not pung_melds, (
+            f"punger must not have formed a meld (win overrides pung); got {gs.players[1].melds}"
+        )
+        # Punger's two EASTs should still be in their hand
+        assert gs.players[1].hand.count("EAST") == 2, (
+            "punger's two EASTs should remain in hand since their pung was overridden"
+        )
+
+    def test_handle_game_over_is_idempotent(self, client):
+        """
+        _handle_game_over must not double-settle chips even if called twice
+        (once from the win handler, once from _handle_claim_window after
+        _wait_for_claim_window detects phase=='ended').
+        Verify via zero-sum conservation and winner's gain being in the valid range.
+
+        Note: in Ron (荣和), only the DISCARDER pays — not other players.
+        The discarder here is seat 2 (AI).  The punger (seat 1, human) pays
+        nothing because they are not the discarder.
+        """
+        room_id, room, gs = self._setup_two_human_claim(client)
+
+        from game.room_manager import INITIAL_CHIPS
+        # Snapshot all chip balances before the game ends
+        before = {p.id: room.cumulative_scores.get(p.id, INITIAL_CHIPS) for p in gs.players}
+
+        with client.websocket_connect(f"/ws/{room_id}/winner") as ws:
+            _drain_until(ws, "game_state")
+            _drain_until(ws, "claim_window")
+            ws.send_json({"type": "win"})
+            _drain_until(ws, "game_over", max_msgs=12)
+
+        after = {p.id: room.cumulative_scores.get(p.id, INITIAL_CHIPS) for p in gs.players}
+
+        # Zero-sum: total chips conserved across all 4 seats.
+        assert sum(before.values()) == sum(after.values()), "chip total must be conserved"
+
+        # Winner gained chips.
+        assert after["winner"] > before["winner"], "winner should gain chips"
+
+        # Double-settlement would give the winner 2× the correct payout.
+        # Maximum single ron payout: 64 × 3 = 192 chips (7+ fan, dealer win).
+        delta = after["winner"] - before["winner"]
+        assert delta <= 192, (
+            f"winner gained {delta} chips — likely double settlement (max valid = 192)"
+        )
+
+        # Discarder (AI seat 2) should have lost chips (they're the sole payer in Ron).
+        ai_discarder_id = gs.players[2].id
+        assert after[ai_discarder_id] < before[ai_discarder_id], (
+            "Ron discarder (AI seat 2) should lose chips"
+        )
+
+        # Punger (human seat 1) is NOT the discarder — they pay nothing in Ron.
+        assert after["punger"] == before["punger"], (
+            "non-discarder punger should not lose any chips in Ron"
+        )

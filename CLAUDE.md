@@ -2765,6 +2765,92 @@ if (selectedTile) {
 
 ---
 
+### Bug 15：多真实玩家时人类荣和后游戏卡死，最长等待 30 秒才显示结束弹窗
+
+**发现时间**：3 个真实玩家游戏场景
+
+**现象**：3 个真实玩家 + 1 个 AI 的房间中，某人在声索窗口宣布荣和胡牌后，游戏界面对其他玩家卡死（不显示结束弹窗），最长约 30 秒后才恢复并弹出结算界面；有时候另一玩家重开下一局后，卡死界面才解除。
+
+**根本原因（两处相互配合）**：
+
+**1. 声索窗口中人类胡牌后缺少 force-skip**
+
+`_handle_claim_window` 中对 AI 胡牌有完整的 force-skip 逻辑（第 403-413 行）：
+
+```python
+# AI 胡牌后立即强制跳过所有剩余 pending 玩家
+if gs.phase == "claiming" and gs._best_claim.get("type") == "win":
+    for _i in list(gs._pending_claims):
+        if _i not in gs._skipped_claims:
+            gs.skip_claim(_i)
+```
+
+但 WebSocket `win` 处理器中完全没有对应逻辑。人类玩家 C 发送 `{type: "win"}` 后：
+
+- `declare_win(C)` 记录胡牌，C 加入 `_skipped_claims`
+- 若玩家 B 还有 pending 碰/吃选项（未被 auto-skip），`_check_claim_window_closed()` 发现 B 未响应 → 窗口不关闭
+- `gs.phase` 仍为 `"claiming"` → `_handle_game_over` 未调用
+- `_handle_claim_window` 继续等待 B 响应或 30 秒超时
+
+**2. `_handle_game_over` 可能被二次调用**
+
+C 的胜利声索关闭窗口后，`win` 处理器和 `_handle_claim_window`（`_wait_for_claim_window` 检测到 `phase!="claiming"` 唤醒后）都会检测到 `phase=="ended"` 并调用 `_handle_game_over`，导致筹码二次结算。
+
+**修复方案（两处）**：
+
+**1. `win` 处理器新增 force-skip**（`backend/api/websocket.py`）：
+
+```python
+if msg_type == "win":
+    gs.declare_win(player_idx)
+
+    # 胡牌优先级最高——立即强制跳过其他所有 pending 玩家，
+    # 与 _handle_claim_window 中对 AI 胡牌的处理保持一致。
+    if gs.phase == "claiming" and gs._best_claim and gs._best_claim.get("type") == "win":
+        for i in list(gs._pending_claims):
+            if i not in gs._skipped_claims:
+                try:
+                    gs.skip_claim(i)
+                except ValueError:
+                    pass
+
+    await _broadcast_game_state(room_id)
+    if gs.phase == "ended":
+        await _handle_game_over(room_id)
+    return
+```
+
+**2. `_handle_game_over` 幂等守卫**（`backend/api/websocket.py`）：
+
+```python
+async def _handle_game_over(room_id: str) -> None:
+    room = room_manager.get_room(room_id)
+    if room is None or room.game_state is None:
+        return
+    if room.status == "ended":   # ← 新增：防止二次结算
+        return
+    gs = room.game_state
+    room.status = "ended"
+    ...
+```
+
+**新增集成测试**（3 个，`tests/integration/test_claim_window.py`，`TestHumanWinForcesClaimWindowClose`）：
+
+| 测试 | 验证内容 |
+|---|---|
+| `test_human_win_force_skips_pending_punger` | A 宣布胡牌后立即收到 `game_over`（B 的碰牌 pending 不阻塞） |
+| `test_pending_punger_does_not_get_meld` | B 没有形成碰牌副露（胡牌覆盖了 B 的声索）|
+| `test_handle_game_over_is_idempotent` | 筹码零和守恒 + 胜利者获得合理筹码（非 2× 结算）|
+
+**修改文件**：
+
+| 文件 | 改动 |
+|---|---|
+| `backend/api/websocket.py` | `win` 处理器新增 force-skip；`_handle_game_over` 新增幂等守卫 |
+| `tests/integration/test_claim_window.py` | 新增 `TestHumanWinForcesClaimWindowClose`（3 个测试） |
+
+---
+
 ### 注意事项
 
 - Cloud Run 是**无状态**的，游戏状态存储在内存中，实例重启后丢失（多实例时不同用户可能路由到不同实例）

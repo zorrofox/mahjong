@@ -479,6 +479,13 @@ async def _handle_game_over(room_id: str) -> None:
     if room is None or room.game_state is None:
         return
 
+    # Idempotency guard: when a human wins in a claim window, both the win
+    # handler and _handle_claim_window detect phase=="ended" and call this
+    # function.  The first call must complete chip settlement and broadcast;
+    # the second call must be a no-op to avoid double-settling chips.
+    if room.status == "ended":
+        return
+
     gs = room.game_state
     room.status = "ended"
 
@@ -801,6 +808,21 @@ async def _handle_message(
         except ValueError as e:
             await _send(ws, {"type": "error", "message": str(e)})
             return
+
+        # If the win is recorded in a claim window but other human players still
+        # have pending claims (e.g. they had a pung option and haven't responded),
+        # force-skip them immediately.  Win has the highest priority — there is no
+        # reason to wait for other players to pung/chow/skip before resolving the
+        # window.  Without this, the game stalls for CLAIM_TIMEOUT (~30 s) when
+        # multiple humans share a claim window and one of them wins.
+        # (The same force-skip already exists for AI wins in _handle_claim_window.)
+        if gs.phase == "claiming" and gs._best_claim and gs._best_claim.get("type") == "win":
+            for i in list(gs._pending_claims):
+                if i not in gs._skipped_claims:
+                    try:
+                        gs.skip_claim(i)
+                    except ValueError:
+                        pass
 
         await _broadcast_game_state(room_id)
 
