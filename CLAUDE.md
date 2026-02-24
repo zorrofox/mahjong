@@ -2719,6 +2719,41 @@ self.last_drawn_tile = player.hand[-1] if player.hand else tile
 | `claim_kong()` | 暗杠（4 张同牌）后补牌 |
 | `_complete_extend_kong()` | 加杠（碰升级为杠）后补牌 |
 
+#### Bug 修复：跳过暗杠后下一轮点击杠发送错误牌（已修复）
+
+**现象**：玩家摸到第 4 张相同牌（出现杠按钮），未点杠而是出了其他牌；在后续某轮再次出现杠选项时点击「杠」，服务端报错，游戏出现逻辑混乱。
+
+**根因**：`sendKong()` 中直接使用 `selectedTile` 作为要杠的牌：
+
+```javascript
+let tileToKong = selectedTile || null;  // 旧代码，未验证
+```
+
+`selectedTile` 由 `handleActionRequired` 自动设为服务端 `drawn_tile`（本轮刚摸到的牌）。但在后续轮次中，刚摸到的牌（如 Z）并非手中的 4 张同牌（如 X），导致 `sendKong()` 向服务端发送 `{type: "kong", tile: Z}`，服务端因 Z 仅有 1 张而拒绝。
+
+**修复**（`frontend/js/game.js` — `sendKong()`）：使用 `selectedTile` 之前先验证其是否满足杠的条件：
+
+```javascript
+let tileToKong = null;
+
+// 验证 selectedTile 是否实际可以被杠：
+// 暗杠：手中有 4 张相同；加杠：手中有 1 张且有对应碰牌副露
+if (selectedTile) {
+  const selCount = hand.filter(t => t === selectedTile).length;
+  const hasPungMeld = melds.some(
+    m => m.length === 3 && m[0] === m[1] && m[1] === m[2] && m[0] === selectedTile
+  );
+  if (selCount >= 4 || (hasPungMeld && selCount >= 1)) {
+    tileToKong = selectedTile;
+  }
+}
+// 若 selectedTile 不满足条件，继续走自动检测逻辑（加杠 → 暗杠）
+```
+
+**修改文件**：`frontend/js/game.js` — `sendKong()` 函数
+
+---
+
 ### 注意事项
 
 - Cloud Run 是**无状态**的，游戏状态存储在内存中，实例重启后丢失（多实例时不同用户可能路由到不同实例）

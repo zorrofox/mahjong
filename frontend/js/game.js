@@ -1227,13 +1227,28 @@ function sendKong() {
 
   // Self-drawn or extend-pung kong (discarding phase).
   // Determine which tile to kong, in priority order:
-  //   1. The currently highlighted (selected) tile.
+  //   1. The currently highlighted (selected) tile — only if it actually qualifies.
+  //      (The auto-selected "drawn tile" may NOT be the 4-of-a-kind tile; validating
+  //       it first prevents sending a wrong tile to the server when the player clicks
+  //       Kong in a later turn after skipping Kong in an earlier one.)
   //   2. Extend-pung (加杠): a tile in hand that matches an existing pung meld.
   //   3. Concealed kong (暗杠): a tile appearing 4 times in hand.
   const hand  = getHandTiles(gameState?.players?.[myPlayerIdx]);
   const melds = gameState?.players?.[myPlayerIdx]?.melds || [];
 
-  let tileToKong = selectedTile || null;
+  let tileToKong = null;
+
+  // Validate selectedTile before using it: it must have 4 copies in hand (暗杠)
+  // or match an existing pung meld with at least 1 copy in hand (加杠).
+  if (selectedTile) {
+    const selCount = hand.filter(t => t === selectedTile).length;
+    const hasPungMeld = melds.some(
+      m => m.length === 3 && m[0] === m[1] && m[1] === m[2] && m[0] === selectedTile
+    );
+    if (selCount >= 4 || (hasPungMeld && selCount >= 1)) {
+      tileToKong = selectedTile;
+    }
+  }
 
   if (!tileToKong) {
     // Try extend-pung first: find a tile in hand that completes a pung meld.
