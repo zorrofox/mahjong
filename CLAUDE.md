@@ -2355,6 +2355,102 @@ getSpeech()?.speak(sound, mode);
 
 ---
 
+## Bug 修复：移动端（iOS）音效完全无声
+
+**发现时间**：部署后在 iOS Chrome 实机测试
+**现象**：移动端所有程序化音效（碰/吃/杠/胡/出牌/流局）均无声，桌面端正常。
+
+**根本原因：iOS AudioContext 手势锁定策略**
+
+iOS Safari 和 iOS Chrome（共用 WebKit 音频引擎）强制要求：**`AudioContext` 必须在同步用户手势事件处理器（touchstart / click）中创建，才能进入 `running` 状态并发声**。在非手势上下文（如 WebSocket 消息回调）中创建的 `AudioContext` 会自动进入 `suspended` 状态，调用 `start()` 后静默失败。
+
+修复前的代码在每个 SFX 函数内各自 `new AudioContext()`，用完后 `ctx.close()`：
+
+```javascript
+// 修复前（每个函数各自创建、销毁）
+function playPungEffect() {
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return;
+  try {
+    const ctx = new AC();  // WS 回调中调用 → iOS 上 state='suspended' → 无声
+    ...
+    setTimeout(() => { ctx.close(); }, 1000);
+  } catch (_) {}
+}
+```
+
+**桌面 vs 移动的行为差异**：
+
+| 场景 | 桌面（Chrome/Firefox） | iOS（Safari/Chrome） |
+|---|---|---|
+| 在 click 回调里 `new AudioContext()` | ✅ running，有声 | ✅ running，有声 |
+| 在 WebSocket 回调里 `new AudioContext()` | ✅ running，有声 | ❌ suspended，**无声** |
+| 曾在手势中创建过、之后在 WS 回调复用 | ✅ | ✅ 正常复用 |
+| app 切至后台再回来 | ✅ 保持 running | ⚠️ 可能变 suspended，需 `resume()` |
+
+这也解释了为什么 `sendPung/sendChow/sendKong/sendWin`（由点击触发）在移动端曾经有声，而 `handleGameState/handleGameOver`（由 WS 消息触发）对手动作的音效始终无声。
+
+**修复方案：共享 AudioContext（Shared AudioContext Pattern）**
+
+```javascript
+// 修复后：模块级单例 + 首次手势解锁
+let _sharedAudioCtx = null;
+
+function _getAC() {
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return null;
+  if (!_sharedAudioCtx) {
+    try { _sharedAudioCtx = new AC(); } catch (_) { return null; }
+  }
+  // 后台切换后可能进入 suspended，自动恢复
+  if (_sharedAudioCtx.state === 'suspended') {
+    _sharedAudioCtx.resume().catch(() => {});
+  }
+  return _sharedAudioCtx;
+}
+
+// 页面加载后首次 touch/click 时解锁 AudioContext
+document.addEventListener('touchstart', () => _getAC(), { passive: true });
+document.addEventListener('click',      () => _getAC(), { passive: true });
+```
+
+所有 SFX 函数改为：
+
+```javascript
+function playPungEffect() {
+  const ctx = _getAC();  // 复用已解锁的 context
+  if (!ctx) return;
+  try {
+    const t = ctx.currentTime;
+    // ... 创建振荡器，不再 close()
+  } catch (_) {}
+}
+```
+
+**生命周期对比**：
+
+| | 修复前 | 修复后 |
+|---|---|---|
+| Context 数量 | 每次音效 1 个，用后销毁 | 全局唯一，长期存活 |
+| 创建时机 | 音效触发时（可能在 WS 回调） | 首次用户点击时 |
+| iOS WS 回调中能否发声 | ❌ | ✅ |
+| app 后台恢复 | 新建 context（可能失败） | `resume()` 恢复 |
+
+**单元测试更新**：
+
+`_sharedAudioCtx` 在测试间持久存在，需在每个测试前重置：
+- `_resetSharedAC` 函数（`_sharedAudioCtx = null`）加入 `_mahjongTestExports`
+- 两个 SFX describe 块各增加 `beforeEach(() => _resetSharedAC())`，确保每项测试从干净状态开始
+
+**修改文件**：
+
+| 文件 | 改动 |
+|---|---|
+| `frontend/js/game.js` | 新增 `_sharedAudioCtx`、`_getAC()`、unlock 监听器；6 个 SFX 函数全部改用 `_getAC()`，去除所有 `ctx.close()`；`_resetSharedAC` 加入测试导出 |
+| `frontend/tests/game.test.js` | 导入 `beforeEach`；导出解构加 `_resetSharedAC`；两个 describe 块加 `beforeEach` 清理 |
+
+---
+
 ## 移动端弹窗布局修复（竖屏）
 
 ### 修复 1：结束弹窗三个按钮显示不全
