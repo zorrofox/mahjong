@@ -2533,7 +2533,7 @@ for (let i = 0; i < 4; i++) {
 | 计分系统 | 番数驱动结算（unit=2^(n-1)，庄家双倍，杠钱即时，详见功能增强 5） | 天胡/地胡等特殊牌型；庄家轮换；番型加倍上限调整 |
 | AI 强度 | 启发式贪心 | 蒙特卡洛或规则引擎 |
 | 移动端适配 | 竖屏专项优化：top/bottom 全宽布局、声索弹窗紧凑、大厅表格横滑、玩家标签含庄标+筹码 | 横屏优化；E2E 浏览器测试（Playwright） |
-| 测试覆盖 | 488 tests（后端 311 + 前端 98 + 集成 79），含声索窗口、多口吃牌、边张/坎张、碰后加杠、杠全场景、七对色番组合、花牌链、嶺上開花 flag、庄家重开权限、touch-action/scrollIntoView 移动端交互、手牌排序、番数/圈风/本命花规则修正专项测试 | E2E 浏览器测试（Playwright）；lobby Rejoin 流程集成测试 |
+| 测试覆盖 | 507 tests（后端 310 + 前端 111 + 集成 86），含声索窗口、多口吃牌、边张/坎张、碰后加杠、杠全场景、七对色番组合、花牌链、嶺上開花 flag、庄家重开权限、touch-action/scrollIntoView 移动端交互、手牌排序、番数/圈风/本命花规则修正专项测试、Rejoin 流程集成测试 | E2E 浏览器测试（Playwright） |
 | 多语言 | 界面为中英混合 | i18n 国际化 |
 
 ---
@@ -2848,6 +2848,104 @@ async def _handle_game_over(room_id: str) -> None:
 |---|---|
 | `backend/api/websocket.py` | `win` 处理器新增 force-skip；`_handle_game_over` 新增幂等守卫 |
 | `tests/integration/test_claim_window.py` | 新增 `TestHumanWinForcesClaimWindowClose`（3 个测试） |
+
+---
+
+---
+
+## 功能增强：Rejoin 已结束房间并继续牌局
+
+**背景**：原先点击大厅"Rejoin 重回"进入已结束的房间后，只能看到最终牌面，没有任何按钮可操作；离线玩家若回来也无法续打。
+
+**新需求**：
+1. 进入已结束房间后，显示上局结算弹窗 + "Play Again 再来一局"按钮
+2. 筹码（cumulative_scores）自动延续
+3. 点击重开后，离线玩家由 AI 自动接管；若离线玩家后续重连，可取回 AI 座位继续打
+4. 任何在线玩家均可触发重开（不限于庄家）
+
+**实现方案**：
+
+### 后端改动（`backend/api/websocket.py`）
+
+**1. 重连已结束房间时重发 `game_over`**
+
+原先重连仅发送 `game_state`，前端无从得知可以重开。现在额外发一条 `game_over`（带 `is_reconnect: true`）：
+
+```python
+if gs.phase == "ended":
+    winner_id = gs.winner
+    winner_idx = _player_index(gs, winner_id) if winner_id else None
+    scores = {p.id: p.score for p in gs.players}
+    await _send(ws, {
+        "type": "game_over",
+        ...
+        "is_reconnect": True,   # 前端据此跳过音效 + 开放所有人重开按钮
+    })
+```
+
+同时修复：原先重连发送的 `game_state` 中缺少 `cumulative_scores` 和 `round_number` 字段（`_broadcast_game_state` 会加但直接发送的路径没有），现已补全。
+
+**2. `restart_game` 将离线人类玩家标记为 AI**
+
+```python
+# 将未连线的人类玩家标记为 AI，避免游戏因等待其出牌而卡死。
+# 当他们重连时，现有的重连逻辑会自动恢复为人类控制。
+room_conns = _connections.get(room_id, {})
+for i, player in enumerate(gs.players):
+    if not player.id.startswith("ai_player_") and player.id not in room_conns:
+        player.is_ai = True
+```
+
+### 前端改动（`frontend/js/game.js`）
+
+**`handleGameOver` 支持 `is_reconnect`**：
+
+```javascript
+// 重连时不重播音效（玩家只是查看结算，不是刚刚赢牌）
+if (!msg.is_reconnect) {
+  // ... 正常音效逻辑
+}
+
+// 重连时所有在线人类均可重开（不限于庄家）
+let canRestart;
+if (msg.is_reconnect) {
+  canRestart = true;
+} else {
+  // 正常局结：下一局庄家有权重开
+  const nextDealerIdx = msg.next_dealer_idx ?? ...;
+  canRestart = myPlayerIdx === nextDealerIdx || dealerIsAI;
+}
+```
+
+### 完整流程
+
+```
+玩家打开大厅 → 看到 "Finished 已结束" 房间 + 筹码余额
+→ 点击 "Rejoin 重回" → 进入 game.html → WS 连接
+→ 服务端发送 game_state（含 cumulative_scores）+ game_over（is_reconnect=true）
+→ 前端显示最终牌面 + 结算弹窗 + "Play Again" 按钮（所有人可点）
+→ 玩家点击 "Play Again" → 发送 restart_game
+→ 服务端：离线玩家 → is_ai=True；在线玩家保持 is_ai=False
+→ 新局开始，AI 接管离线座位
+→ 若离线玩家重连 → is_ai=False 恢复，可继续操作
+```
+
+### 新增集成测试（4 个，`tests/integration/test_websocket.py`，`TestRejoinEndedRoom`）
+
+| 测试 | 验证内容 |
+|---|---|
+| `test_reconnect_to_ended_room_receives_game_over` | 重连已结束房间立即收到 `game_over`（含 `is_reconnect=true`）|
+| `test_reconnect_game_over_has_correct_payload` | `game_over` 含 `cumulative_scores`、`next_dealer_idx`、`han_breakdown` |
+| `test_restart_from_rejoin_replaces_offline_players_with_ai` | 离线玩家在重开后标为 AI，在线玩家保持为人类 |
+| `test_cumulative_scores_included_in_reconnect_game_state` | 重连时的 `game_state` 含 `cumulative_scores`（修复原有缺失）|
+
+**修改文件**：
+
+| 文件 | 改动 |
+|---|---|
+| `backend/api/websocket.py` | 重连已结束房间发送 `game_over`；`restart_game` 标记离线玩家为 AI；重连 `game_state` 补全 `cumulative_scores` |
+| `frontend/js/game.js` | `handleGameOver` 支持 `is_reconnect`：跳过音效，开放所有人重开按钮 |
+| `tests/integration/test_websocket.py` | 新增 `TestRejoinEndedRoom`（4 个测试） |
 
 ---
 

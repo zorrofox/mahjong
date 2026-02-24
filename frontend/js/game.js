@@ -478,25 +478,33 @@ function handleClaimWindow(msg) {
 
 function handleGameOver(msg) {
   const winnerName = msg.winner_id || `Player ${msg.winner_idx + 1}`;
-  // Announce win or draw
-  if (msg.winner_idx !== null && msg.winner_idx !== undefined && msg.winner_idx >= 0) {
-    if (!_myWinSent) {
-      getSpeech()?.speak('胡！', 'immediate');
-      playWinEffect();   // 程序化音效：锣 → 五声音阶 → 和弦 → 闪烁
+
+  // Don't replay sounds when reconnecting to an already-finished game.
+  if (!msg.is_reconnect) {
+    if (msg.winner_idx !== null && msg.winner_idx !== undefined && msg.winner_idx >= 0) {
+      if (!_myWinSent) {
+        getSpeech()?.speak('胡！', 'immediate');
+        playWinEffect();   // 程序化音效：锣 → 五声音阶 → 和弦 → 闪烁
+      }
+    } else {
+      playDrawEffect();
+      getSpeech()?.speak('流局', 'immediate');
     }
-  } else {
-    playDrawEffect();
-    getSpeech()?.speak('流局', 'immediate');
   }
   _myWinSent = false;
 
-  // Determine restart authority: the NEXT game's dealer (庄家) may click "Play Again".
-  // Using next_dealer_idx (already rotated by the server) rather than the current
-  // game's dealer_idx ensures the correct player has restart authority.
-  // If the next dealer seat is occupied by an AI, any human player may restart.
-  const nextDealerIdx = msg.next_dealer_idx ?? gameState?.dealer_idx ?? 0;
-  const dealerIsAI = gameState?.players?.[nextDealerIdx]?.id?.startsWith('ai_player_') ?? true;
-  const canRestart = myPlayerIdx === nextDealerIdx || dealerIsAI;
+  // Determine restart authority.
+  // is_reconnect: any human who rejoins an ended room may start the next game
+  //   (offline players will be replaced by AI automatically).
+  // Normal end-of-game: only the NEXT dealer (or any human if dealer is AI).
+  let canRestart;
+  if (msg.is_reconnect) {
+    canRestart = true;
+  } else {
+    const nextDealerIdx = msg.next_dealer_idx ?? gameState?.dealer_idx ?? 0;
+    const dealerIsAI = gameState?.players?.[nextDealerIdx]?.id?.startsWith('ai_player_') ?? true;
+    canRestart = myPlayerIdx === nextDealerIdx || dealerIsAI;
+  }
 
   showGameOverModal(
     winnerName,

@@ -324,3 +324,146 @@ class TestRestartGame:
         players = msg["state"]["players"]
         human_ids = [p["id"] for p in players if not p.get("is_ai", True)]
         assert pid in human_ids
+
+
+class TestRejoinEndedRoom:
+    """
+    Verify the Rejoin flow for completed rooms.
+
+    When a player connects to a room whose game has already ended, the server
+    should resend the game_over payload (is_reconnect=True) so the frontend
+    can display the results modal with a "Play Again" button available to
+    any human player.
+    """
+
+    def _drain_until(self, ws, target_type, max_msgs=10):
+        for _ in range(max_msgs):
+            try:
+                msg = ws.receive_json()
+                if msg.get("type") == target_type:
+                    return msg
+            except Exception:
+                break
+        raise AssertionError(f"Message type '{target_type}' not received.")
+
+    def _setup_ended_room(self, client, player_id="rejoin_player", winner_id=None):
+        """Create a room, start the game, force it into ended state."""
+        import sys, os
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../backend'))
+        from api.routes import room_manager
+
+        room_id = client.post("/api/rooms").json()["id"]
+        client.post(f"/api/rooms/{room_id}/join", json={"player_id": player_id})
+        client.post(f"/api/rooms/{room_id}/start")
+
+        room = room_manager.get_room(room_id)
+        room.game_state.phase = "ended"
+        room.game_state.winner = winner_id or player_id
+        room.status = "ended"
+        return room_id, room
+
+    def test_reconnect_to_ended_room_receives_game_over(self, client):
+        """Player reconnecting to an ended room gets a game_over message."""
+        pid = "rejoin_a"
+        room_id, room = self._setup_ended_room(client, pid)
+
+        with client.websocket_connect(f"/ws/{room_id}/{pid}") as ws:
+            self._drain_until(ws, "game_state")
+            game_over = self._drain_until(ws, "game_over")
+
+        assert game_over["type"] == "game_over"
+        assert game_over["is_reconnect"] is True
+
+    def test_reconnect_game_over_has_correct_payload(self, client):
+        """The reconnect game_over message includes scores and cumulative chips."""
+        pid = "rejoin_b"
+        room_id, room = self._setup_ended_room(client, pid)
+
+        with client.websocket_connect(f"/ws/{room_id}/{pid}") as ws:
+            self._drain_until(ws, "game_state")
+            game_over = self._drain_until(ws, "game_over")
+
+        assert "cumulative_scores" in game_over
+        assert "next_dealer_idx" in game_over
+        assert "han_breakdown" in game_over
+
+    def test_restart_from_rejoin_replaces_offline_players_with_ai(self, client):
+        """
+        When two humans are in a room but only one rejoins and triggers
+        restart_game, the absent human's seat is taken over by AI so the
+        game does not stall waiting for them.  When the absent player
+        reconnects later, the existing logic restores them to human control.
+        """
+        import sys, os
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../backend'))
+        from api.routes import room_manager
+
+        room_id = client.post("/api/rooms").json()["id"]
+        client.post(f"/api/rooms/{room_id}/join", json={"player_id": "online_player"})
+        client.post(f"/api/rooms/{room_id}/join", json={"player_id": "offline_player"})
+        client.post(f"/api/rooms/{room_id}/start")
+
+        room = room_manager.get_room(room_id)
+        room.game_state.phase = "ended"
+        room.game_state.winner = "online_player"
+        room.status = "ended"
+
+        # Only "online_player" connects; "offline_player" does not.
+        # Assertions about is_ai must be made INSIDE the with-block: once the
+        # connection closes, the finally block marks the now-disconnected
+        # online_player as AI again (which is correct expected behaviour).
+        with client.websocket_connect(f"/ws/{room_id}/online_player") as ws:
+            self._drain_until(ws, "game_state")
+            self._drain_until(ws, "game_over")   # reconnect modal
+            ws.send_json({"type": "restart_game"})
+            msg = self._drain_until(ws, "game_state")
+
+            gs = room.game_state
+            # offline_player's seat must have been marked AI-controlled
+            offline_seat = next(
+                (i for i, p in enumerate(gs.players) if p.id == "offline_player"), None
+            )
+            assert offline_seat is not None, "offline_player should still have a seat"
+            assert gs.players[offline_seat].is_ai, (
+                "offline_player's seat should be AI-controlled after restart without them"
+            )
+
+            # online_player is still connected — must remain human
+            online_seat = next(
+                (i for i, p in enumerate(gs.players) if p.id == "online_player"), None
+            )
+            assert online_seat is not None
+            assert not gs.players[online_seat].is_ai, (
+                "online_player is connected and should remain human-controlled"
+            )
+
+        # Game should be in an active phase
+        assert msg["state"]["phase"] in ("drawing", "discarding", "claiming")
+
+    def test_cumulative_scores_included_in_reconnect_game_state(self, client):
+        """
+        The game_state sent on reconnect now includes cumulative_scores so the
+        chip display is populated even before any game_over message is processed.
+        """
+        import sys, os
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../backend'))
+        from api.routes import room_manager
+
+        pid = "rejoin_c"
+        room_id = client.post("/api/rooms").json()["id"]
+        client.post(f"/api/rooms/{room_id}/join", json={"player_id": pid})
+        client.post(f"/api/rooms/{room_id}/start")
+
+        room = room_manager.get_room(room_id)
+        room.game_state.phase = "ended"
+        room.status = "ended"
+        # Simulate a chip balance from a previous settlement
+        room.cumulative_scores[pid] = 1234
+
+        with client.websocket_connect(f"/ws/{room_id}/{pid}") as ws:
+            state_msg = self._drain_until(ws, "game_state")
+
+        assert "cumulative_scores" in state_msg["state"], (
+            "cumulative_scores must be present in the reconnect game_state"
+        )
+        assert state_msg["state"]["cumulative_scores"].get(pid) == 1234

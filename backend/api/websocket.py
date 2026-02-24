@@ -655,7 +655,31 @@ async def websocket_endpoint(ws: WebSocket, room_id: str, player_id: str):
                     break
 
         state_dict = gs.to_dict(viewing_player_idx=player_idx)
+        state_dict["cumulative_scores"] = dict(room.cumulative_scores)
+        state_dict["round_number"] = room.round_number
         await _send(ws, {"type": "game_state", "state": state_dict})
+
+        if gs.phase == "ended":
+            # Re-send the game_over payload so the reconnecting player sees the
+            # results modal with a "Play Again" button.  is_reconnect=True tells
+            # the frontend to skip sounds and allow ANY human to restart (not
+            # just the next dealer), since multiple players may rejoin at different
+            # times and we want anyone to be able to kick off the next game.
+            winner_id = gs.winner
+            winner_idx = _player_index(gs, winner_id) if winner_id else None
+            scores = {p.id: p.score for p in gs.players}
+            await _send(ws, {
+                "type": "game_over",
+                "winner_idx": winner_idx,
+                "winner_id": winner_id,
+                "scores": scores,
+                "cumulative_scores": dict(room.cumulative_scores),
+                "round_number": room.round_number,
+                "han_breakdown": gs.han_breakdown,
+                "han_total": gs.han_total,
+                "next_dealer_idx": room.dealer_idx,
+                "is_reconnect": True,
+            })
 
         if gs.phase != "ended":
             if gs.current_turn is not None:
@@ -757,10 +781,23 @@ async def _handle_message(
             await _send(ws, {"type": "error", "message": str(e)})
             return
 
+        # Mark human players who are currently offline as AI-controlled so the
+        # game does not stall waiting for disconnected players to act.  When an
+        # offline player reconnects the existing reconnect logic automatically
+        # restores them to human control and they can take over their seat.
+        gs = room.game_state
+        room_conns = _connections.get(room_id, {})
+        for i, player in enumerate(gs.players):
+            if not player.id.startswith("ai_player_") and player.id not in room_conns:
+                player.is_ai = True
+                logger.info(
+                    "Player %s is offline at restart; seat %d marked AI-controlled",
+                    player.id, i,
+                )
+
         await _broadcast_game_state(room_id)
         await _broadcast_room_update()
 
-        gs = room.game_state
         if gs.players[gs.current_turn].is_ai:
             asyncio.create_task(_run_ai_turn(room_id))
         else:
