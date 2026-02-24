@@ -351,6 +351,7 @@ function handleGameState(state) {
   // still playing at the moment this game_state arrives.
   if (prevState && state.last_discard && state.last_discard !== prevState.last_discard) {
     if (state.last_discard !== _myDiscardSent) {
+      playDiscardEffect();
       getSpeech()?.speakTile(state.last_discard, 'queue');
     }
     _myDiscardSent = null;
@@ -377,6 +378,9 @@ function handleGameState(state) {
           // announce the actual winner's action.  Otherwise use 'queue' so
           // the sound plays naturally after the discard tile name.
           const mode = _myClaimSent ? 'immediate' : 'queue';
+          if (sound === '碰') playPungEffect();
+          else if (sound === '吃') playChowEffect();
+          else                     playKongEffect();
           getSpeech()?.speak(sound, mode);
         }
       } else if (currMelds.length === prevMelds.length) {
@@ -481,6 +485,7 @@ function handleGameOver(msg) {
       playWinEffect();   // 程序化音效：锣 → 五声音阶 → 和弦 → 闪烁
     }
   } else {
+    playDrawEffect();
     getSpeech()?.speak('流局', 'immediate');
   }
   _myWinSent = false;
@@ -901,6 +906,28 @@ function selectTile(tileStr, el) {
    MELD SOUND EFFECTS (Web Audio API)
    ============================================================ */
 
+function playDiscardEffect() {
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return;
+  try {
+    const ctx = new AC();
+    const t = ctx.currentTime;
+    // Short, crisp tile-on-table click (~120ms)
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = 'sine';
+    o.frequency.value = 300;
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.18, t + 0.005);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+    o.connect(g);
+    g.connect(ctx.destination);
+    o.start(t);
+    o.stop(t + 0.15);
+    setTimeout(() => { try { ctx.close(); } catch (_) {} }, 500);
+  } catch (_) {}
+}
+
 function playChowEffect() {
   const AC = window.AudioContext || window.webkitAudioContext;
   if (!AC) return;
@@ -1055,6 +1082,32 @@ function playWinEffect() {
   setTimeout(() => { try { ctx.close(); } catch (_) {} }, 4800);
 }
 
+function playDrawEffect() {
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return;
+  try {
+    const ctx = new AC();
+    const t = ctx.currentTime;
+    // Two descending tones: neutral, slightly melancholic (流局 / draw)
+    function tone(freq, start, duration) {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.value = freq;
+      g.gain.setValueAtTime(0, start);
+      g.gain.linearRampToValueAtTime(0.28, start + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.001, start + duration);
+      o.connect(g);
+      g.connect(ctx.destination);
+      o.start(start);
+      o.stop(start + duration + 0.05);
+    }
+    tone(440, t,        0.4);   // A4
+    tone(330, t + 0.35, 0.5);   // E4
+    setTimeout(() => { try { ctx.close(); } catch (_) {} }, 1500);
+  } catch (_) {}
+}
+
 /* ============================================================
    SEND ACTIONS
    ============================================================ */
@@ -1065,6 +1118,7 @@ function sendDiscard() {
   }
   // Announce the tile being discarded (priority: player action)
   _myDiscardSent = selectedTile;
+  playDiscardEffect();
   getSpeech()?.speakTile(selectedTile, 'immediate');
   sendAction('discard', { tile: selectedTile });
   selectedTile = null;
@@ -1546,5 +1600,5 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // Allow unit testing in Node/Vitest
 if (typeof globalThis !== 'undefined' && typeof window === 'undefined') {
-  globalThis._mahjongTestExports = { getHandTiles, getHandCount, tileToDisplay, formatPhase, autoSelectChow, getAllChows, escapeHtml, TILE_MAP, sortHandTiles, TILE_SVG_MAP, makeTileEl, makeClaimBtn, selectTile, showGameOverModal };
+  globalThis._mahjongTestExports = { getHandTiles, getHandCount, tileToDisplay, formatPhase, autoSelectChow, getAllChows, escapeHtml, TILE_MAP, sortHandTiles, TILE_SVG_MAP, makeTileEl, makeClaimBtn, selectTile, showGameOverModal, playDiscardEffect, playDrawEffect };
 }

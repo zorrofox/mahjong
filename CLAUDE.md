@@ -275,7 +275,7 @@ const TILE_SVG_MAP = {
 | `frontend/tiles/` | 42 SVG | Cangjie6 港式麻将牌面图片 |
 | **业务代码合计** | **~5,651** | |
 | `backend/tests/` | ~1,800 | 后端单元测试（311 tests） |
-| `frontend/tests/` | ~550 | 前端单元测试（95 tests） |
+| `frontend/tests/` | ~580 | 前端单元测试（111 tests） |
 | `tests/integration/` | ~1,120 | 集成测试（79 tests） |
 | **测试代码合计** | **~3,470** | |
 
@@ -1964,9 +1964,9 @@ pytest -v
 | 层级 | 测试数 |
 |---|---|
 | 后端单元测试 | 311 |
-| 前端单元测试 | 98 |
+| 前端单元测试 | 111 |
 | 集成测试 | 79 |
-| **合计** | **488** |
+| **合计** | **501** |
 
 `test_claim_window.py` 策略：通过 REST 开始游戏后直接操控 `room.game_state`，将局面固定到声索阶段（控制手牌、弃牌、已跳过玩家），再通过 WS 连接触发同步 `claim_window` 消息，验证声索结果。
 
@@ -2286,6 +2286,72 @@ if (speech && speech.isSpeaking()) {
 `pendingActions` 立即记录（双击出牌逻辑依赖此值），仅操作按钮的视觉展示延迟。若语音禁用或无中文声音包，`isSpeaking()` 返回 false，`showUI()` 同步立即执行，无任何延迟。
 
 **修改文件**：`frontend/js/speech.js`（新增三个成员）、`frontend/js/game.js`（`handleActionRequired` 重构）
+
+---
+
+## 音效全面统一：所有动作均有语音 + 音效
+
+**背景**：此前音效覆盖不一致——本人碰/吃/杠/胡有语音+音效，而对手碰/吃/声索杠只有语音、没有音效；出牌和流局也只有语音；唯独对手加杠（extend-pung）意外地有 `playKongEffect()`（系规则修正 #6 单独开发时顺手加入，造成不一致）。
+
+**发现方式**：逐行对照所有触发点，汇总完整音频触发矩阵后发现系统性遗漏。
+
+**修改前音频矩阵（不一致状态）**：
+
+| 动作 | 触发方 | 语音 | 音效 |
+|---|---|---|---|
+| 出牌 | 本人 / 对手 | ✅ | ❌ |
+| 碰 / 吃 / 声索杠 | **本人** | ✅ | ✅ |
+| 碰 / 吃 / 声索杠 | **对手** | ✅ | ❌ |
+| 加杠（extend-pung） | 对手 | ✅ | ✅（例外） |
+| 胡 | 本人 / 对手 | ✅ | ✅ |
+| 流局 | — | ✅ | ❌ |
+
+**修复方案**（仅修改 `frontend/js/game.js`）：
+
+**1. 新增 `playDiscardEffect()`**：300Hz 正弦波，5ms 攻击 + 120ms 衰减，模拟麻将牌拍桌脆响。注入两处：
+- `sendDiscard()`：本人出牌
+- `handleGameState` last_discard 变化检测：对手/AI 出牌
+
+**2. 新增 `playDrawEffect()`**：A4→E4 双音下行（各约 0.4–0.5s），中性略带落寞感。注入 `handleGameOver` 流局分支。
+
+**3. 对手碰/吃/声索杠补音效**：在 `handleGameState` 新副露检测块（原仅调用 `getSpeech().speak()`）中根据声音类型分发：
+
+```javascript
+if (sound === '碰') playPungEffect();
+else if (sound === '吃') playChowEffect();
+else                     playKongEffect();
+getSpeech()?.speak(sound, mode);
+```
+
+**修改后音频矩阵（全面统一）**：
+
+| 动作 | 触发方 | 语音 | 音效函数 |
+|---|---|---|---|
+| 出牌 | 本人 / 对手 | ✅ | ✅ `playDiscardEffect` |
+| 碰 | 本人 / 对手 | ✅ | ✅ `playPungEffect` |
+| 吃 | 本人 / 对手 | ✅ | ✅ `playChowEffect` |
+| 杠（所有类型） | 本人 / 对手 | ✅ | ✅ `playKongEffect` |
+| 胡 | 本人 / 对手 | ✅ | ✅ `playWinEffect` |
+| 流局 | — | ✅ | ✅ `playDrawEffect` |
+
+**修改文件**：
+
+| 文件 | 改动 |
+|---|---|
+| `frontend/js/game.js` | 新增 `playDiscardEffect()`、`playDrawEffect()`；6 处注入点（出牌×2、对手碰吃杠、流局）；两函数加入 `_mahjongTestExports` |
+| `frontend/tests/game.test.js` | 新增 `playDiscardEffect`（7 个）、`playDrawEffect`（6 个）共 13 个单元测试；`afterEach` 清理 `mockWindow.AudioContext` |
+
+**单元测试策略**：jsdom 无真实 `AudioContext`，测试通过在 `mockWindow` 上挂载最小 `MockAudioContext` 工厂（捕获 `createOscillator` 返回对象）验证行为，每项测试后 `afterEach` 清理，互不干扰。
+
+| 测试用例 | 验证内容 |
+|---|---|
+| 函数存在 | `typeof playDiscardEffect === 'function'` |
+| 无 AC 静默返回 | `AudioContext` 未定义时调用不抛错 |
+| 实例化 AC | 有 `AudioContext` 时构造函数被调用 1 次 |
+| 振荡器数量 | `playDiscardEffect` 创建 1 个；`playDrawEffect` 创建 2 个 |
+| 振荡器频率 | `playDiscardEffect` = 300Hz；`playDrawEffect` = 440Hz + 330Hz |
+| 振荡器类型 | `playDiscardEffect` type = `'sine'` |
+| start/stop 调用 | `playDiscardEffect` 振荡器 `start()`/`stop()` 各调用 1 次 |
 
 ---
 

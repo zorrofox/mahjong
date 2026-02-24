@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { readFileSync } from 'fs'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
@@ -57,7 +57,7 @@ const patchedCode = code.replace(
 
 vm.runInNewContext(patchedCode, sandbox, { filename: filePath })
 
-const { getHandTiles, getHandCount, tileToDisplay, formatPhase, autoSelectChow, getAllChows, escapeHtml, TILE_MAP, sortHandTiles, makeTileEl, makeClaimBtn, selectTile, showGameOverModal } = globalThis._mahjongTestExports
+const { getHandTiles, getHandCount, tileToDisplay, formatPhase, autoSelectChow, getAllChows, escapeHtml, TILE_MAP, sortHandTiles, makeTileEl, makeClaimBtn, selectTile, showGameOverModal, playDiscardEffect, playDrawEffect } = globalThis._mahjongTestExports
 
 /* ==========================================================
    getHandTiles
@@ -654,5 +654,149 @@ describe('showGameOverModal — canRestart / dealer authority', () => {
     showGameOverModal('winner', {}, {}, 1, [], 0)  // no canRestart arg
     expect(btnPlayAgain.disabled).toBe(false)
     restore()
+  })
+})
+
+/* ==========================================================
+   playDiscardEffect / playDrawEffect  (Web Audio SFX)
+
+   jsdom 没有真实 AudioContext，测试通过在 mockWindow 上挂载
+   最小 Mock 类来验证：函数存在、无 AC 时静默返回、有 AC 时正
+   确实例化并设置振荡器频率。
+   ========================================================== */
+
+/** 最小 AudioContext mock 工厂，返回 MockAC 类及捕获到的对象。 */
+function _makeMockAC() {
+  const oscillators = []
+  const gains = []
+
+  class MockOscillator {
+    constructor() {
+      this.type = ''
+      this.frequency = { value: 0 }
+      this.connect = vi.fn()
+      this.start = vi.fn()
+      this.stop = vi.fn()
+    }
+  }
+  class MockGain {
+    constructor() {
+      this.gain = {
+        setValueAtTime: vi.fn(),
+        linearRampToValueAtTime: vi.fn(),
+        exponentialRampToValueAtTime: vi.fn(),
+      }
+      this.connect = vi.fn()
+    }
+  }
+  class MockAC {
+    constructor() {
+      this.currentTime = 0
+      this.destination = {}
+    }
+    createOscillator() { const o = new MockOscillator(); oscillators.push(o); return o }
+    createGain()       { const g = new MockGain();       gains.push(g);       return g }
+    close() {}
+  }
+
+  return { MockAC, oscillators, gains }
+}
+
+describe('playDiscardEffect', () => {
+  afterEach(() => {
+    delete mockWindow.AudioContext
+    delete mockWindow.webkitAudioContext
+  })
+
+  it('is a function', () => {
+    expect(typeof playDiscardEffect).toBe('function')
+  })
+
+  it('returns silently when AudioContext is unavailable (no throw)', () => {
+    // mockWindow 默认无 AudioContext
+    expect(() => playDiscardEffect()).not.toThrow()
+  })
+
+  it('instantiates AudioContext when available', () => {
+    const { MockAC } = _makeMockAC()
+    let count = 0
+    class SpyAC extends MockAC { constructor() { super(); count++ } }
+    mockWindow.AudioContext = SpyAC
+    playDiscardEffect()
+    expect(count).toBe(1)
+  })
+
+  it('creates exactly one oscillator', () => {
+    const { MockAC, oscillators } = _makeMockAC()
+    mockWindow.AudioContext = MockAC
+    playDiscardEffect()
+    expect(oscillators).toHaveLength(1)
+  })
+
+  it('sets oscillator frequency to 300 Hz', () => {
+    const { MockAC, oscillators } = _makeMockAC()
+    mockWindow.AudioContext = MockAC
+    playDiscardEffect()
+    expect(oscillators[0].frequency.value).toBe(300)
+  })
+
+  it('sets oscillator type to sine', () => {
+    const { MockAC, oscillators } = _makeMockAC()
+    mockWindow.AudioContext = MockAC
+    playDiscardEffect()
+    expect(oscillators[0].type).toBe('sine')
+  })
+
+  it('calls start() and stop() on the oscillator', () => {
+    const { MockAC, oscillators } = _makeMockAC()
+    mockWindow.AudioContext = MockAC
+    playDiscardEffect()
+    expect(oscillators[0].start).toHaveBeenCalledOnce()
+    expect(oscillators[0].stop).toHaveBeenCalledOnce()
+  })
+})
+
+describe('playDrawEffect', () => {
+  afterEach(() => {
+    delete mockWindow.AudioContext
+    delete mockWindow.webkitAudioContext
+  })
+
+  it('is a function', () => {
+    expect(typeof playDrawEffect).toBe('function')
+  })
+
+  it('returns silently when AudioContext is unavailable (no throw)', () => {
+    expect(() => playDrawEffect()).not.toThrow()
+  })
+
+  it('instantiates AudioContext when available', () => {
+    const { MockAC } = _makeMockAC()
+    let count = 0
+    class SpyAC extends MockAC { constructor() { super(); count++ } }
+    mockWindow.AudioContext = SpyAC
+    playDrawEffect()
+    expect(count).toBe(1)
+  })
+
+  it('creates exactly two oscillators (A4 and E4)', () => {
+    const { MockAC, oscillators } = _makeMockAC()
+    mockWindow.AudioContext = MockAC
+    playDrawEffect()
+    expect(oscillators).toHaveLength(2)
+  })
+
+  it('sets first oscillator to 440 Hz (A4)', () => {
+    const { MockAC, oscillators } = _makeMockAC()
+    mockWindow.AudioContext = MockAC
+    playDrawEffect()
+    expect(oscillators[0].frequency.value).toBe(440)
+  })
+
+  it('sets second oscillator to 330 Hz (E4)', () => {
+    const { MockAC, oscillators } = _makeMockAC()
+    mockWindow.AudioContext = MockAC
+    playDrawEffect()
+    expect(oscillators[1].frequency.value).toBe(330)
   })
 })

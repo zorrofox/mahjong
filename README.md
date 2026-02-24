@@ -4,7 +4,7 @@
 
 A browser-based multiplayer Mahjong game. Supports 1–4 human players per room; empty seats are filled by AI.
 
-![Python](https://img.shields.io/badge/Python-3.11-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-0.111-green) ![Tests](https://img.shields.io/badge/tests-488%20passed-brightgreen) ![Tiles](https://img.shields.io/badge/tiles-Cangjie6%20SVG-orange)
+![Python](https://img.shields.io/badge/Python-3.11-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-0.111-green) ![Tests](https://img.shields.io/badge/tests-501%20passed-brightgreen) ![Tiles](https://img.shields.io/badge/tiles-Cangjie6%20SVG-orange)
 
 ---
 
@@ -25,7 +25,7 @@ A browser-based multiplayer Mahjong game. Supports 1–4 human players per room;
 - 手牌自动整理（条 → 饼 → 萬 → 风/字/花季）；**中央弃牌区按空间位置排列**：底部左格始终为自己（金色边框高亮），右为下家，上排为上家和对家
 - 游戏结束后支持重开局（保留原房间人类玩家，筹码持续累计）；**多人场景**：只有庄家可点"再来一局"（非庄家显示"等待庄家重开…"），其他玩家收到新局 game_state 时弹窗自动关闭，消除竞态混乱
 - 大厅显示各房间实时筹码余额；已结束的房间显示"Rejoin 重回"按钮
-- **中文语音 + 程序化音效**：出牌念牌名，我方及对手碰/吃/杠/胡有语音；胡牌时叠加 Web Audio API 四层程序化音效（锣声→五声音阶→和弦→闪烁），零音频文件；声音优先级机制避免吃/碰乱序和牌名被跳过；操作按钮等待 TTS 播完后出现，音效与界面时序同步
+- **中文语音 + 程序化音效（全面统一）**：所有动作均有语音 + 音效——出牌（脆响）、碰/吃/杠（各自专属音效）、胡（四层程序化锣声音效）、流局（双音下行）；本人与对手动作覆盖完全一致；零音频文件，全部由 Web Audio API 实时合成；声音优先级机制避免吃/碰乱序和牌名被跳过；操作按钮等待 TTS 播完后出现，音效与界面时序同步
 - **流畅渲染**：差量 DOM 更新（手牌/弃牌堆/副露仅在内容变化时重建）；`active-turn` 焦点切换平滑过渡（CSS transition）；声索/结算弹窗淡入动画；所有文本守卫防止无意义重绘
 - **移动端竖屏支持**：`top/bottom` 区域横跨全列（手牌/对面玩家铺满屏宽）；声索弹窗高度紧凑（牌面图+倒计时并排，按钮始终可见）；大厅房间表格横向滚动；侧边玩家显示庄标+筹码；`touch-action: manipulation` 消除 300ms 延迟；44px 触控目标
 - 响应式绿毡牌桌界面（桌面 1024px+ 全功能；手机 375px 竖屏可玩）；`API_BASE` / `WS_BASE` 动态适配本地开发与生产环境（`wss://` 生产 WebSocket）
@@ -70,7 +70,7 @@ IAP 公网地址：`https://YOUR_APP_DOMAIN`（SSL 证书签发中）
 ├── frontend/
 │   ├── js/            # 大厅 + 游戏客户端
 │   ├── tiles/         # Cangjie6 港式麻将 SVG 牌面（42 张）
-│   └── tests/         # 前端单元测试（95 tests）
+│   └── tests/         # 前端单元测试（111 tests）
 └── tests/
     └── integration/   # REST + WebSocket 集成测试（79 tests）
 ```
