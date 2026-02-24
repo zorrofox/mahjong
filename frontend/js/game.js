@@ -490,12 +490,13 @@ function handleGameOver(msg) {
   }
   _myWinSent = false;
 
-  // Determine restart authority: only the dealer (庄家) may click "Play Again".
-  // If the dealer seat is occupied by an AI, any human player may restart
-  // (since the AI won't act).  Single-player sessions always allow restart.
-  const dealerIdx = gameState?.dealer_idx ?? 0;
-  const dealerIsAI = gameState?.players?.[dealerIdx]?.id?.startsWith('ai_player_') ?? true;
-  const canRestart = myPlayerIdx === dealerIdx || dealerIsAI;
+  // Determine restart authority: the NEXT game's dealer (庄家) may click "Play Again".
+  // Using next_dealer_idx (already rotated by the server) rather than the current
+  // game's dealer_idx ensures the correct player has restart authority.
+  // If the next dealer seat is occupied by an AI, any human player may restart.
+  const nextDealerIdx = msg.next_dealer_idx ?? gameState?.dealer_idx ?? 0;
+  const dealerIsAI = gameState?.players?.[nextDealerIdx]?.id?.startsWith('ai_player_') ?? true;
+  const canRestart = myPlayerIdx === nextDealerIdx || dealerIsAI;
 
   showGameOverModal(
     winnerName,

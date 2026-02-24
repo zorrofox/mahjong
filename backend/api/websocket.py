@@ -590,6 +590,7 @@ async def _handle_game_over(room_id: str) -> None:
         "round_number": room.round_number,
         "han_breakdown": gs.han_breakdown if gs else [],
         "han_total": gs.han_total if gs else 0,
+        "next_dealer_idx": room.dealer_idx,  # already updated by dealer-rotation logic above
     }
     await _broadcast(room_id, payload)
     await _broadcast_room_update()

@@ -1891,22 +1891,33 @@ if (state.phase !== 'ended') {
 ```
 当服务端广播新局 `game_state`（phase ≠ 'ended'），所有仍显示弹窗的玩家自动收起。
 
-**改动 2 — 庄家专属"再来一局"（`showGameOverModal`）**：
+**改动 2 — 下一局庄家专属"再来一局"（`showGameOverModal`）**：
 ```javascript
-const canRestart = myPlayerIdx === dealerIdx   // 我是庄家
-               || dealerIsAI;                 // 庄家是 AI（任何人可重开）
+// game_over 消息携带 next_dealer_idx（服务端换庄后的新庄家座位）
+const nextDealerIdx = msg.next_dealer_idx ?? gameState?.dealer_idx ?? 0;
+const dealerIsAI = gameState?.players?.[nextDealerIdx]?.id?.startsWith('ai_player_') ?? true;
+const canRestart = myPlayerIdx === nextDealerIdx || dealerIsAI;
 ```
-- 庄家：按钮可点，显示"Play Again 再来一局"
-- 非庄家：按钮禁用，显示"等待庄家重开…"（带 tooltip 说明）
-- 庄家是 AI 时降级为任何人可重开（兜底）
+- **下一局庄家**（而非当前局庄家）有权重开：语义更准确，例如当前局庄家 C 未赢、下一局庄家是玩家 A，应由 A 来重开
+- 下一局庄家是 AI 时降级为任何人可重开（兜底）
 - 接口向后兼容：`canRestart` 默认 `true`（单人场景不受影响）
+
+**后端同步改动**：`game_over` payload 新增 `next_dealer_idx` 字段（换庄逻辑执行后的 `room.dealer_idx`）：
+```python
+payload = {
+    ...
+    "next_dealer_idx": room.dealer_idx,  # already updated by dealer-rotation logic
+}
+```
 
 **新增测试**（3 个，`frontend/tests/game.test.js`）：
 - `canRestart=false` → 按钮禁用 + 提示文字
 - `canRestart=true` → 按钮可用 + 正常文字
 - 参数缺省 → 默认可用（向后兼容）
 
-**修改文件**：`frontend/js/game.js`（`handleGameState` 自动关闭；`handleGameOver` 计算权限；`showGameOverModal` 接受并应用 `canRestart`）
+**修改文件**：
+- `backend/api/websocket.py`：`game_over` payload 新增 `next_dealer_idx`
+- `frontend/js/game.js`：`handleGameOver` 改用 `msg.next_dealer_idx` 判断 `canRestart`
 
 ---
 
