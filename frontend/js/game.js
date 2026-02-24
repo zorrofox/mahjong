@@ -903,14 +903,46 @@ function selectTile(tileStr, el) {
    ============================================================ */
 
 /* ============================================================
+   SHARED AUDIO CONTEXT
+
+   Mobile browsers (especially iOS Safari) require AudioContext
+   to be created or resumed within a synchronous user gesture.
+   We maintain a single shared context: initialized on first
+   touch/click, kept alive, and resumed if suspended (e.g. after
+   the app is backgrounded).  All SFX functions use _getAC()
+   instead of creating a new context on every call.
+   ============================================================ */
+
+let _sharedAudioCtx = null;
+
+function _getAC() {
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return null;
+  if (!_sharedAudioCtx) {
+    try { _sharedAudioCtx = new AC(); } catch (_) { return null; }
+  }
+  if (_sharedAudioCtx.state === 'suspended') {
+    _sharedAudioCtx.resume().catch(() => {});
+  }
+  return _sharedAudioCtx;
+}
+
+// Unlock the shared AudioContext on the first user gesture so that
+// subsequent calls from WebSocket handlers (non-gesture) also produce sound.
+if (typeof document !== 'undefined') {
+  const _unlockAudio = () => _getAC();
+  document.addEventListener('touchstart', _unlockAudio, { passive: true });
+  document.addEventListener('click',      _unlockAudio, { passive: true });
+}
+
+/* ============================================================
    MELD SOUND EFFECTS (Web Audio API)
    ============================================================ */
 
 function playDiscardEffect() {
-  const AC = window.AudioContext || window.webkitAudioContext;
-  if (!AC) return;
+  const ctx = _getAC();
+  if (!ctx) return;
   try {
-    const ctx = new AC();
     const t = ctx.currentTime;
     // Short, crisp tile-on-table click (~120ms)
     const o = ctx.createOscillator();
@@ -924,17 +956,14 @@ function playDiscardEffect() {
     g.connect(ctx.destination);
     o.start(t);
     o.stop(t + 0.15);
-    setTimeout(() => { try { ctx.close(); } catch (_) {} }, 500);
   } catch (_) {}
 }
 
 function playChowEffect() {
-  const AC = window.AudioContext || window.webkitAudioContext;
-  if (!AC) return;
+  const ctx = _getAC();
+  if (!ctx) return;
   try {
-    const ctx = new AC();
     const t = ctx.currentTime;
-    
     // A quick rising two-note sequence (like picking up something swiftly)
     // C5 -> E5
     function beep(freq, start) {
@@ -950,21 +979,16 @@ function playChowEffect() {
       o.start(start);
       o.stop(start + 0.35);
     }
-    
     beep(523.25, t);
     beep(659.25, t + 0.1);
-    
-    setTimeout(() => { try { ctx.close(); } catch (_) {} }, 1000);
   } catch (_) {}
 }
 
 function playPungEffect() {
-  const AC = window.AudioContext || window.webkitAudioContext;
-  if (!AC) return;
+  const ctx = _getAC();
+  if (!ctx) return;
   try {
-    const ctx = new AC();
     const t = ctx.currentTime;
-    
     // A resonant double-strike (like two tiles clacking together)
     function clack(freq, start) {
       const o = ctx.createOscillator();
@@ -979,21 +1003,16 @@ function playPungEffect() {
       o.start(start);
       o.stop(start + 0.3);
     }
-    
     clack(440, t);
     clack(440, t + 0.12);
-    
-    setTimeout(() => { try { ctx.close(); } catch (_) {} }, 1000);
   } catch (_) {}
 }
 
 function playKongEffect() {
-  const AC = window.AudioContext || window.webkitAudioContext;
-  if (!AC) return;
+  const ctx = _getAC();
+  if (!ctx) return;
   try {
-    const ctx = new AC();
     const t = ctx.currentTime;
-    
     // A heavy, powerful metallic strike (like a gong or heavy object)
     function strike(freq, start, duration, vol) {
       const o = ctx.createOscillator();
@@ -1008,85 +1027,77 @@ function playKongEffect() {
       o.start(start);
       o.stop(start + duration + 0.1);
     }
-    
     strike(220, t, 0.6, 0.4);
     strike(110, t, 0.8, 0.5);
     strike(330, t + 0.05, 0.5, 0.2); // metallic overtone
-    
-    setTimeout(() => { try { ctx.close(); } catch (_) {} }, 1500);
   } catch (_) {}
 }
 
 function playWinEffect() {
-  const AC = window.AudioContext || window.webkitAudioContext;
-  if (!AC) return;
-  let ctx;
-  try { ctx = new AC(); } catch (_) { return; }
+  const ctx = _getAC();
+  if (!ctx) return;
+  try {
+    const master = ctx.createGain();
+    master.gain.value = 0.45;
+    master.connect(ctx.destination);
 
-  const master = ctx.createGain();
-  master.gain.value = 0.45;
-  master.connect(ctx.destination);
+    const t = ctx.currentTime;
 
-  const t = ctx.currentTime;
+    /**
+     * Play a sine oscillator with a sharp attack and exponential release.
+     * @param {number} freq     Frequency in Hz
+     * @param {number} start    Start time (AudioContext time)
+     * @param {number} decay    Duration until gain fades to ~0
+     * @param {number} peak     Peak gain (0–1)
+     * @param {string} [type]   Oscillator type (default 'sine')
+     */
+    function osc(freq, start, decay, peak, type = 'sine') {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = type;
+      o.frequency.value = freq;
+      g.gain.setValueAtTime(0.0001, start);
+      g.gain.linearRampToValueAtTime(peak, start + 0.012);
+      g.gain.exponentialRampToValueAtTime(0.0001, start + decay);
+      o.connect(g);
+      g.connect(master);
+      o.start(start);
+      o.stop(start + decay + 0.05);
+    }
 
-  /**
-   * Play a sine oscillator with a sharp attack and exponential release.
-   * @param {number} freq     Frequency in Hz
-   * @param {number} start    Start time (AudioContext time)
-   * @param {number} decay    Duration until gain fades to ~0
-   * @param {number} peak     Peak gain (0–1)
-   * @param {string} [type]   Oscillator type (default 'sine')
-   */
-  function osc(freq, start, decay, peak, type = 'sine') {
-    const o = ctx.createOscillator();
-    const g = ctx.createGain();
-    o.type = type;
-    o.frequency.value = freq;
-    g.gain.setValueAtTime(0.0001, start);
-    g.gain.linearRampToValueAtTime(peak, start + 0.012);
-    g.gain.exponentialRampToValueAtTime(0.0001, start + decay);
-    o.connect(g);
-    g.connect(master);
-    o.start(start);
-    o.stop(start + decay + 0.05);
-  }
+    /** Bell tone = fundamental + inharmonic overtone (classic bell ratio 2.76) */
+    function bell(freq, start, decay, peak) {
+      osc(freq,        start, decay,        peak);
+      osc(freq * 2.76, start, decay * 0.55, peak * 0.35);
+    }
 
-  /** Bell tone = fundamental + inharmonic overtone (classic bell ratio 2.76) */
-  function bell(freq, start, decay, peak) {
-    osc(freq,        start, decay,        peak);
-    osc(freq * 2.76, start, decay * 0.55, peak * 0.35);
-  }
+    // ── ① Deep resonant gong (t = 0 s) ────────────────────────
+    osc(55,  t, 3.0, 1.0);   // sub-bass rumble
+    osc(110, t, 2.2, 0.75);
+    osc(220, t, 1.4, 0.50);
+    osc(440, t, 0.7, 0.25);
 
-  // ── ① Deep resonant gong (t = 0 s) ────────────────────────
-  osc(55,  t, 3.0, 1.0);   // sub-bass rumble
-  osc(110, t, 2.2, 0.75);
-  osc(220, t, 1.4, 0.50);
-  osc(440, t, 0.7, 0.25);
+    // ── ② Rising pentatonic arpeggio (t = 0.12 – 0.60 s) ──────
+    // C5 E5 G5 A5 C6  (Chinese pentatonic scale, celebratory feel)
+    [523, 659, 784, 880, 1047].forEach((freq, i) => {
+      bell(freq, t + 0.12 + i * 0.1, 0.85, 0.60);
+    });
 
-  // ── ② Rising pentatonic arpeggio (t = 0.12 – 0.60 s) ──────
-  // C5 E5 G5 A5 C6  (Chinese pentatonic scale, celebratory feel)
-  [523, 659, 784, 880, 1047].forEach((freq, i) => {
-    bell(freq, t + 0.12 + i * 0.1, 0.85, 0.60);
-  });
+    // ── ③ Triumphant full chord (t = 0.85 s) ──────────────────
+    [131, 165, 196, 262].forEach(f => osc(f, t + 0.85, 2.2, 0.50));   // bass
+    [523, 659, 784].forEach(f => bell(f, t + 0.85, 2.0, 0.45));        // mid
+    [1047, 1319, 1568].forEach(f => bell(f, t + 0.90, 1.6, 0.25));     // high
 
-  // ── ③ Triumphant full chord (t = 0.85 s) ──────────────────
-  [131, 165, 196, 262].forEach(f => osc(f, t + 0.85, 2.2, 0.50));   // bass
-  [523, 659, 784].forEach(f => bell(f, t + 0.85, 2.0, 0.45));        // mid
-  [1047, 1319, 1568].forEach(f => bell(f, t + 0.90, 1.6, 0.25));     // high
-
-  // ── ④ Sparkle cascade (t = 0.92 – 1.28 s) ─────────────────
-  [2093, 2637, 3136, 3729, 4186, 3729, 3136, 2637, 2093, 2637, 4186]
-    .forEach((f, i) => osc(f, t + 0.92 + i * 0.035, 0.16, 0.18));
-
-  // Auto-close AudioContext when the effect has finished
-  setTimeout(() => { try { ctx.close(); } catch (_) {} }, 4800);
+    // ── ④ Sparkle cascade (t = 0.92 – 1.28 s) ─────────────────
+    [2093, 2637, 3136, 3729, 4186, 3729, 3136, 2637, 2093, 2637, 4186]
+      .forEach((f, i) => osc(f, t + 0.92 + i * 0.035, 0.16, 0.18));
+  } catch (_) {}
 }
 
 function playDrawEffect() {
-  const AC = window.AudioContext || window.webkitAudioContext;
-  if (!AC) return;
+  const ctx = _getAC();
+  if (!ctx) return;
   try {
-    const ctx = new AC();
     const t = ctx.currentTime;
     // Two descending tones: neutral, slightly melancholic (流局 / draw)
     function tone(freq, start, duration) {
@@ -1104,7 +1115,6 @@ function playDrawEffect() {
     }
     tone(440, t,        0.4);   // A4
     tone(330, t + 0.35, 0.5);   // E4
-    setTimeout(() => { try { ctx.close(); } catch (_) {} }, 1500);
   } catch (_) {}
 }
 
@@ -1600,5 +1610,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // Allow unit testing in Node/Vitest
 if (typeof globalThis !== 'undefined' && typeof window === 'undefined') {
-  globalThis._mahjongTestExports = { getHandTiles, getHandCount, tileToDisplay, formatPhase, autoSelectChow, getAllChows, escapeHtml, TILE_MAP, sortHandTiles, TILE_SVG_MAP, makeTileEl, makeClaimBtn, selectTile, showGameOverModal, playDiscardEffect, playDrawEffect };
+  const _resetSharedAC = () => { _sharedAudioCtx = null; };
+  globalThis._mahjongTestExports = { getHandTiles, getHandCount, tileToDisplay, formatPhase, autoSelectChow, getAllChows, escapeHtml, TILE_MAP, sortHandTiles, TILE_SVG_MAP, makeTileEl, makeClaimBtn, selectTile, showGameOverModal, playDiscardEffect, playDrawEffect, _resetSharedAC };
 }

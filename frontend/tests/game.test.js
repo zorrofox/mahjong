@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { readFileSync } from 'fs'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
@@ -57,7 +57,7 @@ const patchedCode = code.replace(
 
 vm.runInNewContext(patchedCode, sandbox, { filename: filePath })
 
-const { getHandTiles, getHandCount, tileToDisplay, formatPhase, autoSelectChow, getAllChows, escapeHtml, TILE_MAP, sortHandTiles, makeTileEl, makeClaimBtn, selectTile, showGameOverModal, playDiscardEffect, playDrawEffect } = globalThis._mahjongTestExports
+const { getHandTiles, getHandCount, tileToDisplay, formatPhase, autoSelectChow, getAllChows, escapeHtml, TILE_MAP, sortHandTiles, makeTileEl, makeClaimBtn, selectTile, showGameOverModal, playDiscardEffect, playDrawEffect, _resetSharedAC } = globalThis._mahjongTestExports
 
 /* ==========================================================
    getHandTiles
@@ -703,6 +703,7 @@ function _makeMockAC() {
 }
 
 describe('playDiscardEffect', () => {
+  beforeEach(() => _resetSharedAC())
   afterEach(() => {
     delete mockWindow.AudioContext
     delete mockWindow.webkitAudioContext
@@ -757,6 +758,7 @@ describe('playDiscardEffect', () => {
 })
 
 describe('playDrawEffect', () => {
+  beforeEach(() => _resetSharedAC())
   afterEach(() => {
     delete mockWindow.AudioContext
     delete mockWindow.webkitAudioContext
