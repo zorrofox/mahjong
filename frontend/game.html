@@ -600,6 +600,9 @@
 
           if (window._endReveal) {
             // ── End-game reveal: show tiles face-up ─────────────────────────
+            // Use larger sizes so tiles are legible.
+            const rw = position === 'left' || position === 'right' ? '22px' : '26px';
+            const rh = position === 'left' || position === 'right' ? '31px' : '36px';
             const tiles = getHandTiles(player);
             const winnerIdx = state.winner
               ? (state.players || []).findIndex(p => p.id === state.winner)
@@ -614,8 +617,8 @@
                 const isWin = !winMarked && t === winTile && playerIdx === winnerIdx;
                 if (isWin) winMarked = true;
                 const el = makeTileEl(t, { winning: isWin });
-                el.style.width  = w;
-                el.style.height = h;
+                el.style.width  = rw;
+                el.style.height = rh;
                 handEl.appendChild(el);
               });
             }

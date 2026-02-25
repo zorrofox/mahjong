@@ -353,6 +353,10 @@ function handleGameState(state) {
     }
     // Reset end-of-game reveal mode so a fresh game renders normally.
     window._endReveal = false;
+  } else {
+    // Game ended: immediately reveal all players' tiles on the board.
+    // The modal background is transparent, so the board is visible behind it.
+    window._endReveal = true;
   }
 
   // Announce the discarded tile (covers AI discards arriving via game_state).
@@ -1626,9 +1630,9 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   document.getElementById('btn-close-modal')?.addEventListener('click', () => {
     document.getElementById('game-over-modal')?.classList.add('hidden');
-    // Reveal all players' hands on the board after closing the results modal.
+    // Tiles are already revealed (set by handleGameState when phase=ended).
+    // Force a re-render so any pending tilesKey cache gets flushed.
     if (gameState && gameState.phase === 'ended') {
-      window._endReveal = true;
       renderBoard(gameState);
     }
   });
