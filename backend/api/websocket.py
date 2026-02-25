@@ -655,6 +655,7 @@ async def _handle_game_over(room_id: str) -> None:
         "han_breakdown": gs.han_breakdown if gs else [],
         "han_total": gs.han_total if gs else 0,
         "winning_tile": gs.winning_tile if gs else None,
+        "win_ron": gs.win_ron,                 # True=荣和, False=自摸, None=流局
         "dealer_idx": gs.dealer_idx,          # current round's dealer (for display)
         "next_dealer_idx": room.dealer_idx,  # already updated by dealer-rotation logic above
     }
@@ -747,6 +748,7 @@ async def websocket_endpoint(ws: WebSocket, room_id: str, player_id: str):
                 "han_breakdown": gs.han_breakdown,
                 "han_total": gs.han_total,
                 "winning_tile": gs.winning_tile,
+                "win_ron": gs.win_ron,
                 "dealer_idx": gs.dealer_idx,
                 "next_dealer_idx": room.dealer_idx,
                 "is_reconnect": True,

@@ -509,12 +509,31 @@ function handleClaimWindow(msg) {
 function handleGameOver(msg) {
   const winnerName = msg.winner_id || `Player ${msg.winner_idx + 1}`;
 
+  // Derive win type from win_ron flag and han breakdown.
+  // win_ron: true=荣和, false=自摸, null/undefined=流局
+  const hasWinner = msg.winner_idx !== null && msg.winner_idx !== undefined && msg.winner_idx >= 0;
+  let winType = null;  // null means draw (流局)
+  if (hasWinner) {
+    const isLingshang = (msg.han_breakdown || []).some(h => h.name_cn === '嶺上開花');
+    if (isLingshang) {
+      winType = '嶺上開花';
+    } else if (msg.win_ron === false) {
+      winType = '自摸';
+    } else {
+      winType = '荣和';
+    }
+  }
+
   // Don't replay sounds when reconnecting to an already-finished game.
   if (!msg.is_reconnect) {
-    if (msg.winner_idx !== null && msg.winner_idx !== undefined && msg.winner_idx >= 0) {
+    if (hasWinner) {
+      const winTypeText = winType ? `${winType}！` : '';
       if (!_myWinSent) {
-        getSpeech()?.speak('胡！', 'immediate');
+        getSpeech()?.speak(`胡了！${winTypeText}`, 'immediate');
         playWinEffect();   // 程序化音效：锣 → 五声音阶 → 和弦 → 闪烁
+      } else {
+        // Local player already heard "胡！" — queue the win type only.
+        getSpeech()?.speak(winTypeText, 'queue');
       }
     } else {
       playDrawEffect();
@@ -553,7 +572,8 @@ function handleGameOver(msg) {
     msg.han_total || 0,
     canRestart,
     chipChanges,
-    dealerId
+    dealerId,
+    winType
   );
   setStatus(`Game over! Winner: ${winnerName}`, 'success');
   disableAllActionButtons();
@@ -1465,7 +1485,7 @@ function hideClaimOverlay() {
 /* ============================================================
    GAME OVER MODAL
    ============================================================ */
-function showGameOverModal(winnerName, scores, cumulativeScores, roundNumber, hanBreakdown, hanTotal, canRestart = true, chipChanges = {}, dealerId = null) {
+function showGameOverModal(winnerName, scores, cumulativeScores, roundNumber, hanBreakdown, hanTotal, canRestart = true, chipChanges = {}, dealerId = null, winType = null) {
   const modal     = document.getElementById('game-over-modal');
   const winnerEl  = document.getElementById('winner-name');
   const scoresEl  = document.getElementById('scores-body');
@@ -1477,6 +1497,19 @@ function showGameOverModal(winnerName, scores, cumulativeScores, roundNumber, ha
   if (!modal) return;
 
   winnerEl.textContent = winnerName;
+
+  // Show win type label beneath the winner name.
+  const winTypeEl = document.getElementById('win-type-label');
+  if (winTypeEl) {
+    if (winType) {
+      const winTypeMap = { '自摸': '自摸 Tsumo', '荣和': '荣和 Ron', '嶺上開花': '嶺上開花 Lingshang' };
+      winTypeEl.textContent = winTypeMap[winType] || winType;
+      winTypeEl.style.display = '';
+    } else {
+      winTypeEl.textContent = '流局 Draw';
+      winTypeEl.style.display = '';
+    }
+  }
 
   if (roundEl && roundNumber) {
     roundEl.textContent = `第 ${roundNumber} 局 / Round ${roundNumber}`;
