@@ -520,7 +520,7 @@ function handleGameOver(msg) {
     } else if (msg.win_ron === false) {
       winType = '自摸';
     } else {
-      winType = '荣和';
+      winType = '点炮';
     }
   }
 
@@ -529,7 +529,7 @@ function handleGameOver(msg) {
     if (hasWinner) {
       const winTypeText = winType ? `${winType}！` : '';
       if (!_myWinSent) {
-        getSpeech()?.speak(`胡了！${winTypeText}`, 'immediate');
+        getSpeech()?.speak(`胡！${winTypeText}`, 'immediate');
         playWinEffect();   // 程序化音效：锣 → 五声音阶 → 和弦 → 闪烁
       } else {
         // Local player already heard "胡！" — queue the win type only.
@@ -1502,7 +1502,7 @@ function showGameOverModal(winnerName, scores, cumulativeScores, roundNumber, ha
   const winTypeEl = document.getElementById('win-type-label');
   if (winTypeEl) {
     if (winType) {
-      const winTypeMap = { '自摸': '自摸 Tsumo', '荣和': '荣和 Ron', '嶺上開花': '嶺上開花 Lingshang' };
+      const winTypeMap = { '自摸': '自摸 Tsumo', '点炮': '点炮 Ron', '嶺上開花': '嶺上開花 Lingshang' };
       winTypeEl.textContent = winTypeMap[winType] || winType;
       winTypeEl.style.display = '';
     } else {
