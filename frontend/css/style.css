@@ -856,6 +856,9 @@ html, body {
 .scores-table th { color: var(--text-muted); font-size: 0.85rem; }
 .scores-table td { color: var(--text-light); }
 .scores-table tr.winner-row td { color: #ffd700; font-weight: bold; }
+.scores-table td.chip-gain  { color: #4caf50; font-weight: bold; }
+.scores-table td.chip-loss  { color: #f44336; }
+.scores-table td.chip-zero  { color: var(--text-muted); }
 
 /* ---------- End-game winning tile highlight ---------- */
 .tile.tile-winning {

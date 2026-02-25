@@ -536,6 +536,16 @@ function handleGameOver(msg) {
     canRestart = myPlayerIdx === nextDealerIdx || dealerIsAI;
   }
 
+  // Compute per-player chip change for this round.
+  // gameState.cumulative_scores holds pre-settlement values (the last game_state
+  // broadcast happens before _handle_game_over settles chips).
+  const prevChips = gameState?.cumulative_scores || {};
+  const newChips  = msg.cumulative_scores || {};
+  const chipChanges = {};
+  for (const pid of Object.keys(newChips)) {
+    chipChanges[pid] = (newChips[pid] ?? 1000) - (prevChips[pid] ?? 1000);
+  }
+
   showGameOverModal(
     winnerName,
     msg.scores || {},
@@ -543,7 +553,8 @@ function handleGameOver(msg) {
     msg.round_number,
     msg.han_breakdown || [],
     msg.han_total || 0,
-    canRestart
+    canRestart,
+    chipChanges
   );
   setStatus(`Game over! Winner: ${winnerName}`, 'success');
   disableAllActionButtons();
@@ -1455,7 +1466,7 @@ function hideClaimOverlay() {
 /* ============================================================
    GAME OVER MODAL
    ============================================================ */
-function showGameOverModal(winnerName, scores, cumulativeScores, roundNumber, hanBreakdown, hanTotal, canRestart = true) {
+function showGameOverModal(winnerName, scores, cumulativeScores, roundNumber, hanBreakdown, hanTotal, canRestart = true, chipChanges = {}) {
   const modal     = document.getElementById('game-over-modal');
   const winnerEl  = document.getElementById('winner-name');
   const scoresEl  = document.getElementById('scores-body');
@@ -1491,11 +1502,13 @@ function showGameOverModal(winnerName, scores, cumulativeScores, roundNumber, ha
   const allPids = Object.keys(cumulativeScores || scores);
   allPids.sort((a, b) => ((cumulativeScores || {})[b] ?? 0) - ((cumulativeScores || {})[a] ?? 0));
   allPids.forEach(pid => {
-    const roundScore = scores[pid] ?? 0;
+    const delta = chipChanges[pid] ?? 0;
+    const deltaStr = delta > 0 ? `+${delta}` : `${delta}`;
+    const deltaClass = delta > 0 ? 'chip-gain' : delta < 0 ? 'chip-loss' : 'chip-zero';
     const chips = (cumulativeScores || {})[pid] ?? '–';
     const tr = document.createElement('tr');
     if (pid === winnerName) tr.classList.add('winner-row');
-    tr.innerHTML = `<td>${escapeHtml(pid)}</td><td>${roundScore}</td><td>${chips}</td>`;
+    tr.innerHTML = `<td>${escapeHtml(pid)}</td><td class="${deltaClass}">${deltaStr}</td><td>${chips}</td>`;
     scoresEl.appendChild(tr);
   });
 
