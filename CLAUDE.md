@@ -2853,6 +2853,73 @@ async def _handle_game_over(room_id: str) -> None:
 
 ---
 
+### 功能增强：断线宽限期（AI 延迟接管）
+
+**背景**：原先真实玩家 WebSocket 断开后，`finally` 块立即将座位的 `is_ai` 置为 `True` 并触发 `_run_ai_turn`。移动端网络不稳定时，短暂断线即被 AI 顶替出牌，玩家重连后发现手牌已被修改，体验很差。
+
+**实现方案**：
+
+新增 20 秒宽限期（`AI_TAKEOVER_GRACE = 20.0`），断线后启动异步计时器，而非立即接管：
+
+**1. 新增模块级常量与字典（`backend/api/websocket.py`）**
+
+```python
+AI_TAKEOVER_GRACE = 20.0  # 断线后等待玩家重连的秒数
+_ai_takeover_tasks: dict[str, asyncio.Task] = {}  # 键: "{room_id}:{player_id}"
+```
+
+**2. 新增 `_delayed_ai_takeover(room_id, player_id)` 协程**
+
+```python
+async def _delayed_ai_takeover(room_id, player_id):
+    await asyncio.sleep(AI_TAKEOVER_GRACE)
+    _ai_takeover_tasks.pop(key, None)
+    # 若玩家已重连则直接返回
+    if player_id in _connections.get(room_id, {}):
+        return
+    # 超时后正式交给 AI
+    gs.players[pidx].is_ai = True
+    asyncio.create_task(_run_ai_turn(room_id))
+```
+
+**3. `finally` 块改为启动计时器（不再立即设 `is_ai=True`）**
+
+```python
+# 断线时：启动宽限期，不立即接管
+key = f"{room_id}:{player_id}"
+task = asyncio.create_task(_delayed_ai_takeover(room_id, player_id))
+_ai_takeover_tasks[key] = task
+```
+
+**4. 重连时取消挂起的计时器**
+
+```python
+# 重连时：取消宽限期计时器
+pending_task = _ai_takeover_tasks.pop(key, None)
+if pending_task:
+    pending_task.cancel()
+```
+
+**行为说明**：
+
+| 场景 | 行为 |
+|---|---|
+| 断线后 20 秒内重连 | 计时器取消，玩家恢复正常操作，手牌不变 |
+| 宽限期内恰好轮到该玩家出牌 | 游戏短暂等待（无超时），其他玩家等待该玩家重连 |
+| 超过 20 秒仍未重连 | AI 正式接管座位，游戏继续 |
+| 超时后玩家重连 | `is_ai = False` 恢复，玩家继续参与（已有改动无法撤回） |
+
+`AI_TAKEOVER_GRACE` 可在 `websocket.py` 顶部直接调整。
+
+**修改文件**：
+
+| 文件 | 改动 |
+|---|---|
+| `backend/api/websocket.py` | 新增 `AI_TAKEOVER_GRACE`、`_ai_takeover_tasks`、`_delayed_ai_takeover()`；`finally` 块改为启动计时器；重连逻辑取消挂起计时器 |
+| `tests/integration/conftest.py` | 测试清理中加入 `_ai_takeover_tasks.clear()` |
+
+---
+
 ## 功能增强：Rejoin 已结束房间并继续牌局
 
 **背景**：原先点击大厅"Rejoin 重回"进入已结束的房间后，只能看到最终牌面，没有任何按钮可操作；离线玩家若回来也无法续打。

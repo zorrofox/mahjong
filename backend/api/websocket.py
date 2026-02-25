@@ -65,6 +65,52 @@ CHIP_CAP = 64
 AI_DELAY_MIN = 0.2
 AI_DELAY_MAX = 0.6
 
+# Seconds to wait after a disconnect before handing the seat to AI.
+# During this window the player can reconnect and resume control.
+AI_TAKEOVER_GRACE = 20.0
+
+# Pending AI-takeover tasks keyed by "{room_id}:{player_id}".
+_ai_takeover_tasks: dict[str, asyncio.Task] = {}
+
+
+# ---------------------------------------------------------------------------
+# Grace-period AI takeover
+# ---------------------------------------------------------------------------
+
+async def _delayed_ai_takeover(room_id: str, player_id: str) -> None:
+    """Wait AI_TAKEOVER_GRACE seconds, then take over the seat with AI.
+
+    If the player reconnects before the timer fires the task is cancelled and
+    this function never reaches the takeover logic.
+    """
+    await asyncio.sleep(AI_TAKEOVER_GRACE)
+
+    key = f"{room_id}:{player_id}"
+    _ai_takeover_tasks.pop(key, None)
+
+    # Abort if the player has already reconnected.
+    if player_id in _connections.get(room_id, {}):
+        return
+
+    room = room_manager.get_room(room_id)
+    if room is None or room.game_state is None or room.status != "playing":
+        return
+
+    gs = room.game_state
+    pidx = _player_index(gs, player_id)
+    if pidx is None:
+        return
+
+    gs.players[pidx].is_ai = True
+    logger.info(
+        "Player %s grace period expired; seat %d handed to AI",
+        player_id, pidx,
+    )
+    if gs.phase != "ended":
+        asyncio.create_task(_run_ai_turn(room_id))
+
+    await _broadcast_room_update()
+
 
 # ---------------------------------------------------------------------------
 # Helper: send / broadcast utilities
@@ -624,10 +670,19 @@ async def websocket_endpoint(ws: WebSocket, room_id: str, player_id: str):
         gs = room.game_state
         player_idx = _player_index(gs, player_id)
 
+        # Cancel any pending AI-takeover grace-period timer for this player.
+        key = f"{room_id}:{player_id}"
+        pending_task = _ai_takeover_tasks.pop(key, None)
+        if pending_task is not None:
+            pending_task.cancel()
+            logger.info(
+                "Player %s reconnected within grace period; AI takeover cancelled for seat %d",
+                player_id, player_idx,
+            )
+
         # Restore human control when a player reconnects after disconnect.
-        # On disconnect the finally block sets is_ai=True so the AI can fill
-        # in; here we reverse that for the real human player (identified by
-        # a non-AI player_id, i.e. not "ai_player_1/2/3").
+        # The grace period may have expired and is_ai been set to True already;
+        # restore it here regardless so the human can always take back their seat.
         if player_idx is not None and not player_id.startswith("ai_player_"):
             if gs.players[player_idx].is_ai:
                 gs.players[player_idx].is_ai = False
@@ -716,20 +771,21 @@ async def websocket_endpoint(ws: WebSocket, room_id: str, player_id: str):
             if not _connections[room_id]:
                 del _connections[room_id]
 
-        # If game in progress, mark the player's seat as AI-controlled
+        # If game in progress, start a grace-period timer before handing the
+        # seat to AI.  If the player reconnects within AI_TAKEOVER_GRACE
+        # seconds the task is cancelled and they resume human control.
         room = room_manager.get_room(room_id)
         if room and room.game_state and room.status == "playing":
             gs = room.game_state
             pidx = _player_index(gs, player_id)
-            if pidx is not None:
-                gs.players[pidx].is_ai = True
+            if pidx is not None and not player_id.startswith("ai_player_"):
+                key = f"{room_id}:{player_id}"
+                task = asyncio.create_task(_delayed_ai_takeover(room_id, player_id))
+                _ai_takeover_tasks[key] = task
                 logger.info(
-                    "Player %s disconnected mid-game; seat %d is now AI-controlled",
+                    "Player %s disconnected; AI takeover grace period started for seat %d",
                     player_id, pidx,
                 )
-                # If it was this player's turn, continue with AI
-                if gs.phase != "ended":
-                    asyncio.create_task(_run_ai_turn(room_id))
 
         await _broadcast_room_update()
 

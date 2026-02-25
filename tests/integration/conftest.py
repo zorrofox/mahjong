@@ -10,7 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 from main import app
 from api.routes import room_manager
-from api.websocket import _connections, _claim_window_active
+from api.websocket import _connections, _claim_window_active, _ai_takeover_tasks
 
 
 @pytest.fixture(autouse=True)
@@ -19,10 +19,12 @@ def _clear_state():
     room_manager._rooms.clear()
     _connections.clear()
     _claim_window_active.clear()
+    _ai_takeover_tasks.clear()
     yield
     room_manager._rooms.clear()
     _connections.clear()
     _claim_window_active.clear()
+    _ai_takeover_tasks.clear()
 
 
 @pytest.fixture
