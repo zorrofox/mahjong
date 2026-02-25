@@ -370,6 +370,7 @@ gcloud run deploy mahjong \
 | 18 | 跳过暗杠后下一轮杠发送错误牌 | `game.js` `sendKong()` | 使用 `selectedTile` 前须验证手牌满足杠条件 |
 | 19 | 重连时本局筹码变化全为 0 | `websocket.py` + `room_manager.py` | `chip_changes` 由后端计算并持久化在 `room.last_chip_changes`，不依赖前端差值 |
 | 20 | iOS 移动端程序化音效完全无声 | `game.js` `_getAC()` | 共享单例 `AudioContext`，首次用户点击时解锁（iOS 要求在手势同步回调中创建 AudioContext） |
+| 21 | 本命花多张时结算弹窗出现重复行 | `hand.py` `calculate_han` | 先统计匹配数量再合并为一条 `add('本命花', ..., count)`，其余番型经逐一验证均不存在重复调用 |
 
 ---
 
