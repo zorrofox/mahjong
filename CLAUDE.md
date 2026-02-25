@@ -2851,6 +2851,74 @@ async def _handle_game_over(room_id: str) -> None:
 
 ---
 
+### Bug 16：副露牌被混入自由牌池导致胡牌误判（假阳性）
+
+**发现时间**：代码审查（逻辑分析 + 手工构造反例验证）
+
+**现象**：玩家已碰/吃/杠后，在本不应胡牌的情况下，服务端判为胡牌并结束游戏。
+
+**根本原因**：
+
+`game_state.py` 全部 5 处胡牌合法性检查均使用：
+
+```python
+meld_tiles = [t for meld in player.melds for t in meld[:3]]
+is_winning_hand(effective_hand + meld_tiles)
+```
+
+`is_winning_hand` 将这 14 张牌视为**自由牌池**，允许任意重新配对/组合——副露牌（碰/吃的锁定牌组）被"借用"参与手牌重组，产生假阳性。
+
+**具体反例**：
+
+- 玩家已碰 `[B3, B3, B3]`（锁定，不可再用）
+- 当前手牌（11 张）：`[B1, B2, B3, B4, B5, B6, B7, B8, B8, B8, B8]`
+
+| 判断方法 | 结果 | 说明 |
+|---|---|---|
+| 旧：`is_winning_hand(hand + [B3,B3,B3])` | **True（假阳性）** | 借用副露里 2 张 B3 拆入顺子，得：对B3 + 顺1-2-3 + 顺3-4-5 + 顺6-7-8 + 刻B8 |
+| 正确：`is_winning_hand_given_melds(hand, 1)` | **False（正确）** | 碰牌锁定后，手牌只能对B8，剩余 9 张无法凑成 3 副 |
+
+**连锁后果**：
+
+1. `is_winning_hand` 假阳性 → 进入 `declare_win`
+2. `calculate_han(effective_hand, melds, ...)` 调用 `decompose_winning_hand`，仅看手牌（不含副露）→ 无法分解 → 返回 `None`
+3. `calculate_han` 给出基本分 1 番
+4. `MIN_HAN = 1`，`1 ≥ 1` → **游戏宣告非法胡牌并结束，筹码结算出错**
+
+**修复方案**：
+
+在 `hand.py` 新增 `is_winning_hand_given_melds(concealed_tiles, n_declared_melds)`：
+
+```python
+def is_winning_hand_given_melds(concealed_tiles, n_declared_melds):
+    """
+    副露锁定版胡牌检查：只检查 concealed_tiles 能否凑成
+    pair + (4 - n_declared_melds) 副，副露牌保持锁定不参与重组。
+    """
+    hand = [t for t in concealed_tiles if not is_flower_tile(t)]
+    expected = 14 - 3 * n_declared_melds
+    if len(hand) != expected:
+        return False
+    # 七对仅在无副露（14 张均在手）时有效
+    if n_declared_melds == 0 and _is_seven_pairs(sorted(hand)):
+        return True
+    for pair_tile in find_pairs(sorted(hand)):
+        remaining = _remove_tiles(sorted(hand), [pair_tile, pair_tile])
+        if _try_extract_melds(remaining):
+            return True
+    return False
+```
+
+在 `game_state.py` 将全部 5 处 `is_winning_hand(effective_hand + meld_tiles)` 替换为 `is_winning_hand_given_melds(effective_hand, len(player.melds))`。
+
+**修改文件**：
+
+| 文件 | 改动 |
+|---|---|
+| `backend/game/hand.py` | 新增 `is_winning_hand_given_melds()` |
+| `backend/game/game_state.py` | 5 处胡牌检查改用新函数，删除冗余 `meld_tiles` 变量 |
+| `backend/tests/test_hand.py` | 新增 `TestIsWinningHandGivenMelds`（7 个回归测试，含主反例验证） |
+
 ---
 
 ### 功能增强：断线宽限期（AI 延迟接管）

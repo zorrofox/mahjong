@@ -181,6 +181,52 @@ def is_winning_hand(tiles: list[str]) -> bool:
     return False
 
 
+def is_winning_hand_given_melds(
+    concealed_tiles: list[str],
+    n_declared_melds: int,
+) -> bool:
+    """
+    Check if the player's concealed tiles form a valid winning hand structure,
+    given that n_declared_melds melds have already been locked (pung/chow/kong).
+
+    Unlike is_winning_hand(), the declared meld tiles are NOT included here —
+    they are already fixed and must NOT be recombined with the concealed tiles.
+    Only the concealed portion is validated.
+
+    The concealed tiles must be able to form:
+        1 pair  +  (4 - n_declared_melds) melds
+
+    Seven pairs (七對) are only possible when n_declared_melds == 0
+    (requires all 14 tiles to be concealed).
+
+    Args:
+        concealed_tiles:  Player's concealed hand including the winning tile,
+                          with bonus tiles excluded. Expected length:
+                          14 - 3 * n_declared_melds.
+        n_declared_melds: Number of already-declared melds (pungs/chows/kongs).
+
+    Returns:
+        True if the concealed tiles can form the required pair + melds.
+    """
+    hand = [t for t in concealed_tiles if not is_flower_tile(t)]
+    expected = 14 - 3 * n_declared_melds
+    if len(hand) != expected:
+        return False
+
+    sorted_hand = sorted(hand)
+
+    # Seven pairs only valid when no declared melds (all 14 tiles concealed)
+    if n_declared_melds == 0 and _is_seven_pairs(sorted_hand):
+        return True
+
+    for pair_tile in find_pairs(sorted_hand):
+        remaining = _remove_tiles(sorted_hand, [pair_tile, pair_tile])
+        if _try_extract_melds(remaining):
+            return True
+
+    return False
+
+
 def _extract_all_melds_recursive(
     tiles: list[str],
     current_melds: list[list[str]],

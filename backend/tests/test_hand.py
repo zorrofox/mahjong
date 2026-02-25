@@ -3,6 +3,7 @@
 import pytest
 from game.hand import (
     is_winning_hand,
+    is_winning_hand_given_melds,
     can_pung,
     can_kong,
     can_chow,
@@ -701,3 +702,109 @@ class TestBonusTileChain:
         normal = [t for t in gs.players[0].hand if not is_flower_tile(t)]
         assert sorted(normal) == ["BAMBOO_1", "BAMBOO_5"]
         assert len(gs.wall) == 0
+
+
+class TestIsWinningHandGivenMelds:
+    """回归测试：副露锁定后不得将副露牌重新混入手牌进行胡牌判断。
+
+    Bug 场景：is_winning_hand(effective_hand + meld_tiles) 把副露牌当自由牌，
+    导致以下情况误判为胡牌：
+        已声索吃牌 [B1, B2, B3]，手牌 [B2, B3, B4, B5, B6, B7, B8, B9x4]
+    自由组合会借用吃牌里的 B2 配对，实为不合法胡牌。
+    """
+
+    def test_false_positive_with_pung_meld_regression(self):
+        """主回归用例：副露碰牌 [B3,B3,B3]，手牌含 1 张 B3。
+
+        旧方法把副露的两张 B3 借用到手牌做顺子，使总牌池凑成胡牌型（假阳性）：
+          pair B3(1手+1副露) + 顺B1-B2-B3(2手+1副露) + 顺B3-B4-B5? ← 不对
+          实际上：pair B3 + 顺B1-B2-B3 + 顺B3-B4-B5 + 顺B6-B7-B8 + 刻B8
+          这借用了副露里的 B3，属非法分解。
+
+        正确判断：碰牌 [B3,B3,B3] 锁定后，手牌 [B1..B8, B8x4] 中
+        只有 B8 可对，剩余 9 张无法凑成 3 副顺/刻。
+        """
+        hand = [
+            "BAMBOO_1", "BAMBOO_2", "BAMBOO_3", "BAMBOO_4", "BAMBOO_5",
+            "BAMBOO_6", "BAMBOO_7", "BAMBOO_8", "BAMBOO_8", "BAMBOO_8", "BAMBOO_8",
+        ]
+        declared_pung = ["BAMBOO_3", "BAMBOO_3", "BAMBOO_3"]
+
+        # 旧方法（副露自由混入）产生假阳性
+        old_check = is_winning_hand(hand + declared_pung)
+        assert old_check is True, "证明旧方法确实产生假阳性"
+
+        # 正确判断（副露锁定）：不能胡
+        assert is_winning_hand_given_melds(hand, n_declared_melds=1) is False
+
+    def test_no_melds_equivalent_to_is_winning_hand(self):
+        """无副露时，两个函数结果应完全一致。"""
+        winning = (
+            ["BAMBOO_1"] * 2
+            + ["BAMBOO_2", "BAMBOO_3", "BAMBOO_4"]
+            + ["BAMBOO_5", "BAMBOO_6", "BAMBOO_7"]
+            + ["BAMBOO_8", "BAMBOO_9", "BAMBOO_9", "BAMBOO_9"]
+            + ["CIRCLES_1"]
+        )
+        # 14 张合法手牌
+        assert is_winning_hand(winning) == is_winning_hand_given_melds(winning, 0)
+
+    def test_valid_win_with_pung_meld_accepted(self):
+        """有碰牌副露时，合法胡型应被接受。"""
+        # 副露：碰 BAMBOO_9（3 张）
+        # 手牌 11 张 = 对 + 3 副顺子
+        hand = [
+            "BAMBOO_1", "BAMBOO_2", "BAMBOO_3",
+            "BAMBOO_4", "BAMBOO_5", "BAMBOO_6",
+            "BAMBOO_7", "BAMBOO_8", "BAMBOO_8",
+            "BAMBOO_8", "BAMBOO_8",
+        ]
+        # 对 B8 + 顺 1-2-3 + 顺 4-5-6 + 顺 7-8-8 — 不合法
+        # 重新构造合法手牌：对 B1 + 顺 2-3-4 + 顺 5-6-7 + 顺 ... 需要12张，不对
+        # 用正规 11 张：对 + 3 副刻/顺
+        hand2 = (
+            ["BAMBOO_1", "BAMBOO_1"]       # 对
+            + ["BAMBOO_2", "BAMBOO_3", "BAMBOO_4"]  # 顺
+            + ["BAMBOO_5", "BAMBOO_6", "BAMBOO_7"]  # 顺
+            + ["BAMBOO_7", "BAMBOO_8", "BAMBOO_9"]  # 顺
+        )
+        assert is_winning_hand_given_melds(hand2, n_declared_melds=1) is True
+
+    def test_two_melds_win(self):
+        """2 副副露时，手牌 8 张 = 对 + 2 副顺子，应判胡。"""
+        hand = (
+            ["CIRCLES_1", "CIRCLES_1"]           # 对
+            + ["CIRCLES_2", "CIRCLES_3", "CIRCLES_4"]  # 顺
+            + ["CIRCLES_5", "CIRCLES_6", "CIRCLES_7"]  # 顺
+        )
+        assert is_winning_hand_given_melds(hand, n_declared_melds=2) is True
+
+    def test_seven_pairs_no_melds(self):
+        """七对（无副露）应被接受。"""
+        hand = [
+            "BAMBOO_1", "BAMBOO_1",
+            "BAMBOO_3", "BAMBOO_3",
+            "BAMBOO_5", "BAMBOO_5",
+            "BAMBOO_7", "BAMBOO_7",
+            "CIRCLES_2", "CIRCLES_2",
+            "CHARACTERS_4", "CHARACTERS_4",
+            "EAST", "EAST",
+        ]
+        assert is_winning_hand_given_melds(hand, n_declared_melds=0) is True
+
+    def test_seven_pairs_rejected_with_melds(self):
+        """有副露时七对不合法（手牌不足 14 张）。"""
+        hand = [
+            "BAMBOO_1", "BAMBOO_1",
+            "BAMBOO_3", "BAMBOO_3",
+            "BAMBOO_5", "BAMBOO_5",
+            "BAMBOO_7", "BAMBOO_7",
+            "CIRCLES_2", "CIRCLES_2",
+            "CHARACTERS_4",
+        ]  # 11 张，非七对
+        assert is_winning_hand_given_melds(hand, n_declared_melds=1) is False
+
+    def test_wrong_tile_count_rejected(self):
+        """瓦数不符（副露数 × 3 + 手牌 ≠ 14）应直接返回 False。"""
+        hand = ["BAMBOO_1"] * 12  # 应为 11 张（1 副副露）
+        assert is_winning_hand_given_melds(hand, n_declared_melds=1) is False

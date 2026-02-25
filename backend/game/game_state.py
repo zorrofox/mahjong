@@ -18,6 +18,7 @@ from typing import Optional
 from .tiles import build_deck, shuffle_deck, is_flower_tile, is_suit_tile, get_suit
 from .hand import (
     is_winning_hand,
+    is_winning_hand_given_melds,
     can_pung,
     can_kong,
     can_chow,
@@ -747,10 +748,11 @@ class GameState:
         winning_tile: Optional[str] = None
 
         if self.phase == "discarding" and player_idx == self.current_turn:
-            # Self-draw win: the last tile drawn is in the hand already
+            # Self-draw win: the last tile drawn is in the hand already.
+            # Use is_winning_hand_given_melds so declared meld tiles are treated
+            # as fixed and are NOT recombined with the concealed hand.
             effective_hand = player.hand_without_bonus()
-            meld_tiles = [t for meld in player.melds for t in meld[:3]]
-            if not is_winning_hand(effective_hand + meld_tiles):
+            if not is_winning_hand_given_melds(effective_hand, len(player.melds)):
                 raise ValueError(f"Player {player_idx}'s hand is not a winning hand.")
             _pre_han = calculate_han(effective_hand, player.melds, player.flowers, ron=False)
             if _pre_han['total'] < MIN_HAN:
@@ -770,8 +772,7 @@ class GameState:
             # Validate using a temporary copy — do NOT modify the real hand here.
             # _resolve_claims will add the tile and finalize when the window closes.
             effective_hand = player.hand_without_bonus() + [tile]
-            meld_tiles = [t for meld in player.melds for t in meld[:3]]
-            if not is_winning_hand(effective_hand + meld_tiles):
+            if not is_winning_hand_given_melds(effective_hand, len(player.melds)):
                 raise ValueError(f"Player {player_idx}'s hand + '{tile}' is not a winning hand.")
             _pre_han = calculate_han(effective_hand, player.melds, player.flowers, ron=True)
             if _pre_han['total'] < MIN_HAN:
@@ -886,10 +887,10 @@ class GameState:
 
         if self.phase == "discarding" and player_idx == self.current_turn:
             actions.append("discard")
-            # Check self-draw win
+            # Check self-draw win (declared melds are fixed — do NOT mix them
+            # back into the concealed hand for validation).
             effective_hand = player.hand_without_bonus()
-            meld_tiles = [t for meld in player.melds for t in meld[:3]]
-            if len(effective_hand) + len(meld_tiles) == 14 and is_winning_hand(effective_hand + meld_tiles):
+            if is_winning_hand_given_melds(effective_hand, len(player.melds)):
                 han = calculate_han(effective_hand, player.melds, player.flowers, ron=False)
                 if han['total'] >= MIN_HAN:
                     actions.append("win")
@@ -912,9 +913,7 @@ class GameState:
 
                 if self._is_rob_kong_window:
                     # Rob-the-kong window (搶杠胡): ONLY win or skip allowed
-                    meld_tiles = [t for meld in player.melds for t in meld[:3]]
-                    test_hand = effective_hand + [tile] + meld_tiles
-                    if is_winning_hand(test_hand):
+                    if is_winning_hand_given_melds(effective_hand + [tile], len(player.melds)):
                         han = calculate_han(effective_hand + [tile], player.melds,
                                             player.flowers, ron=True)
                         if han['total'] >= MIN_HAN:
@@ -923,10 +922,8 @@ class GameState:
                     return sorted(set(actions))
 
                 # Normal claim window ─────────────────────────────────────────
-                # Check win
-                meld_tiles = [t for meld in player.melds for t in meld[:3]]
-                test_hand = effective_hand + [tile] + meld_tiles
-                if is_winning_hand(test_hand):
+                # Check win (declared melds are fixed — do NOT mix them back).
+                if is_winning_hand_given_melds(effective_hand + [tile], len(player.melds)):
                     han = calculate_han(effective_hand + [tile], player.melds, player.flowers, ron=True)
                     if han['total'] >= MIN_HAN:
                         actions.append("win")
