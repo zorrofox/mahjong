@@ -621,11 +621,12 @@ def calculate_han(
         add('嶺上開花', 'Kong Win (Lingshang)', 1)
 
     # ── 本命花 (Seat Flowers) ──────────────────────────────────
-    # Each flower/season tile matching the player's seat: +1 fan each
+    # Each flower/season tile matching the player's seat: +1 fan each.
+    # Merged into one entry to avoid duplicate rows in the breakdown display.
     seat_flower_set = _SEAT_FLOWERS.get(player_seat, frozenset())
-    for f in flowers:
-        if f in seat_flower_set:
-            add('本命花', 'Seat Flower', 1)
+    seat_flower_count = sum(1 for f in flowers if f in seat_flower_set)
+    if seat_flower_count > 0:
+        add('本命花', 'Seat Flower', seat_flower_count)
 
     # ── 自风 / 圈风 (Seat Wind Pung / Round Wind Pung) ──────────
     # Punging the seat-wind tile or the round-wind tile each give +1 fan.
