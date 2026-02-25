@@ -371,6 +371,11 @@ gcloud run deploy mahjong \
 | 19 | 重连时本局筹码变化全为 0 | `websocket.py` + `room_manager.py` | `chip_changes` 由后端计算并持久化在 `room.last_chip_changes`，不依赖前端差值 |
 | 20 | iOS 移动端程序化音效完全无声 | `game.js` `_getAC()` | 共享单例 `AudioContext`，首次用户点击时解锁（iOS 要求在手势同步回调中创建 AudioContext） |
 | 21 | 本命花多张时结算弹窗出现重复行 | `hand.py` `calculate_han` | 先统计匹配数量再合并为一条 `add('本命花', ..., count)`，其余番型经逐一验证均不存在重复调用 |
+| 22 | 新局开始时对手手牌区残留上局翻牌 | `game.html` `renderOpponent` else 分支 | reveal→normal 切换时，需先检查 `dataset.tilesKey` 是否含 `\|reveal\|`，若是则清空容器再走差量逻辑；`.tile-back` 计数不会清除正面 SVG 图片 |
+| 23 | AI `should_declare_win` 有副露时误判（假阳性/假阴性） | `ai_player.py` `should_declare_win` | 改用 `is_winning_hand_given_melds(playable, len(melds))` 替代旧版 `is_winning_hand(hand + meld_tiles)`；副露牌不能混入自由牌池 |
+| 24 | 同优先级声索（碰 vs 碰 / 杠 vs 杠）后者覆盖先者 | `game_state.py` `claim_pung`/`claim_kong` | 同优先级改为取座位距离最近者（`_seat_distance`）；修复前用 `>=` 导致后来者无条件覆盖 |
+| 25 | 声索验证传 `player.hand` 而非 `hand_without_bonus()` | `game_state.py` `claim_pung`/`claim_kong`/`claim_chow` | 花牌滞留手中时验证结果与 `get_available_actions` 不一致；统一改用 `hand_without_bonus()` |
+| 26 | 庄家荣和筹码公式错误（应收 6u 实收 3u） | `websocket.py` `_pay()` | 庄家赢时 `winner_idx == dealer_idx`，所有 payer 均为闲家，应一律返回 `2*unit`；原代码因 payer_idx 判断路径错误只返回 `1*unit` |
 
 ---
 
