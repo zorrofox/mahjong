@@ -599,11 +599,15 @@ html, body {
 .claim-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.65);
+  background: transparent;
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 100;
+  pointer-events: none; /* let board remain interactive underneath */
+}
+.claim-overlay > * {
+  pointer-events: auto; /* but the modal box itself still captures clicks */
 }
 
 .claim-overlay.hidden { display: none; }
@@ -622,7 +626,7 @@ html, body {
   padding: 2rem;
   text-align: center;
   min-width: 300px;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.7);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.8), 0 0 0 1px rgba(0,0,0,0.4);
   /* 全局安全网：内容超出屏高时允许滚动 */
   max-height: 92vh;
   overflow-y: auto;
@@ -798,11 +802,15 @@ html, body {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.75);
+  background: transparent;
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 200;
+  pointer-events: none;
+}
+.modal-overlay > * {
+  pointer-events: auto;
 }
 
 .modal-overlay.hidden { display: none; }
@@ -818,7 +826,7 @@ html, body {
   width: 92%;
   max-height: 90vh;
   overflow-y: auto;
-  box-shadow: 0 8px 40px rgba(0,0,0,0.8);
+  box-shadow: 0 8px 40px rgba(0,0,0,0.8), 0 0 0 1px rgba(0,0,0,0.4);
 }
 
 .modal-box h2 {
