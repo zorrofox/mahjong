@@ -595,29 +595,54 @@
         }
 
         if (handEl) {
-          // Incremental face-down tile update: add or remove one at a time,
-          // never clear the whole container unnecessarily.
-          const tileCount    = getHandCount(player);
-          const currentCount = handEl.querySelectorAll('.tile-back').length;
           const w = position === 'left' || position === 'right' ? '18px' : '20px';
           const h = position === 'left' || position === 'right' ? '26px' : '28px';
-          if (currentCount < tileCount) {
-            for (let i = currentCount; i < tileCount; i++) {
-              const el = document.createElement('span');
-              el.className = 'tile tile-back';
-              el.style.width  = w;
-              el.style.height = h;
-              handEl.appendChild(el);
+
+          if (window._endReveal) {
+            // ── End-game reveal: show tiles face-up ─────────────────────────
+            const tiles = getHandTiles(player);
+            const winnerIdx = state.winner
+              ? (state.players || []).findIndex(p => p.id === state.winner)
+              : -1;
+            const winTile   = state.winning_tile || null;
+            const revealKey = tiles.join(',') + '|reveal|' + (winTile || '');
+            if (handEl.dataset.tilesKey !== revealKey) {
+              handEl.dataset.tilesKey = revealKey;
+              handEl.innerHTML = '';
+              let winMarked = false;
+              tiles.forEach(t => {
+                const isWin = !winMarked && t === winTile && playerIdx === winnerIdx;
+                if (isWin) winMarked = true;
+                const el = makeTileEl(t, { winning: isWin });
+                el.style.width  = w;
+                el.style.height = h;
+                handEl.appendChild(el);
+              });
             }
-          } else if (currentCount > tileCount) {
-            const tiles = [...handEl.querySelectorAll('.tile-back')];
-            for (let i = tileCount; i < currentCount; i++) tiles[i].remove();
+          } else {
+            // ── Normal play: show face-down tiles ───────────────────────────
+            const tileCount    = getHandCount(player);
+            const currentCount = handEl.querySelectorAll('.tile-back').length;
+            if (currentCount < tileCount) {
+              for (let i = currentCount; i < tileCount; i++) {
+                const el = document.createElement('span');
+                el.className = 'tile tile-back';
+                el.style.width  = w;
+                el.style.height = h;
+                handEl.appendChild(el);
+              }
+            } else if (currentCount > tileCount) {
+              const btiles = [...handEl.querySelectorAll('.tile-back')];
+              for (let i = tileCount; i < currentCount; i++) btiles[i].remove();
+            }
           }
         }
 
         if (meldsEl) {
-          // Only rebuild melds when they actually change.
-          const newMeldsKey = JSON.stringify(player.melds || []);
+          // Rebuild melds (and flowers in reveal mode) when they change.
+          const flowers     = player.flowers || [];
+          const revealSuffix = window._endReveal ? '|reveal|' + flowers.join(',') : '';
+          const newMeldsKey  = JSON.stringify(player.melds || []) + revealSuffix;
           if (meldsEl.dataset.meldsKey !== newMeldsKey) {
             meldsEl.dataset.meldsKey = newMeldsKey;
             meldsEl.innerHTML = '';
@@ -633,6 +658,21 @@
               });
               meldsEl.appendChild(group);
             });
+            // Show flowers / seasons in reveal mode
+            if (window._endReveal && flowers.length) {
+              const sep = document.createElement('span');
+              sep.className = 'end-flowers-sep';
+              sep.textContent = '🌸';
+              sep.style.cssText = 'font-size:0.6rem;opacity:0.7;margin:0 2px;';
+              meldsEl.appendChild(sep);
+              flowers.forEach(t => {
+                const te = makeTileEl(t);
+                te.style.width  = '16px';
+                te.style.height = '22px';
+                te.style.fontSize = '0.5rem';
+                meldsEl.appendChild(te);
+              });
+            }
           }
         }
       };
@@ -659,26 +699,41 @@
         }
 
         if (handEl) {
-          // Only rebuild hand tiles when the tile set changes.
           const newTiles    = sortHandTiles(getHandTiles(player));
-          const newTilesKey = newTiles.join(',');
+          const winTile     = state.winning_tile || null;
+          const isWinner    = state.winner && player.id === state.winner;
+          // Include reveal/winning info in the cache key so rebuilds happen when needed.
+          const revealSuffix = window._endReveal ? '|reveal|' + (winTile || '') : '';
+          const newTilesKey  = newTiles.join(',') + revealSuffix;
+
           if (handEl.dataset.tilesKey !== newTilesKey) {
             handEl.dataset.tilesKey = newTilesKey;
-            // Reset selectedTile tracker so selection sync runs after rebuild.
             delete handEl.dataset.selectedTile;
             handEl.innerHTML = '';
-            newTiles.forEach(tileStr => {
-              const el = makeTileEl(tileStr, { clickable: true });
-              handEl.appendChild(el);
-            });
+            if (window._endReveal) {
+              // End-game: not clickable; highlight winning tile once.
+              let winMarked = false;
+              newTiles.forEach(tileStr => {
+                const isWin = !winMarked && isWinner && tileStr === winTile;
+                if (isWin) winMarked = true;
+                handEl.appendChild(makeTileEl(tileStr, { winning: isWin }));
+              });
+            } else {
+              newTiles.forEach(tileStr => {
+                handEl.appendChild(makeTileEl(tileStr, { clickable: true }));
+              });
+            }
           }
-          // Sync selection state only when it has actually changed.
-          const selKey = selectedTile || '';
-          if (handEl.dataset.selectedTile !== selKey) {
-            handEl.dataset.selectedTile = selKey;
-            handEl.querySelectorAll('.tile').forEach(el => {
-              el.classList.toggle('selected', el.dataset.tile === selectedTile);
-            });
+
+          if (!window._endReveal) {
+            // Sync selection state only when it has actually changed.
+            const selKey = selectedTile || '';
+            if (handEl.dataset.selectedTile !== selKey) {
+              handEl.dataset.selectedTile = selKey;
+              handEl.querySelectorAll('.tile').forEach(el => {
+                el.classList.toggle('selected', el.dataset.tile === selectedTile);
+              });
+            }
           }
         }
 

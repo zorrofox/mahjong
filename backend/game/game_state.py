@@ -132,6 +132,7 @@ class GameState:
 
         # Game result
         self.winner: Optional[str] = None  # player id of the winner
+        self.winning_tile: Optional[str] = None  # the specific tile that completed the hand
         self.win_ron: Optional[bool] = None  # True = discard win, False = self-draw
         self.win_discarder_idx: Optional[int] = None  # index of the discarder for ron wins
         self.han_breakdown: list[dict] = []   # [{'name_cn','name_en','fan'}, ...]
@@ -379,6 +380,7 @@ class GameState:
     def _finalize_win(self, player_idx: int, winning_tile: str, ron: bool = False) -> None:
         """Mark the game as ended with the given player as winner."""
         self.winner = self.players[player_idx].id
+        self.winning_tile = winning_tile
         self.win_ron = ron
         self.win_discarder_idx = self.last_discard_player if ron else None
         self.phase = "ended"
@@ -986,8 +988,11 @@ class GameState:
         """
         players_data = []
         for i, player in enumerate(self.players):
-            if viewing_player_idx is not None and i != viewing_player_idx:
-                # Hide hand tiles for other players
+            if self.phase == "ended":
+                # Game over: reveal every player's hand for the post-game display.
+                hand_data = {"tiles": list(player.hand), "hidden": False}
+            elif viewing_player_idx is not None and i != viewing_player_idx:
+                # Hide hand tiles for other players during active play.
                 hand_data = {"hidden": True, "count": player.effective_tile_count()}
             else:
                 hand_data = {"tiles": list(player.hand), "hidden": False}
@@ -1015,6 +1020,7 @@ class GameState:
             "discards": [list(pile) for pile in self.discards],
             "players": players_data,
             "winner": self.winner,
+            "winning_tile": self.winning_tile,
             "available_actions": (
                 self.get_available_actions(viewing_player_idx)
                 if viewing_player_idx is not None

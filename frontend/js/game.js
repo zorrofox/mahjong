@@ -24,6 +24,9 @@ let pendingActions = [];
 let inClaimWindow  = false;
 let statusDismissTimer = null;
 let claimCountdownTimer = null;
+// When true, the post-game board reveals all players' hands face-up.
+// Set by the Close button on the game-over modal; reset when a new game starts.
+window._endReveal = false;
 // Tracks which claim action the local player most recently sent ('chow' | 'pung' |
 // 'kong' | 'win' | null).  Used in handleGameState to decide whether a meld that
 // appeared for ANOTHER player should cancel a pending local claim sound.
@@ -210,6 +213,7 @@ function makeTileEl(tileStr, options = {}) {
   el.title = info.label || tileStr;
   el.dataset.tile = tileStr;
 
+  if (options.winning) el.classList.add('tile-winning');
   if (options.selected) el.classList.add('selected');
   if (options.clickable) {
     el.style.cursor = 'pointer';
@@ -347,6 +351,8 @@ function handleGameState(state) {
     if (modal && !modal.classList.contains('hidden')) {
       modal.classList.add('hidden');
     }
+    // Reset end-of-game reveal mode so a fresh game renders normally.
+    window._endReveal = false;
   }
 
   // Announce the discarded tile (covers AI discards arriving via game_state).
@@ -1620,6 +1626,11 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   document.getElementById('btn-close-modal')?.addEventListener('click', () => {
     document.getElementById('game-over-modal')?.classList.add('hidden');
+    // Reveal all players' hands on the board after closing the results modal.
+    if (gameState && gameState.phase === 'ended') {
+      window._endReveal = true;
+      renderBoard(gameState);
+    }
   });
 
   // Start hidden state

@@ -849,6 +849,16 @@ html, body {
 .scores-table td { color: var(--text-light); }
 .scores-table tr.winner-row td { color: #ffd700; font-weight: bold; }
 
+/* ---------- End-game winning tile highlight ---------- */
+.tile.tile-winning {
+  outline: 2px solid #f0c040;
+  outline-offset: 2px;
+  filter: drop-shadow(0 0 6px rgba(240, 192, 64, 0.95))
+          drop-shadow(0 0 2px rgba(240, 192, 64, 0.7));
+  position: relative;
+  z-index: 1;
+}
+
 /* ---------- Han Breakdown Table ---------- */
 .han-section {
   margin: 0.8rem 0 1rem;
