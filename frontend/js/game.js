@@ -546,6 +546,10 @@ function handleGameOver(msg) {
     chipChanges[pid] = (newChips[pid] ?? 1000) - (prevChips[pid] ?? 1000);
   }
 
+  // Resolve current-round dealer player ID from dealer_idx.
+  const dealerIdx = msg.dealer_idx ?? gameState?.dealer_idx ?? 0;
+  const dealerId  = gameState?.players?.[dealerIdx]?.id ?? null;
+
   showGameOverModal(
     winnerName,
     msg.scores || {},
@@ -554,7 +558,8 @@ function handleGameOver(msg) {
     msg.han_breakdown || [],
     msg.han_total || 0,
     canRestart,
-    chipChanges
+    chipChanges,
+    dealerId
   );
   setStatus(`Game over! Winner: ${winnerName}`, 'success');
   disableAllActionButtons();
@@ -1466,7 +1471,7 @@ function hideClaimOverlay() {
 /* ============================================================
    GAME OVER MODAL
    ============================================================ */
-function showGameOverModal(winnerName, scores, cumulativeScores, roundNumber, hanBreakdown, hanTotal, canRestart = true, chipChanges = {}) {
+function showGameOverModal(winnerName, scores, cumulativeScores, roundNumber, hanBreakdown, hanTotal, canRestart = true, chipChanges = {}, dealerId = null) {
   const modal     = document.getElementById('game-over-modal');
   const winnerEl  = document.getElementById('winner-name');
   const scoresEl  = document.getElementById('scores-body');
@@ -1506,9 +1511,10 @@ function showGameOverModal(winnerName, scores, cumulativeScores, roundNumber, ha
     const deltaStr = delta > 0 ? `+${delta}` : `${delta}`;
     const deltaClass = delta > 0 ? 'chip-gain' : delta < 0 ? 'chip-loss' : 'chip-zero';
     const chips = (cumulativeScores || {})[pid] ?? '–';
+    const dealerBadge = pid === dealerId ? ' <span class="dealer-badge">庄</span>' : '';
     const tr = document.createElement('tr');
     if (pid === winnerName) tr.classList.add('winner-row');
-    tr.innerHTML = `<td>${escapeHtml(pid)}</td><td class="${deltaClass}">${deltaStr}</td><td>${chips}</td>`;
+    tr.innerHTML = `<td>${escapeHtml(pid)}${dealerBadge}</td><td class="${deltaClass}">${deltaStr}</td><td>${chips}</td>`;
     scoresEl.appendChild(tr);
   });
 
