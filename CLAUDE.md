@@ -3224,3 +3224,107 @@ if (msg.is_reconnect) {
 - CORS 当前设置为 `allow_origins=["*"]`，生产环境建议限制为实际域名
 - WebSocket 需要 HTTP/1.1（不支持 HTTP/2 升级）；通过 Cloud Load Balancer 时走 `wss://` 正常工作
 - LB Backend Service timeout 对 Serverless NEG 不可配置；WebSocket 连接由 Cloud Run 内部管理
+
+---
+
+## Bug 修复：新局开始时对手手牌翻牌残留
+
+**发现时间**：移动端测试（胡牌后再开局发现上一局牌仍显示）
+
+**现象**：游戏结束翻牌展示后，点击「再来一局」，对手手牌区仍残留上一局的正面 SVG 牌图，与新局背面牌叠加显示。
+
+**根本原因**：`renderOpponent` 的正常模式（else 分支）使用差量更新逻辑，通过 `querySelectorAll('.tile-back').length` 计数。游戏结束翻牌后，handEl 里是正面 SVG 图片元素（**不含** `.tile-back` 类），差量逻辑返回 `currentCount = 0`，只追加新背面牌，旧正面牌留在 DOM 中。
+
+**修复方案**：在 else 分支开头检查 `dataset.tilesKey` 是否含 `|reveal|`（说明容器还有上局翻出的正面牌），若是则先清空再走差量逻辑。
+
+**修改文件**：`frontend/game.html`（`renderOpponent` 的 else 分支）
+
+---
+
+## 功能增强：结算弹窗显示本局筹码变化（±N）
+
+**背景**：原「本局得分」列显示的是 `han_total`（番数），庄家和闲家赢相同手牌番数完全一样，庄家双倍效果不可见。
+
+**改动**：
+
+- 弹窗表头「本局得分 / Round」→「本局筹码 / Round Chips」
+- 列内容改为本局筹码实际变化量（±N），绿色/红色区分盈亏
+- `chip_changes` 由后端在结算时计算（快照结算前后差值），存入 `room.last_chip_changes`，随 `game_over` 消息下发（含重连路径），前端直接使用——避免重连时 prevChips == newChips 导致全显示 0 的 bug
+
+**修改文件**：
+
+| 文件 | 改动 |
+|---|---|
+| `backend/game/room_manager.py` | `Room` 新增 `last_chip_changes` 字段 |
+| `backend/api/websocket.py` | 结算前快照旧余额，结算后计算差值存入 `room.last_chip_changes`，`game_over` 消息（含重连）携带 `chip_changes` 字段 |
+| `frontend/game.html` | 表头更新 |
+| `frontend/js/game.js` | `showGameOverModal` 使用 `msg.chip_changes`，新增 `chip-gain`/`chip-loss`/`chip-zero` 样式类 |
+| `frontend/css/style.css` | 新增三种筹码变化颜色样式 |
+
+---
+
+## 功能增强：结算弹窗记分表格标注当局庄家
+
+后端 `game_over` 消息新增 `dealer_idx` 字段（当局庄家座位，区别于 `next_dealer_idx`）。前端根据 `dealer_idx` 解析庄家 player ID，在记分表格玩家名后附加 `<span class="dealer-badge">庄</span>` 标识，样式复用牌桌上的庄家徽标。
+
+**修改文件**：`backend/api/websocket.py`、`frontend/js/game.js`
+
+---
+
+## 功能增强：胡牌类型显示与语音播报
+
+**胡牌类型**：
+
+| 类型 | 条件 | 语音 | 弹窗显示 |
+|---|---|---|---|
+| 自摸 Tsumo | `win_ron = False`，非嶺上開花 | 「胡！自摸！」 | 自摸 Tsumo |
+| 点炮 Ron | `win_ron = True` | 「胡！点炮！」 | 点炮 Ron |
+| 嶺上開花 Lingshang | `win_ron = False` 且番型含嶺上開花 | 「胡！嶺上開花！」 | 嶺上開花 Lingshang |
+| 流局 Draw | 无赢家 | 「流局」 | 流局 Draw |
+
+**数据流**：
+1. 后端 `game_over` 新增 `win_ron` 字段（`True`=点炮, `False`=自摸, `None`=流局）
+2. 前端 `handleGameOver` 推导 `winType`（检查 `han_breakdown` 是否含嶺上開花）
+3. 语音：他人胡牌合并播「胡！自摸！」；本人胡牌已播「胡！」，追加排队播类型
+4. 弹窗 winner 名下方新增 `#win-type-label` 标签
+
+**修改文件**：
+
+| 文件 | 改动 |
+|---|---|
+| `backend/api/websocket.py` | `game_over` 消息（正常 + 重连）新增 `win_ron` 字段 |
+| `frontend/game.html` | 弹窗新增 `#win-type-label` 元素 |
+| `frontend/js/game.js` | `handleGameOver` 推导 `winType`；语音追加类型；`showGameOverModal` 渲染类型标签 |
+
+---
+
+## 番数与筹码结算公式（完整说明）
+
+> 本节对功能增强 5 的公式做完整梳理，并明确「庄家双倍」在自摸与荣和中的体现。
+
+**公式**：
+
+```
+unit = min(64, 2^(han_total - 1))
+  1番=1  2番=2  3番=4  4番=8  5番=16  6番=32  7番+=64（封顶）
+```
+
+**结算规则**：
+
+| 场景 | 支付方 | 金额 | 赢家收入 |
+|---|---|---|---|
+| 闲家自摸 | 庄家 | 2×unit | +4×unit |
+|  | 每位闲家 | 1×unit |  |
+| 庄家自摸 | 每位闲家 | 2×unit | +6×unit |
+| 荣和（闲家赢） | 放炮者独付 | 2u+1u+1u=4×unit | +4×unit |
+| 荣和（庄家赢） | 放炮者独付 | 2u+2u+2u=6×unit | +6×unit |
+
+**关键说明**：
+- 「放炮全包」规则：荣和时**只有放炮者付款**，其他玩家（包括庄家）不付。放炮者支付「三人自摸份额之和」
+- 庄家放炮给闲家：放炮者（庄）付 4×unit（等于该三人之和 2u+1u+1u），与闲家放炮金额相同——庄家双倍体现在自摸份额（2u vs 1u），而非放炮身份
+- 庄家双倍在荣和中仅体现在**赢家身份**：庄家赢时，放炮者付 6u（vs 闲家赢 4u）
+- 杠钱固定为每次各家付 1 筹码，独立于番数公式之外
+
+**初始筹码**：每人 1000（`INITIAL_CHIPS`，可在 `room_manager.py` 调整）
+
+**浏览器缓存**：静态 JS 文件使用 `?v=YYYYMMDD` 版本号强制刷新，每次有前端改动时递增。
