@@ -57,9 +57,7 @@ _ai = AIPlayer()
 # Claim-window timeout in seconds (shown as countdown in the UI)
 CLAIM_TIMEOUT = 30.0
 
-# Maximum chip unit per hand (caps at 64 = 7 fan). Each fan doubles the unit:
-# 1 fan → 1 chip, 2 → 2, 3 → 4, 4 → 8, 5 → 16, 6 → 32, 7+ → 64.
-CHIP_CAP = 64
+# Chip unit = han_total (linear).  1番=1单位, 2番=2单位, 3番=3单位, …
 
 # AI action delay range (seconds) – makes AI feel natural
 AI_DELAY_MIN = 0.2
@@ -560,9 +558,9 @@ async def _handle_game_over(room_id: str) -> None:
     # ----------------------------------------------------------------
     # Chip settlement — Han-based, zero-sum
     # ----------------------------------------------------------------
-    # unit = min(CHIP_CAP, 2^(han_total-1))  →  1 fan=1, 2=2, 3=4 … 7+=64
+    # unit = han_total  (linear: 1番=1, 2番=2, 3番=3 …)
     #
-    # Dealer (player 0 / gs.dealer_idx) always pays/receives 2× unit;
+    # Dealer (gs.dealer_idx) always pays/receives 2× unit;
     # non-dealers pay/receive 1× unit.
     #
     # Self-draw (自摸):
@@ -589,7 +587,7 @@ async def _handle_game_over(room_id: str) -> None:
 
     # 2. Han-based win payment
     if winner_idx is not None and gs.han_total > 0:
-        unit = min(CHIP_CAP, 2 ** (gs.han_total - 1))
+        unit = gs.han_total  # linear: N番 = N单位，直观易懂
         dealer_idx = gs.dealer_idx
 
         def _pay(payer_idx: int) -> int:
