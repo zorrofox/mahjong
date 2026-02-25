@@ -640,6 +640,13 @@
             }
           } else {
             // ── Normal play: show face-down tiles ───────────────────────────
+            // Transitioning from reveal → normal: the handEl contains face-up
+            // SVG tiles (not .tile-back), so the delta logic below would leave
+            // them in the DOM on top of the new back tiles.  Clear explicitly.
+            if ((handEl.dataset.tilesKey || '').includes('|reveal|')) {
+              handEl.innerHTML = '';
+              delete handEl.dataset.tilesKey;
+            }
             const tileCount    = getHandCount(player);
             const currentCount = handEl.querySelectorAll('.tile-back').length;
             if (currentCount < tileCount) {
