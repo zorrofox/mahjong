@@ -2485,6 +2485,33 @@ function playPungEffect() {
 
 ---
 
+### 修复 3：移动端胡牌弹窗遮挡桌面翻牌（Bottom Sheet）
+
+**问题**：游戏结束后所有玩家手牌翻开展示，但移动端胡牌弹窗（`align-items: center; max-height: 90vh`）居中占满大部分屏幕，导致桌面翻牌完全看不见。
+
+**修复**（`game.html` 内联 `@media (max-width: 600px)` 块）：将弹窗改为 Bottom Sheet 样式，固定贴底显示，上半屏幕留给桌面翻牌：
+
+```css
+#game-over-modal {
+  align-items: flex-end;     /* 靠底对齐，取代居中 */
+}
+#game-over-modal .modal-box {
+  width: 100%;
+  max-width: 100%;
+  max-height: 55vh;          /* 仅占屏幕下半，上方牌桌完整露出 */
+  border-radius: 14px 14px 0 0;  /* 仅顶部圆角 */
+  padding: 1rem 1rem 1.2rem;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+```
+
+**效果**：弹窗以底部抽屉形式出现；屏幕上半（对家 + 左右玩家翻牌）完整可见；弹窗内容超出时可向上滑动查看。
+
+**修改文件**：`frontend/game.html`（`@media (max-width: 600px)` 块新增两条 modal 规则）
+
+---
+
 ## 功能增强：中央弃牌区空间布局
 
 **背景**：原先的 2×2 弃牌格按玩家索引 0→3 顺序填充，底部两格与玩家的实际坐向无关，人类玩家无法直观分辨哪格是自己的弃牌。

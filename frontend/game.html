@@ -383,6 +383,22 @@
         max-height: none;
         overflow: hidden;
       }
+
+      /* ── 胡牌弹窗：Bottom Sheet 样式，避免遮挡桌面翻牌 ─────
+         弹窗固定在屏幕底部，高度上限约 55vh，让牌桌上半部
+         （对家 + 左右玩家翻牌）完整露出。内容超出时可滚动。 */
+      #game-over-modal {
+        align-items: flex-end;
+      }
+      #game-over-modal .modal-box {
+        width: 100%;
+        max-width: 100%;
+        max-height: 55vh;
+        border-radius: 14px 14px 0 0;
+        padding: 1rem 1rem 1.2rem;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+      }
     }
   </style>
 </head>
