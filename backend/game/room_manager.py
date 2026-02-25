@@ -41,6 +41,7 @@ class Room:
     dealer_idx: int = 0    # seat index of the current dealer; rotates after each hand
     round_wind_idx: int = 0   # prevailing wind: 0=East, 1=South, 2=West, 3=North
     dealer_advances: int = 0  # total dealer changes; every 4 advances = one wind round
+    last_chip_changes: dict = field(default_factory=dict)  # player_id → chip delta for last round
 
     @property
     def player_count(self) -> int:

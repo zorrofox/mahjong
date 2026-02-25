@@ -536,15 +536,9 @@ function handleGameOver(msg) {
     canRestart = myPlayerIdx === nextDealerIdx || dealerIsAI;
   }
 
-  // Compute per-player chip change for this round.
-  // gameState.cumulative_scores holds pre-settlement values (the last game_state
-  // broadcast happens before _handle_game_over settles chips).
-  const prevChips = gameState?.cumulative_scores || {};
-  const newChips  = msg.cumulative_scores || {};
-  const chipChanges = {};
-  for (const pid of Object.keys(newChips)) {
-    chipChanges[pid] = (newChips[pid] ?? 1000) - (prevChips[pid] ?? 1000);
-  }
+  // chip_changes is computed by the backend at settlement time and persisted on
+  // the Room, so it's correct even for reconnects (where prevChips == newChips).
+  const chipChanges = msg.chip_changes || {};
 
   // Resolve current-round dealer player ID from dealer_idx.
   const dealerIdx = msg.dealer_idx ?? gameState?.dealer_idx ?? 0;

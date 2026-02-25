@@ -581,6 +581,10 @@ async def _handle_game_over(room_id: str) -> None:
     # Draw (流局): no chip transfer.
     # ----------------------------------------------------------------
 
+    # Snapshot pre-settlement balances so we can compute per-player chip deltas.
+    pre_scores = {pid: room.cumulative_scores.get(pid, INITIAL_CHIPS)
+                  for pid in (p.id for p in gs.players)}
+
     # 1. Apply accumulated kong chip transfers
     for pid, delta in gs.kong_chip_transfers.items():
         room.cumulative_scores[pid] = (
@@ -634,12 +638,19 @@ async def _handle_game_over(room_id: str) -> None:
                         room.cumulative_scores.get(p.id, INITIAL_CHIPS) - pay
                     )
 
+    # Compute and persist per-player chip changes for this round.
+    room.last_chip_changes = {
+        pid: room.cumulative_scores.get(pid, INITIAL_CHIPS) - pre_scores.get(pid, INITIAL_CHIPS)
+        for pid in pre_scores
+    }
+
     payload = {
         "type": "game_over",
         "winner_idx": winner_idx,
         "winner_id": winner_id,
         "scores": scores,
         "cumulative_scores": dict(room.cumulative_scores),
+        "chip_changes": dict(room.last_chip_changes),
         "round_number": room.round_number,
         "han_breakdown": gs.han_breakdown if gs else [],
         "han_total": gs.han_total if gs else 0,
@@ -731,6 +742,7 @@ async def websocket_endpoint(ws: WebSocket, room_id: str, player_id: str):
                 "winner_id": winner_id,
                 "scores": scores,
                 "cumulative_scores": dict(room.cumulative_scores),
+                "chip_changes": dict(room.last_chip_changes),
                 "round_number": room.round_number,
                 "han_breakdown": gs.han_breakdown,
                 "han_total": gs.han_total,
