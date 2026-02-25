@@ -196,6 +196,16 @@ class GameState:
         """Return numeric priority for a claim type (higher = more priority)."""
         return {"win": 3, "kong": 2, "pung": 2, "chow": 1}.get(claim_type, 0)
 
+    def _seat_distance(self, claimer_idx: int) -> int:
+        """Clockwise distance from the discarder to claimer_idx (1–3).
+
+        Used to break ties when two players submit the same-priority claim
+        (e.g. pung vs pung, kong vs kong). The player closest clockwise to
+        the discarder has priority (distance 1 beats distance 2 or 3).
+        """
+        n = len(self.players)
+        return (claimer_idx - self.last_discard_player) % n
+
     def _resolve_claims(self) -> None:
         """
         Resolve the current claim window once all responses are in.
@@ -283,7 +293,9 @@ class GameState:
                 if replacement is not None:
                     claimer.hand.append(replacement)
                     self._collect_bonus_tiles(claimer_idx)
-                    self.last_drawn_tile = replacement
+                    # replacement may itself be a flower; use hand[-1] to get
+                    # the actual non-bonus tile that ended up in hand.
+                    self.last_drawn_tile = claimer.hand[-1] if claimer.hand else replacement
                     self.lingshang_pending = True
                 else:
                     # Wall exhausted — game is a draw
@@ -550,7 +562,7 @@ class GameState:
         tile = self.last_discard
         player = self.players[player_idx]
 
-        if not can_pung(player.hand, tile):
+        if not can_pung(player.hand_without_bonus(), tile):
             return False
 
         new_priority = self._claim_priority("pung")
@@ -559,7 +571,13 @@ class GameState:
             if self._best_claim else -1
         )
 
-        if new_priority >= current_priority:
+        # Higher-priority claim always wins; for equal priority (pung vs pung)
+        # the player closest clockwise to the discarder takes precedence.
+        if new_priority > current_priority or (
+            new_priority == current_priority
+            and self._seat_distance(player_idx)
+                < self._seat_distance(self._best_claim["player_idx"])
+        ):
             self._best_claim = {"player_idx": player_idx, "type": "pung", "tiles": []}
 
         self._skipped_claims.add(player_idx)
@@ -654,7 +672,7 @@ class GameState:
         if tile != self.last_discard:
             raise ValueError(f"Claimed tile '{tile}' does not match last discard.")
 
-        if not can_kong(player.hand, tile):
+        if not can_kong(player.hand_without_bonus(), tile):
             return False
 
         new_priority = self._claim_priority("kong")
@@ -663,7 +681,13 @@ class GameState:
             if self._best_claim else -1
         )
 
-        if new_priority >= current_priority:
+        # Higher-priority claim always wins; for equal priority (kong vs kong)
+        # the player closest clockwise to the discarder takes precedence.
+        if new_priority > current_priority or (
+            new_priority == current_priority
+            and self._seat_distance(player_idx)
+                < self._seat_distance(self._best_claim["player_idx"])
+        ):
             self._best_claim = {"player_idx": player_idx, "type": "kong", "tiles": []}
 
         self._skipped_claims.add(player_idx)
@@ -702,7 +726,7 @@ class GameState:
 
         tile = self.last_discard
         player = self.players[player_idx]
-        possible_chows = can_chow(player.hand, tile)
+        possible_chows = can_chow(player.hand_without_bonus(), tile)
 
         # Verify the requested tiles form a valid chow with the discarded tile
         requested_set = sorted(tiles + [tile])

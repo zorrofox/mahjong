@@ -33,6 +33,7 @@ from .tiles import (
 )
 from .hand import (
     is_winning_hand,
+    is_winning_hand_given_melds,
     can_pung,
     can_kong,
     can_chow,
@@ -304,18 +305,9 @@ class AIPlayer:
         """
         playable = [t for t in hand if not is_flower_tile(t)]
 
-        # The winning check considers both hand tiles and melds.
-        # A player with N committed melds needs 14 - 3*N tiles in hand (or 14 for no melds).
-        # is_winning_hand checks exactly 14 tiles, so we reconstruct the full set.
-        meld_tiles: list[str] = []
-        for meld in melds:
-            meld_tiles.extend(meld[:3])  # Take 3 tiles per meld (kongs count as pungs)
-
-        full_hand = playable + meld_tiles
-        if len(full_hand) != 14:
-            return False
-
-        return is_winning_hand(full_hand)
+        # Use is_winning_hand_given_melds so that declared meld tiles are
+        # treated as fixed and are NOT recombined with the concealed hand.
+        return is_winning_hand_given_melds(playable, len(melds))
 
     # ------------------------------------------------------------------ #
     # Internal hand evaluation                                            #

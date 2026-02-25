@@ -2851,6 +2851,113 @@ async def _handle_game_over(room_id: str) -> None:
 
 ---
 
+### Bug 17：声索杠补牌为花牌时 `last_drawn_tile` 错误，Discard 按钮失效
+
+**发现时间**：代码审查（对比暗杠/加杠路径的已有修复，发现声索杠漏修）
+
+**现象**：玩家声索杠（从弃牌杠）后，若补摸的牌恰好是花牌/季牌，前端收到 `action_required` 中的 `drawn_tile` 指向一张已不在手中的花牌，自动预选失败，Discard 按钮失效，玩家须手动点牌才能出牌。
+
+**根本原因**：
+
+`_resolve_claims` 中声索杠的补牌逻辑（第 282–287 行）：
+
+```python
+replacement = self._draw_from_back()
+claimer.hand.append(replacement)
+self._collect_bonus_tiles(claimer_idx)
+self.last_drawn_tile = replacement   # ← 错误：replacement 可能是花牌
+```
+
+`_collect_bonus_tiles` 将花牌收入 `flowers` 并再补一张普通牌，但 `last_drawn_tile` 仍指向已离开手牌的花牌。暗杠（`claim_kong` 第 637 行）和加杠（`_complete_extend_kong` 第 356 行）已在 `_collect_bonus_tiles` 之后使用 `player.hand[-1]`，唯声索杠路径漏掉了此修复。
+
+**修复方案**：
+
+```python
+claimer.hand.append(replacement)
+self._collect_bonus_tiles(claimer_idx)
+self.last_drawn_tile = claimer.hand[-1] if claimer.hand else replacement
+```
+
+**修改文件**：`backend/game/game_state.py`（`_resolve_claims` 中声索杠补牌分支）
+
+---
+
+### Bug 18：AI `should_declare_win` 使用旧版 `is_winning_hand`，有副露时胡牌判断错误
+
+**发现时间**：代码审查（与已修复的 Bug 16 对照发现 AI 端未同步）
+
+**现象**：AI 有碰/吃副露时，可能错过本可胡牌的手牌（假阴性），或尝试不合法的胡牌声明（假阳性，会被 `declare_win` 拒绝并 `pass`）。
+
+**根本原因**：
+
+`ai_player.py` 的 `should_declare_win` 方法：
+
+```python
+meld_tiles = [t for meld in melds for t in meld[:3]]
+full_hand = playable + meld_tiles
+return is_winning_hand(full_hand)   # ← 副露牌自由混入，与 Bug 16 相同问题
+```
+
+**修复方案**：
+
+```python
+return is_winning_hand_given_melds(playable, len(melds))
+```
+
+**修改文件**：`backend/game/ai_player.py`（`should_declare_win` 方法）
+
+---
+
+### Bug 19：同优先级声索（碰 vs 碰 / 杠 vs 杠）后者覆盖先者，违反座位优先规则
+
+**发现时间**：代码审查
+
+**现象**：两个玩家同时提交碰牌或杠牌声索时，最后处理的玩家赢得碰/杠权，而非座位顺序（顺时针最近于出牌者）正确的玩家。
+
+**根本原因**：
+
+`claim_pung` / `claim_kong` 中使用 `new_priority >= current_priority`：
+
+```python
+if new_priority >= current_priority:
+    self._best_claim = {...}  # 后来者无条件覆盖同优先级的先来者
+```
+
+**修复方案**：
+
+新增 `_seat_distance(claimer_idx)` 辅助方法（顺时针距离），同优先级时选距出牌者最近的座位：
+
+```python
+if new_priority > current_priority or (
+    new_priority == current_priority
+    and self._seat_distance(player_idx)
+        < self._seat_distance(self._best_claim["player_idx"])
+):
+    self._best_claim = {...}
+```
+
+**修改文件**：`backend/game/game_state.py`（新增 `_seat_distance`；`claim_pung`、`claim_kong` 的优先级比较）
+
+---
+
+### Bug 20：`claim_pung/kong/chow` 验证时传 `player.hand`，应使用 `hand_without_bonus()`
+
+**发现时间**：代码审查（与 `get_available_actions` 的正确用法对比发现不一致）
+
+**现象**：极罕见场景（牌墙耗尽时花牌补牌失败，花牌滞留手牌），声索验证与 `get_available_actions` 逻辑不一致。实际影响可忽略（花牌命名与数牌不同，`can_chow` 内部 `is_suit_tile` 会过滤）。属于防御性代码规范问题。
+
+**修复方案**：三处均改为 `player.hand_without_bonus()`。
+
+**修改文件**：`backend/game/game_state.py`（`claim_pung`、`claim_kong`（声索分支）、`claim_chow`）
+
+---
+
+**关于 Bug 10（碰碰胡与混幺九叠加）的裁定**：
+
+经审查，港式日常规则中碰碰胡（+3，描述手牌结构）和混幺九（+3，描述所用牌的花色特征）并不互斥，均满足时可叠加计 +6 番。现有测试明确覆盖此场景并期望叠加，与规则一致。**此项不视为 bug，维持现状。**
+
+---
+
 ### Bug 16：副露牌被混入自由牌池导致胡牌误判（假阳性）
 
 **发现时间**：代码审查（逻辑分析 + 手工构造反例验证）

@@ -577,6 +577,7 @@ def calculate_han(
 
     # 混幺九: EVERY tile in every group AND the pair must be terminal or honor.
     # (港式规则：每张牌均须为幺九牌或风字牌，含中间牌2-8的组合不算)
+    # 注：港式日常规则中碰碰胡与混幺九可叠加（分别描述结构与花色特征）。
     if (all_groups
             and all(all(_h_is_terminal_or_honor(t) for t in g['tiles']) for g in all_groups)
             and _h_is_terminal_or_honor(pair_tile)):
