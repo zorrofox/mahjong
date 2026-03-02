@@ -4,7 +4,7 @@
 
 ## 项目概述
 
-基于浏览器的多人麻将游戏，支持 1–4 名玩家共享一个房间，空位由 AI 自动填补。采用标准中国麻将规则，Python FastAPI 后端 + 原生 HTML/JS 前端，通过 WebSocket 实现实时通信，部署于 Google Cloud Run + IAP。
+基于浏览器的多人麻将游戏，支持 1–4 名玩家共享一个房间，空位由 AI 自动填补。采用标准中国香港麻将规则，Python FastAPI 后端 + 原生 HTML/JS 前端，通过 WebSocket 实现实时通信，部署于 Google Cloud Run + IAP。
 
 ---
 
@@ -376,6 +376,7 @@ gcloud run deploy mahjong \
 | 24 | 同优先级声索（碰 vs 碰 / 杠 vs 杠）后者覆盖先者 | `game_state.py` `claim_pung`/`claim_kong` | 同优先级改为取座位距离最近者（`_seat_distance`）；修复前用 `>=` 导致后来者无条件覆盖 |
 | 25 | 声索验证传 `player.hand` 而非 `hand_without_bonus()` | `game_state.py` `claim_pung`/`claim_kong`/`claim_chow` | 花牌滞留手中时验证结果与 `get_available_actions` 不一致；统一改用 `hand_without_bonus()` |
 | 26 | 庄家荣和筹码公式错误（应收 6u 实收 3u） | `websocket.py` `_pay()` | 庄家赢时 `winner_idx == dealer_idx`，所有 payer 均为闲家，应一律返回 `2*unit`；原代码因 payer_idx 判断路径错误只返回 `1*unit` |
+| 27 | 七对子 + 本命花不叠加（本命花番数丢失） | `hand.py` `calculate_han` | 七对子分支提前 `return`，跳过了本命花与嶺上開花计算；修复：在 `return` 前插入本命花/嶺上開花逻辑，本命花与手牌结构无关，所有胡型均应计入 |
 
 ---
 
