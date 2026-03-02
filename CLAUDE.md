@@ -314,10 +314,10 @@ pytest -v
 
 | 层级 | 测试数 | 覆盖范围 |
 |---|---|---|
-| 后端单元测试 | 311 | tiles/hand/game_state/ai_player/room_manager/routes |
+| 后端单元测试 | 314 | tiles/hand/game_state/ai_player/room_manager/routes |
 | 前端单元测试 | 111 | game.js 纯函数（排序、番数渲染、touch 交互等） |
 | 集成测试 | 79 | REST 端点、WS 流程、声索窗口、重开局、Rejoin |
-| **合计** | **501** | |
+| **合计** | **504** | |
 
 ---
 
@@ -388,5 +388,5 @@ gcloud run deploy mahjong \
 | 玩家认证 | 无，player_id 自生成 | JWT / Session |
 | AI 强度 | 启发式贪心 | 蒙特卡洛或规则引擎 |
 | 多实例路由 | 同房间玩家须路由到同实例 | WebSocket 粘性路由 / 共享状态 |
-| 测试覆盖 | 501 tests | E2E 浏览器测试（Playwright） |
+| 测试覆盖 | 504 tests | E2E 浏览器测试（Playwright） |
 | 横屏适配 | 未专项优化 | 横屏布局调整 |
