@@ -604,6 +604,45 @@ class TestSevenPairsFlushCombinations:
         result = calculate_han(self._BAMBOO_7PAIRS, [], [], ron=True)
         assert result['total'] == 13  # 基本分+无花+门清+七对+清一色
 
+    def test_seven_pairs_with_seat_flower(self):
+        """七对子 + 本命花：本命花应计入（与手牌结构无关）。
+        基本分1+无花0+门清1+七对3+本命花1 = 6
+        （有花牌则无花不计；荣和且无副露才计门清）
+        """
+        from game.hand import calculate_han
+        # seat 0 (East); FLOWER_1 is East's seat flower
+        result = calculate_han(
+            self._BAMBOO_7PAIRS, [], ["FLOWER_1"], ron=True, player_seat=0
+        )
+        names = [x['name_cn'] for x in result['breakdown']]
+        assert '七对' in names
+        assert '本命花' in names
+        seat_fan = next(x['fan'] for x in result['breakdown'] if x['name_cn'] == '本命花')
+        assert seat_fan == 1
+
+    def test_seven_pairs_with_two_seat_flowers(self):
+        """七对子 + 本命花 2 张：本命花合计 +2 番。"""
+        from game.hand import calculate_han
+        # seat 0: FLOWER_1 + SEASON_1 → 2 seat flowers
+        result = calculate_han(
+            self._BAMBOO_7PAIRS, [], ["FLOWER_1", "SEASON_1"], ron=True, player_seat=0
+        )
+        names = [x['name_cn'] for x in result['breakdown']]
+        assert '七对' in names
+        assert '本命花' in names
+        seat_fan = next(x['fan'] for x in result['breakdown'] if x['name_cn'] == '本命花')
+        assert seat_fan == 2
+
+    def test_seven_pairs_non_seat_flower_not_counted(self):
+        """七对子持有非本座花牌时，不计本命花。"""
+        from game.hand import calculate_han
+        # seat 0 (East); FLOWER_2 belongs to South (seat 1)
+        result = calculate_han(
+            self._BAMBOO_7PAIRS, [], ["FLOWER_2"], ron=True, player_seat=0
+        )
+        names = [x['name_cn'] for x in result['breakdown']]
+        assert '本命花' not in names
+
 
 # ---------------------------------------------------------------------------
 # Edge case: lingshang_pending flag lifecycle

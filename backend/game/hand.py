@@ -553,6 +553,14 @@ def calculate_han(
                 add('字一色', 'All Honors', 7)
             elif len(suits) == 1:
                 add('混一色', 'Half Flush', 3)
+        # 本命花与手牌结构无关，七对子同样计入
+        seat_flower_set = _SEAT_FLOWERS.get(player_seat, frozenset())
+        seat_flower_count = sum(1 for f in flowers if f in seat_flower_set)
+        if seat_flower_count > 0:
+            add('本命花', 'Seat Flower', seat_flower_count)
+        # 嶺上開花七对子亦适用（暗杠后补牌完成七对，极罕见但合法）
+        if ling_shang and not ron:
+            add('嶺上開花', 'Kong Win (Lingshang)', 1)
         total = sum(x['fan'] for x in breakdown)
         return {'breakdown': breakdown, 'total': total}
 
