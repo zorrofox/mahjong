@@ -261,8 +261,7 @@ async def _run_ai_turn(room_id: str) -> None:
         if gs.phase in ("drawing", "discarding"):
             current_player = gs.players[gs.current_turn]
             if not current_player.is_ai:
-                # Auto-draw for human player (no manual draw button in UI),
-                # then send action_required so they can discard / win / kong.
+                # Auto-draw for human player (no manual draw button in UI).
                 if gs.phase == "drawing":
                     try:
                         drawn = gs.draw_tile(gs.current_turn)
@@ -273,6 +272,40 @@ async def _run_ai_turn(room_id: str) -> None:
                     if gs.phase == "ended":
                         await _handle_game_over(room_id)
                         return
+
+                    # ── 大连听牌自动处理 ─────────────────────────────────
+                    # 规则：听牌后不换听。摸到胡牌张/宝牌→自动胡；其他→自动打回
+                    if gs.ruleset == "dalian" and gs.current_turn in gs.tenpai_players:
+                        player = gs.players[gs.current_turn]
+                        hand = player.hand_without_bonus()
+                        if _ai.should_declare_win(hand, player.melds, "dalian", bao_tile=gs.bao_tile):
+                            # 摸到胡牌张或宝牌 → 自动胡
+                            try:
+                                gs.declare_win(gs.current_turn)
+                                await _broadcast_game_state(room_id)
+                                await _handle_game_over(room_id)
+                                return
+                            except ValueError:
+                                pass
+                        else:
+                            # 非胡牌张 → 自动打回刚摸的牌（不换听）
+                            drawn_tile = gs.last_drawn_tile
+                            if drawn_tile and drawn_tile in player.hand:
+                                try:
+                                    gs.discard_tile(gs.current_turn, drawn_tile)
+                                    # 宝牌重摇广播（discard_tile 内已处理 reroll，需广播）
+                                    if gs.ruleset == "dalian" and not gs.bao_declared:
+                                        bao_event = gs.check_and_trigger_bao()
+                                        if bao_event:
+                                            await _broadcast_bao_declared(room_id, bao_event)
+                                    await _broadcast_game_state(room_id)
+                                    if gs.phase == "claiming":
+                                        await _handle_claim_window(room_id)
+                                        return
+                                    continue
+                                except ValueError:
+                                    pass  # 如果换牌被拒则走正常流程
+
                 await _send_action_required(room_id, gs.current_turn)
                 return
 
@@ -333,6 +366,7 @@ async def _run_ai_turn(room_id: str) -> None:
                         pass
 
                 # Discard
+                _bao_ai_before = gs.bao_tile if gs.ruleset == "dalian" else None
                 tile_to_discard = _ai.choose_discard(player.hand_without_bonus(), player.melds, gs.ruleset, bao_tile=gs.bao_tile)
                 try:
                     gs.discard_tile(ai_idx, tile_to_discard)
@@ -340,11 +374,17 @@ async def _run_ai_turn(room_id: str) -> None:
                     logger.warning("AI discard failed: %s", e)
                     return
 
-                # 大连：AI 出牌后检测听牌触发宝牌
-                if gs.ruleset == "dalian" and not gs.bao_declared:
-                    bao_event = gs.check_and_trigger_bao()
-                    if bao_event:
-                        await _broadcast_bao_declared(room_id, bao_event)
+                # 大连：AI 出牌后检测听牌或宝牌重摇
+                if gs.ruleset == "dalian":
+                    if gs.bao_declared and gs.bao_tile != _bao_ai_before:
+                        await _broadcast_bao_declared(room_id, {
+                            "player_idx": -1, "dice": gs.bao_dice_roll,
+                            "bao_tile": gs.bao_tile, "rerolled": True,
+                        })
+                    elif not gs.bao_declared:
+                        bao_event = gs.check_and_trigger_bao()
+                        if bao_event:
+                            await _broadcast_bao_declared(room_id, bao_event)
 
                 await _broadcast_game_state(room_id)
 
@@ -958,17 +998,25 @@ async def _handle_message(
         if not tile:
             await _send(ws, {"type": "error", "message": "Missing 'tile' field."})
             return
+        _bao_before = gs.bao_tile if gs.ruleset == "dalian" else None
         try:
             gs.discard_tile(player_idx, tile)
         except ValueError as e:
             await _send(ws, {"type": "error", "message": str(e)})
             return
 
-        # 大连：每次出牌后检测是否首次听牌，触发宝牌
-        if gs.ruleset == "dalian" and not gs.bao_declared:
-            bao_event = gs.check_and_trigger_bao()
-            if bao_event:
-                await _broadcast_bao_declared(room_id, bao_event)
+        if gs.ruleset == "dalian":
+            # 宝牌被打出 3 次后已在 discard_tile 内自动重摇，检测并广播
+            if gs.bao_declared and gs.bao_tile != _bao_before:
+                await _broadcast_bao_declared(room_id, {
+                    "player_idx": -1, "dice": gs.bao_dice_roll,
+                    "bao_tile": gs.bao_tile, "rerolled": True,
+                })
+            # 首次听牌：检测并触发宝牌
+            elif not gs.bao_declared:
+                bao_event = gs.check_and_trigger_bao()
+                if bao_event:
+                    await _broadcast_bao_declared(room_id, bao_event)
 
         await _broadcast_game_state(room_id)
 

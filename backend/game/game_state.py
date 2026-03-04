@@ -157,6 +157,7 @@ class GameState:
         self.bao_tile: Optional[str] = None        # 已确定的宝牌（None 表示未揭示）
         self.bao_declared: bool = False            # 是否已触发过宝牌
         self.bao_dice_roll: Optional[int] = None   # 骰子点数（展示用）
+        self.bao_discard_count: int = 0            # 本局宝牌被打出次数（≥3 时重摇）
         self.tenpai_players: set[int] = set()      # 已进入听牌的玩家索引集合
 
         logger.info("GameState created: room=%s players=%s", room_id, player_ids)
@@ -493,6 +494,30 @@ class GameState:
                 return {"player_idx": i, "dice": dice, "bao_tile": self.bao_tile}
         return None
 
+    def reroll_bao(self) -> Optional[dict]:
+        """
+        重新掷骰子确定新宝牌。
+
+        触发条件：本局宝牌已被打出 3 次（bao_discard_count >= 3）。
+
+        Returns:
+            {"dice": int, "bao_tile": str}  — 新宝牌信息
+            None  — 条件未满足
+        """
+        if self.ruleset != "dalian" or not self.wall:
+            return None
+        import random
+        dice = random.randint(1, 6)
+        bao_idx = (dice - 1) % len(self.wall)
+        self.bao_tile = self.wall[bao_idx]
+        self.bao_dice_roll = dice
+        self.bao_discard_count = 0
+        logger.info(
+            "Dalian: bao rerolled → dice=%d new_bao=%s room=%s",
+            dice, self.bao_tile, self.room_id
+        )
+        return {"dice": dice, "bao_tile": self.bao_tile}
+
     def _open_claim_window(self) -> None:
         """Open a claim window for all players except the discarder."""
         discarder = self.last_discard_player
@@ -614,10 +639,27 @@ class GameState:
         if is_flower_tile(tile):
             raise ValueError(f"Cannot discard bonus tile '{tile}'; it is auto-collected.")
 
+        # Dalian: 听牌者不能换听（discard must maintain tenpai）
+        if self.ruleset == "dalian" and player_idx in self.tenpai_players:
+            hand_after = [t for t in player.hand_without_bonus() if t != tile]
+            # Only remove one occurrence (for duplicates)
+            waits_after = is_tenpai_dalian(hand_after, len(player.melds), player.melds,
+                                            bao_tile=self.bao_tile)
+            if not waits_after:
+                raise ValueError(
+                    f"Discarding '{tile}' would break tenpai for player {player_idx}. 不能换听。"
+                )
+
         player.hand.remove(tile)
         self.discards[player_idx].append(tile)
         self.last_discard = tile
         self.last_discard_player = player_idx
+
+        # Dalian: 追踪宝牌被打出次数
+        if self.ruleset == "dalian" and self.bao_declared and tile == self.bao_tile:
+            self.bao_discard_count += 1
+            if self.bao_discard_count >= 3:
+                self.reroll_bao()
 
         self._open_claim_window()
         logger.debug("Player %d discarded '%s'. Room=%s", player_idx, tile, self.room_id)
@@ -1153,6 +1195,7 @@ class GameState:
             "bao_tile": self.bao_tile,
             "bao_declared": self.bao_declared,
             "bao_dice_roll": self.bao_dice_roll,
+            "bao_discard_count": self.bao_discard_count,
             "tenpai_players": list(self.tenpai_players),
             "available_actions": (
                 self.get_available_actions(viewing_player_idx)

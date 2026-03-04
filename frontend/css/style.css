@@ -296,6 +296,25 @@ html, body {
   letter-spacing: 0.5px;
 }
 
+.tenpai-badge {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 1px 5px;
+  background: #1a6a3a;
+  color: #7aff9e;
+  font-size: 0.72em;
+  font-weight: 900;
+  border-radius: 3px;
+  vertical-align: middle;
+  letter-spacing: 0.5px;
+  animation: tenpai-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes tenpai-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.55; }
+}
+
 /* ---------- Area positions ---------- */
 .area-top    { grid-area: top; }
 .area-left   { grid-area: left; flex-direction: row; }

@@ -591,8 +591,8 @@
   <!-- ====================================================
        SCRIPTS
   ==================================================== -->
-  <script src="js/speech.js?v=20260302d"></script>
-  <script src="js/game.js?v=20260302d"></script>
+  <script src="js/speech.js?v=20260302e"></script>
+  <script src="js/game.js?v=20260302e"></script>
   <script>
     /*
      * Patch renderOpponent to use the dedicated DOM elements
@@ -622,11 +622,13 @@
           const chips = (state.cumulative_scores || {})[player.id] ?? '–';
           const isDealer = state.dealer_idx === playerIdx;
           // Guard: skip innerHTML write when nothing changed.
-          const labelKey = `${player.id}|${chips}|${isDealer}`;
+          const isTenpai = (_tenpaiPlayers || []).includes(playerIdx);
+          const labelKey = `${player.id}|${chips}|${isDealer}|${isTenpai}`;
           if (labelEl.dataset.labelKey !== labelKey) {
             labelEl.dataset.labelKey = labelKey;
-            const dealerBadge = isDealer ? '<span class="dealer-badge">庄</span>' : '';
-            labelEl.innerHTML = `<span class="player-name">${escapeHtmlLocal(player.id)}${dealerBadge}</span>
+            const dealerBadge     = isDealer  ? '<span class="dealer-badge">庄</span>'  : '';
+            const tenpaiIndicator = isTenpai  ? '<span class="tenpai-badge">听</span>' : '';
+            labelEl.innerHTML = `<span class="player-name">${escapeHtmlLocal(player.id)}${dealerBadge}${tenpaiIndicator}</span>
               <span class="player-score">筹码: ${chips}</span>`;
           }
         }
@@ -732,12 +734,14 @@
         const scoreEl = document.getElementById('my-player-score');
 
         if (nameEl) {
-          const isDealer = state.dealer_idx === playerIdx;
-          const nameKey  = `${player.id}|${isDealer}`;
+          const isDealer  = state.dealer_idx === playerIdx;
+          const isTenpai  = (_tenpaiPlayers || []).includes(playerIdx);
+          const nameKey   = `${player.id}|${isDealer}|${isTenpai}`;
           if (nameEl.dataset.nameKey !== nameKey) {
             nameEl.dataset.nameKey = nameKey;
-            const dealerBadge = isDealer ? '<span class="dealer-badge">庄</span>' : '';
-            nameEl.innerHTML = escapeHtmlLocal(player.id || 'Your hand') + dealerBadge;
+            const dealerBadge     = isDealer ? '<span class="dealer-badge">庄</span>'  : '';
+            const tenpaiIndicator = isTenpai ? '<span class="tenpai-badge">听</span>' : '';
+            nameEl.innerHTML = escapeHtmlLocal(player.id || 'Your hand') + dealerBadge + tenpaiIndicator;
           }
         }
         if (scoreEl) {

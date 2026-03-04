@@ -542,12 +542,13 @@ function handleClaimWindow(msg) {
    ============================================================ */
 function handleBaoDeclared(msg) {
   _baoTile = msg.bao_tile;
-  if (!_tenpaiPlayers.includes(msg.player_idx)) {
+  // player_idx == -1 表示宝牌重摇（非首次触发）
+  if (msg.player_idx >= 0 && !_tenpaiPlayers.includes(msg.player_idx)) {
     _tenpaiPlayers.push(msg.player_idx);
   }
   updateBaoBadge(msg.bao_tile);
-  showBaoAnnounce(msg.player_idx, msg.dice, msg.bao_tile);
-  getSpeech()?.speak('宝牌！', 'immediate');
+  showBaoAnnounce(msg.player_idx, msg.dice, msg.bao_tile, msg.rerolled);
+  getSpeech()?.speak(msg.rerolled ? '换宝！' : '宝牌！', 'immediate');
 }
 
 function updateBaoBadge(tileStr) {
@@ -564,16 +565,22 @@ function updateBaoBadge(tileStr) {
   }
 }
 
-function showBaoAnnounce(playerIdx, dice, tileStr) {
+function showBaoAnnounce(playerIdx, dice, tileStr, rerolled) {
   const el       = document.getElementById('bao-announce');
   const diceEl   = document.getElementById('bao-dice-text');
   const whoEl    = document.getElementById('bao-who-text');
   const tileEl   = document.getElementById('bao-tile-el');
   if (!el) return;
 
-  const playerName = gameState?.players?.[playerIdx]?.id || ('玩家' + (playerIdx + 1));
   if (diceEl) diceEl.textContent = '骰子点数: ' + dice;
-  if (whoEl)  whoEl.textContent  = escapeHtml(playerName) + ' 首先听牌';
+  if (whoEl) {
+    if (rerolled) {
+      whoEl.textContent = '宝牌已被打出 3 张，重新选宝！';
+    } else {
+      const playerName = gameState?.players?.[playerIdx]?.id || ('玩家' + (playerIdx + 1));
+      whoEl.textContent = escapeHtml(playerName) + ' 首先听牌';
+    }
+  }
   if (tileEl) {
     tileEl.innerHTML = '';
     const t = makeTileEl(tileStr);

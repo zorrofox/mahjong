@@ -665,14 +665,13 @@ def calculate_han_dalian(
 
     # ── 宝牌加番 ──────────────────────────────────────────────────────
     if bao_tile is not None:
-        if ron and winning_tile == bao_tile:
-            # 冲宝：荣和时胡牌张本身就是宝牌
+        hand_clean = [t for t in concealed_tiles if not is_flower_tile(t)]
+        if winning_tile == bao_tile:
+            # 冲宝：胡牌张本身就是宝牌（自摸和荣和均适用）
             add('冲宝', 'Chong Bao (Treasure Win)', 2)
-        elif not ron and bao_tile in [t for t in concealed_tiles if not is_flower_tile(t)]:
-            # 摸宝：自摸时手中有宝牌（作为野牌使用）
-            # 宝牌不能同时是 winning_tile（那种情况归于普通自摸，无额外宝牌番）
-            if winning_tile != bao_tile:
-                add('摸宝', 'Mo Bao (Treasure Draw)', 1)
+        elif not ron and bao_tile in hand_clean:
+            # 摸宝：自摸时手中有宝牌充当野牌（宝牌不是 winning_tile）
+            add('摸宝', 'Mo Bao (Treasure Draw)', 1)
 
     total = sum(x['fan'] for x in breakdown)
     return {'breakdown': breakdown, 'total': total}
