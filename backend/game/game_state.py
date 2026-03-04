@@ -687,7 +687,9 @@ class GameState:
 
         # Dalian: 听牌者不能换听（discard must maintain tenpai）
         if self.ruleset == "dalian" and player_idx in self.tenpai_players:
-            hand_after = [t for t in player.hand_without_bonus() if t != tile]
+            hand_after = list(player.hand_without_bonus())
+            if tile in hand_after:
+                hand_after.remove(tile)  # 只移除一张（不能用推导式，否则对子会被全删）
             # Only remove one occurrence (for duplicates)
             waits_after = is_tenpai_dalian(hand_after, len(player.melds), player.melds,
                                             bao_tile=self.bao_tile)
