@@ -1279,11 +1279,15 @@ class GameState:
             "players": players_data,
             "winner": self.winner,
             "winning_tile": self.winning_tile,
-            # 宝牌只对已听牌的玩家可见（"别人不允许知道"）
-            # viewing_player_idx=None 时为调试视角，显示所有信息
+            # 宝牌可见规则：
+            #   游戏进行中 → 只有已听牌的玩家（tenpai_players）可见（"别人不允许知道"）
+            #   游戏结束后 → 公开揭示，所有玩家可见（结算弹窗展示本局宝牌）
+            #   调试视角（None）→ 始终可见
             "bao_tile": (
                 self.bao_tile
-                if (viewing_player_idx is None or viewing_player_idx in self.tenpai_players)
+                if (viewing_player_idx is None
+                    or self.phase == "ended"
+                    or viewing_player_idx in self.tenpai_players)
                 else None
             ),
             "bao_declared": self.bao_declared,

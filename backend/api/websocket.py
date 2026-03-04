@@ -841,6 +841,9 @@ async def _handle_game_over(room_id: str) -> None:
         "win_ron": gs.win_ron,                 # True=荣和, False=自摸, None=流局
         "dealer_idx": gs.dealer_idx,          # current round's dealer (for display)
         "next_dealer_idx": room.dealer_idx,  # already updated by dealer-rotation logic above
+        # 大连宝牌：游戏结束后公开揭示（结算弹窗展示本局宝牌）
+        "bao_tile": gs.bao_tile if (gs and gs.bao_declared) else None,
+        "bao_dice_roll": gs.bao_dice_roll if (gs and gs.bao_declared) else None,
     }
     await _broadcast(room_id, payload)
     await _broadcast_room_update()

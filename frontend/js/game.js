@@ -610,10 +610,16 @@ function showBaoAnnounce(playerIdx, dice, tileStr, rerolled) {
 }
 
 function handleGameOver(msg) {
-  // 重置宝牌状态，为下一局准备
-  _baoTile = null;
+  // 游戏结束：宝牌公开揭示（若本局有宝牌，显示在 badge；结算弹窗展示）
+  if (msg.bao_tile) {
+    _baoTile = msg.bao_tile;
+    updateBaoBadge(msg.bao_tile);
+  } else {
+    // 无宝牌（港式或宝牌未触发）→ 重置
+    _baoTile = null;
+    updateBaoBadge(null);
+  }
   _tenpaiPlayers = [];
-  updateBaoBadge(null);
 
   const hasWinnerCheck = msg.winner_idx !== null && msg.winner_idx !== undefined && msg.winner_idx >= 0;
   // null + 1 = 1 in JS, so compute name only when there's actually a winner
@@ -685,7 +691,8 @@ function handleGameOver(msg) {
     canRestart,
     chipChanges,
     dealerId,
-    winType
+    winType,
+    msg.bao_tile || null      // 大连宝牌：胡牌后公开揭示
   );
   setStatus(hasWinner ? `Game over! Winner: ${winnerName}` : 'Game over! 流局 Draw', 'success');
   disableAllActionButtons();
@@ -1605,7 +1612,7 @@ function hideClaimOverlay() {
 /* ============================================================
    GAME OVER MODAL
    ============================================================ */
-function showGameOverModal(winnerName, scores, cumulativeScores, roundNumber, hanBreakdown, hanTotal, canRestart = true, chipChanges = {}, dealerId = null, winType = null) {
+function showGameOverModal(winnerName, scores, cumulativeScores, roundNumber, hanBreakdown, hanTotal, canRestart = true, chipChanges = {}, dealerId = null, winType = null, baoTile = null) {
   const modal     = document.getElementById('game-over-modal');
   const winnerEl  = document.getElementById('winner-name');
   const scoresEl  = document.getElementById('scores-body');
@@ -1640,6 +1647,25 @@ function showGameOverModal(winnerName, scores, cumulativeScores, roundNumber, ha
 
   if (roundEl && roundNumber) {
     roundEl.textContent = `第 ${roundNumber} 局 / Round ${roundNumber}`;
+  }
+
+  // ── 大连宝牌：胡牌后公开展示 ───────────────────────────────
+  const baoSection = document.getElementById('bao-result-section');
+  if (baoTile && baoSection) {
+    baoSection.innerHTML = '';
+    const label = document.createElement('div');
+    label.style.cssText = 'font-size:0.82rem;color:var(--text-muted);margin-bottom:4px;';
+    label.textContent = '本局宝牌 / Treasure Tile';
+    const tileWrap = document.createElement('div');
+    tileWrap.style.cssText = 'display:flex;justify-content:center;margin:4px 0 8px;';
+    const t = makeTileEl(baoTile);
+    t.style.width = '34px'; t.style.height = '48px';
+    tileWrap.appendChild(t);
+    baoSection.appendChild(label);
+    baoSection.appendChild(tileWrap);
+    baoSection.style.display = 'block';
+  } else if (baoSection) {
+    baoSection.style.display = 'none';
   }
 
   // ── Fan (Han) breakdown table ──────────────────────────────
