@@ -157,7 +157,6 @@ class GameState:
         self.bao_tile: Optional[str] = None        # 已确定的宝牌（None 表示未揭示）
         self.bao_declared: bool = False            # 是否已触发过宝牌
         self.bao_dice_roll: Optional[int] = None   # 骰子点数（展示用）
-        self.bao_discard_count: int = 0            # 本局宝牌被打出次数（≥3 时重摇）
         self.tenpai_players: set[int] = set()      # 已进入听牌的玩家索引集合
 
         logger.info("GameState created: room=%s players=%s", room_id, player_ids)
@@ -345,6 +344,7 @@ class GameState:
         self._best_claim = None
         self._pending_claims.clear()
         self._skipped_claims.clear()
+        # 注：宝牌重摇检测由 websocket 层在调用 check_and_maybe_reroll_bao() 时完成
 
     def _advance_turn(self) -> None:
         """Move to the next player's drawing turn."""
@@ -494,15 +494,53 @@ class GameState:
                 return {"player_idx": i, "dice": dice, "bao_tile": self.bao_tile}
         return None
 
+    def _count_bao_revealed(self) -> int:
+        """
+        统计当前局中宝牌已被「明牌」的总数：
+          - 弃牌堆中的宝牌（被打出但未被声索）
+          - 各玩家副露（明牌）中的宝牌（碰/明杠/吃后进入副露）
+
+        暗杠中的宝牌仍不可见，不计入此数。
+
+        Returns:
+            已明牌的宝牌总张数。
+        """
+        if not self.bao_declared or not self.bao_tile:
+            return 0
+        count = 0
+        for i, player in enumerate(self.players):
+            # 弃牌堆
+            count += self.discards[i].count(self.bao_tile)
+            # 副露中（明刻/明杠/顺子均统计前3张；暗杠 len==4 且所有牌相同时不计）
+            for meld in player.melds:
+                is_concealed_kong = (len(meld) == 4 and meld[0] == meld[1] == meld[2] == meld[3])
+                if not is_concealed_kong:
+                    count += meld.count(self.bao_tile)
+        return count
+
+    def check_and_maybe_reroll_bao(self) -> Optional[dict]:
+        """
+        检查宝牌明牌数是否已达到 3 张，若是则重摇。
+
+        应在 discard_tile 和 _resolve_claims（碰/吃/明杠完成后）调用。
+
+        Returns:
+            {"dice": int, "bao_tile": str}  — 若发生重摇
+            None  — 未达到条件
+        """
+        if self.ruleset != "dalian" or not self.bao_declared:
+            return None
+        if self._count_bao_revealed() >= 3:
+            return self.reroll_bao()
+        return None
+
     def reroll_bao(self) -> Optional[dict]:
         """
         重新掷骰子确定新宝牌。
 
-        触发条件：本局宝牌已被打出 3 次（bao_discard_count >= 3）。
-
         Returns:
             {"dice": int, "bao_tile": str}  — 新宝牌信息
-            None  — 条件未满足
+            None  — 条件未满足（牌墙空）
         """
         if self.ruleset != "dalian" or not self.wall:
             return None
@@ -511,7 +549,6 @@ class GameState:
         bao_idx = (dice - 1) % len(self.wall)
         self.bao_tile = self.wall[bao_idx]
         self.bao_dice_roll = dice
-        self.bao_discard_count = 0
         logger.info(
             "Dalian: bao rerolled → dice=%d new_bao=%s room=%s",
             dice, self.bao_tile, self.room_id
@@ -654,12 +691,6 @@ class GameState:
         self.discards[player_idx].append(tile)
         self.last_discard = tile
         self.last_discard_player = player_idx
-
-        # Dalian: 追踪宝牌被打出次数
-        if self.ruleset == "dalian" and self.bao_declared and tile == self.bao_tile:
-            self.bao_discard_count += 1
-            if self.bao_discard_count >= 3:
-                self.reroll_bao()
 
         self._open_claim_window()
         logger.debug("Player %d discarded '%s'. Room=%s", player_idx, tile, self.room_id)
@@ -1195,7 +1226,7 @@ class GameState:
             "bao_tile": self.bao_tile,
             "bao_declared": self.bao_declared,
             "bao_dice_roll": self.bao_dice_roll,
-            "bao_discard_count": self.bao_discard_count,
+            "bao_revealed_count": self._count_bao_revealed(),
             "tenpai_players": list(self.tenpai_players),
             "available_actions": (
                 self.get_available_actions(viewing_player_idx)

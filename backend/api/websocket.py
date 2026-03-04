@@ -155,13 +155,30 @@ async def _broadcast_game_state(room_id: str) -> None:
 
 
 async def _broadcast_bao_declared(room_id: str, event: dict) -> None:
-    """大连宝牌揭示 — 广播给房间所有连线玩家。"""
-    await _broadcast(room_id, {
+    """大连宝牌揭示 / 重摇 — 广播给房间所有连线玩家。"""
+    payload = {
         "type": "bao_declared",
-        "player_idx": event["player_idx"],
+        "player_idx": event.get("player_idx", -1),
         "dice": event["dice"],
         "bao_tile": event["bao_tile"],
-    })
+    }
+    if event.get("rerolled"):
+        payload["rerolled"] = True
+    await _broadcast(room_id, payload)
+
+
+async def _check_bao_reroll_and_broadcast(room_id: str, gs) -> None:
+    """
+    大连专用：检测宝牌明牌数是否达到重摇阈值（3 张），若是则重摇并广播。
+    应在 discard 或副露（碰/吃/明杠）完成后调用。
+    """
+    if gs.ruleset != "dalian" or not gs.bao_declared:
+        return
+    reroll_event = gs.check_and_maybe_reroll_bao()
+    if reroll_event:
+        reroll_event["rerolled"] = True
+        reroll_event["player_idx"] = -1
+        await _broadcast_bao_declared(room_id, reroll_event)
 
 
 async def _broadcast_room_update() -> None:
@@ -366,7 +383,6 @@ async def _run_ai_turn(room_id: str) -> None:
                         pass
 
                 # Discard
-                _bao_ai_before = gs.bao_tile if gs.ruleset == "dalian" else None
                 tile_to_discard = _ai.choose_discard(player.hand_without_bonus(), player.melds, gs.ruleset, bao_tile=gs.bao_tile)
                 try:
                     gs.discard_tile(ai_idx, tile_to_discard)
@@ -374,14 +390,10 @@ async def _run_ai_turn(room_id: str) -> None:
                     logger.warning("AI discard failed: %s", e)
                     return
 
-                # 大连：AI 出牌后检测听牌或宝牌重摇
+                # 大连：AI 出牌后检测明牌重摇或首次听牌宝牌
                 if gs.ruleset == "dalian":
-                    if gs.bao_declared and gs.bao_tile != _bao_ai_before:
-                        await _broadcast_bao_declared(room_id, {
-                            "player_idx": -1, "dice": gs.bao_dice_roll,
-                            "bao_tile": gs.bao_tile, "rerolled": True,
-                        })
-                    elif not gs.bao_declared:
+                    await _check_bao_reroll_and_broadcast(room_id, gs)
+                    if not gs.bao_declared:
                         bao_event = gs.check_and_trigger_bao()
                         if bao_event:
                             await _broadcast_bao_declared(room_id, bao_event)
@@ -546,6 +558,10 @@ async def _handle_claim_window(room_id: str) -> None:
     finally:
         # Always clear the active flag so future claim windows can be handled.
         _claim_window_active.discard(room_id)
+
+    # 大连：声索窗口关闭后检测副露中宝牌数（碰/吃/明杠可能使宝牌进入明牌）
+    if gs.phase not in ("claiming", "ended"):
+        await _check_bao_reroll_and_broadcast(room_id, gs)
 
     # Broadcast updated state after resolution
     await _broadcast_game_state(room_id)
@@ -998,7 +1014,6 @@ async def _handle_message(
         if not tile:
             await _send(ws, {"type": "error", "message": "Missing 'tile' field."})
             return
-        _bao_before = gs.bao_tile if gs.ruleset == "dalian" else None
         try:
             gs.discard_tile(player_idx, tile)
         except ValueError as e:
@@ -1006,14 +1021,10 @@ async def _handle_message(
             return
 
         if gs.ruleset == "dalian":
-            # 宝牌被打出 3 次后已在 discard_tile 内自动重摇，检测并广播
-            if gs.bao_declared and gs.bao_tile != _bao_before:
-                await _broadcast_bao_declared(room_id, {
-                    "player_idx": -1, "dice": gs.bao_dice_roll,
-                    "bao_tile": gs.bao_tile, "rerolled": True,
-                })
-            # 首次听牌：检测并触发宝牌
-            elif not gs.bao_declared:
+            # 出牌后检测明牌重摇（弃牌已计入，副露稍后处理）
+            await _check_bao_reroll_and_broadcast(room_id, gs)
+            # 首次听牌触发宝牌
+            if not gs.bao_declared:
                 bao_event = gs.check_and_trigger_bao()
                 if bao_event:
                     await _broadcast_bao_declared(room_id, bao_event)
@@ -1072,6 +1083,10 @@ async def _handle_message(
             await _send(ws, {"type": "error", "message": "Cannot pung that tile."})
             return
 
+        # 大连：碰成功后检测副露中宝牌数，可能触发重摇
+        if gs.phase != "claiming":
+            await _check_bao_reroll_and_broadcast(room_id, gs)
+
         await _broadcast_game_state(room_id)
 
         if gs.phase == "ended":
@@ -1099,6 +1114,10 @@ async def _handle_message(
             await _send(ws, {"type": "error", "message": "Cannot chow with those tiles."})
             return
 
+        # 大连：吃成功后检测副露中宝牌数，可能触发重摇
+        if gs.phase != "claiming":
+            await _check_bao_reroll_and_broadcast(room_id, gs)
+
         await _broadcast_game_state(room_id)
 
         if gs.phase == "ended":
@@ -1125,6 +1144,10 @@ async def _handle_message(
         except ValueError as e:
             await _send(ws, {"type": "error", "message": str(e)})
             return
+
+        # 大连：杠成功（明杠/加杠）后检测副露中宝牌数，可能触发重摇
+        if gs.phase not in ("claiming", "ended"):
+            await _check_bao_reroll_and_broadcast(room_id, gs)
 
         await _broadcast_game_state(room_id)
 
