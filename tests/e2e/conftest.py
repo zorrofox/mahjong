@@ -7,6 +7,7 @@ import urllib.request
 from pathlib import Path
 
 import pytest
+import pytest_asyncio
 from playwright.async_api import async_playwright
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
@@ -19,23 +20,27 @@ def find_free_port() -> int:
         return s.getsockname()[1]
 
 
+# ── Session-scoped SYNC fixtures (no event loop issues) ────────────────────
+
 @pytest.fixture(scope="session")
 def server():
+    """Start the backend server once for the whole test session."""
     port = find_free_port()
     env = os.environ.copy()
     env.update({
         "MJ_AI_DELAY_MIN":      "0.05",
         "MJ_AI_DELAY_MAX":      "0.15",
-        "MJ_CLAIM_TIMEOUT":     "5.0",
-        "MJ_AI_TAKEOVER_GRACE": "3.0",
+        "MJ_CLAIM_TIMEOUT":     "1.5",   # 声索窗口只等 1.5s，加速全局完成
+        "MJ_AI_TAKEOVER_GRACE": "2.0",
     })
     proc = subprocess.Popen(
-        ["python3", "-m", "uvicorn", "main:app", "--port", str(port), "--log-level", "warning"],
+        ["python3", "-m", "uvicorn", "main:app",
+         "--port", str(port), "--log-level", "warning"],
         cwd=BACKEND_DIR,
         env=env,
     )
-    # 等待服务就绪
     base = f"http://localhost:{port}"
+    # Wait up to 20s for the server to be ready
     for _ in range(40):
         try:
             urllib.request.urlopen(f"{base}/api/rooms", timeout=1)
@@ -47,8 +52,12 @@ def server():
         raise RuntimeError("Server did not start in time")
 
     yield {"port": port, "base_url": base}
+
     proc.terminate()
-    proc.wait(timeout=5)
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc.kill()
 
 
 @pytest.fixture(scope="session")
@@ -56,24 +65,25 @@ def base_url(server):
     return server["base_url"]
 
 
-@pytest.fixture(scope="session")
-async def browser():
+# ── Function-scoped ASYNC fixtures (each test gets its own browser/page) ───
+# Using function scope avoids pytest-asyncio session/loop conflicts.
+# Browser launch is fast (<1s), so per-test overhead is acceptable.
+
+@pytest_asyncio.fixture
+async def page(base_url):
+    """Fresh browser page for each test."""
     async with async_playwright() as pw:
-        b = await pw.chromium.launch(headless=True)
-        yield b
-        await b.close()
+        browser = await pw.chromium.launch(headless=True)
+        ctx = await browser.new_context(base_url=base_url)
+        pg  = await ctx.new_page()
+        yield pg
+        await ctx.close()
+        await browser.close()
 
 
-@pytest.fixture
-async def page(browser, base_url):
-    ctx = await browser.new_context(base_url=base_url)
-    pg  = await ctx.new_page()
-    yield pg
-    await ctx.close()
-
-
-@pytest.fixture
+@pytest_asyncio.fixture
 async def lobby_page(page, base_url):
+    """Page already navigated to the lobby."""
     await page.goto(base_url)
     await page.wait_for_selector("#rooms-tbody", timeout=10_000)
     return page

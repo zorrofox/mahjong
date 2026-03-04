@@ -391,6 +391,36 @@ async def _run_ai_turn(room_id: str) -> None:
                 ai_idx = gs.current_turn
                 player = gs.players[ai_idx]
 
+                # 大连听牌自动处理（AI 玩家）：与人类玩家逻辑相同
+                # 摸到胡牌张/宝牌→自动胡；其他→打回刚摸的牌（不换听）
+                if gs.ruleset == "dalian" and ai_idx in gs.tenpai_players:
+                    hand_tp = player.hand_without_bonus()
+                    if _ai.should_declare_win(hand_tp, player.melds, "dalian",
+                                              bao_tile=gs._effective_bao(ai_idx)):
+                        try:
+                            gs.declare_win(ai_idx)
+                            await _broadcast_game_state(room_id)
+                            await _handle_game_over(room_id)
+                            return
+                        except ValueError:
+                            pass
+                    else:
+                        drawn = gs.last_drawn_tile
+                        if drawn and drawn in player.hand:
+                            try:
+                                gs.discard_tile(ai_idx, drawn)
+                                if not gs.bao_declared:
+                                    bao_event = gs.check_and_trigger_bao()
+                                    if bao_event:
+                                        await _broadcast_bao_declared(room_id, bao_event, gs=gs)
+                                await _broadcast_game_state(room_id)
+                                if gs.phase == "claiming":
+                                    await _handle_claim_window(room_id)
+                                    return
+                                continue
+                            except ValueError:
+                                pass  # 安全阀已移出 tenpai_players，走正常出牌
+
                 # Check self-draw win
                 if _ai.should_declare_win(player.hand_without_bonus(), player.melds, gs.ruleset, bao_tile=gs._effective_bao(ai_idx)):
                     try:

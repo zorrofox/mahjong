@@ -12,7 +12,8 @@ class LobbyPage:
         await self.page.wait_for_selector("#rooms-tbody")
 
     async def room_count(self) -> int:
-        rows = await self.page.locator("#rooms-tbody tr").count()
+        """返回实际房间数（不含「No rooms yet」占位符行）。"""
+        rows = await self.page.locator("#rooms-tbody tr:not(:has(.no-rooms))").count()
         return rows
 
     async def get_room_rulesets(self) -> list[str]:

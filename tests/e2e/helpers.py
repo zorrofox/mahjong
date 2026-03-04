@@ -43,9 +43,77 @@ async def start_game(page: Page) -> None:
     await page.wait_for_selector(".tile[data-tile]", timeout=15_000)
 
 
+async def _kick_start_ws(base_url: str, room_id: str,
+                          player_id: str = "ai_player_1") -> None:
+    """
+    短暂 WebSocket 连接触发服务端的 _run_ai_turn 任务。
+    断开后 AI_TAKEOVER_GRACE 秒内 AI 接管该座位，游戏继续。
+    """
+    import websockets
+    ws_url = base_url.replace("http://", "ws://") + f"/ws/{room_id}/{player_id}"
+    try:
+        async with websockets.connect(ws_url, open_timeout=5,
+                                       ping_interval=None) as ws:
+            await asyncio.sleep(0.3)   # 给服务器足够时间启动 AI 循环
+            # 主动关闭 → 服务端启动 AI 接管倒计时
+    except Exception:
+        pass  # 连接失败时忽略（游戏可能已结束）
+
+
+async def run_all_ai_game(base_url: str, ruleset: str = "hk",
+                          poll_interval: float = 0.5,
+                          max_wait: float = 90.0) -> dict:
+    """
+    创建"全 AI"局并等待游戏结束。
+
+    流程：
+    1. 以 "e2e_kick" 身份加入房间（非 ai_player_ 前缀，确保 AI 接管机制生效）
+    2. 开始游戏（剩余 3 座由 AI 填满）
+    3. 短暂 WS 连接触发 _run_ai_turn（纯 REST 启动后游戏静止）
+    4. 断开后 AI_TAKEOVER_GRACE=2s → e2e_kick 被 AI 接管
+    5. 4 个 AI 全部就位，游戏自动跑完
+    6. 轮询 /api/rooms 直到 status=ended
+
+    返回 {"room_id": str, "observer_player_id": str}
+      observer_player_id = "e2e_kick"，重连时会触发 is_reconnect=True game_over
+    """
+    kick_pid = "e2e_kick"
+    async with httpx.AsyncClient() as client:
+        r = await client.post(f"{base_url}/api/rooms",
+                              json={"name": "E2E-AllAI", "ruleset": ruleset})
+        room_id = r.json()["id"]
+
+        # 加入房间（作为 kick 玩家，非 ai_player_ 前缀）
+        await client.post(f"{base_url}/api/rooms/{room_id}/join",
+                          json={"player_id": kick_pid})
+
+        # 开始游戏（AI 填满剩余 3 座）
+        await client.post(f"{base_url}/api/rooms/{room_id}/start")
+
+    # 短暂 WS 连接触发 _run_ai_turn；断开后 AI 接管 e2e_kick（非 ai_player_ 前缀才会接管）
+    await _kick_start_ws(base_url, room_id, player_id=kick_pid)
+
+    # 等待 AI 接管（MJ_AI_TAKEOVER_GRACE=2.0s）后再轮询
+    await asyncio.sleep(2.5)
+
+    async with httpx.AsyncClient() as client:
+        waited = 0.0
+        while waited < max_wait:
+            await asyncio.sleep(poll_interval)
+            waited += poll_interval
+            rooms_resp = await client.get(f"{base_url}/api/rooms")
+            rooms = rooms_resp.json()
+            room = next((rm for rm in rooms if rm["id"] == room_id), None)
+            if room and room["status"] in ("ended", "finished"):
+                return {"room_id": room_id, "observer_player_id": kick_pid}
+
+    raise TimeoutError(f"All-AI game did not finish within {max_wait}s")
+
+
 async def wait_for_game_over(page: Page, timeout: int = 90_000) -> dict:
     """
     等待结算弹窗出现，返回结算信息。
+    适用于：页面通过重连（is_reconnect=True）触发 game_over 事件的场景。
     """
     await page.wait_for_selector("#game-over-modal:not(.hidden)", timeout=timeout)
 
@@ -89,7 +157,7 @@ async def wait_for_game_over(page: Page, timeout: int = 90_000) -> dict:
     }
 
 
-async def chips_are_zero_sum(scores: list[dict], initial: int = 1000) -> bool:
+def chips_are_zero_sum(scores: list[dict], initial: int = 1000) -> bool:
     """验证所有玩家筹码总和 = n × initial_chips。"""
     total = sum(s["chips"] for s in scores)
     return total == initial * len(scores)
