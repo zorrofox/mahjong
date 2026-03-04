@@ -138,6 +138,8 @@ drawing → discarding → claiming → (下一轮 drawing)
 - **大连荒庄**：牌墙 ≤14 张（7 墩）时游戏结束，庄不换
 - **大连三元牌禁碰**：`claim_pung` 对 RED/GREEN/WHITE 直接返回 False
 - **大连宝牌**：`check_and_trigger_bao()` 在每次出牌后检测首次听牌，触发骰子确定宝牌；`bao_tile` 字段在整局游戏中持久有效
+- **大连换宝**：`_count_bao_revealed()` 统计弃牌堆 + 非暗杠副露中的宝牌总数；`check_and_maybe_reroll_bao()` 在每次出牌/碰/吃/杠完成后调用，达到 3 张时重摇并广播
+- **大连听牌约束**：`discard_tile()` 对大连听牌玩家验证出牌后仍满足 `is_tenpai_dalian`（不换听）；websocket 层自动处理听牌状态下的摸牌（胡牌张→自动胡，其他张→自动打回）
 
 ### AI 逻辑（`ai_player.py`）
 
@@ -203,8 +205,13 @@ unit = min(CHIP_CAP, 2^(总番-1))
 
 - **触发**：第一位进入听牌（需至少 1 副副露）的玩家触发骰子（1–6），`bao_tile = wall[(dice-1) % len(wall)]`（只看不取出）
 - **效果**：宝牌确定后，任意玩家摸到宝牌可代替所需张完成胡牌
+- **冲宝**（+2）：胡牌张本身就是宝牌（自摸和荣和均适用，非荣和独享）
+- **摸宝**（+1）：自摸时手中有宝牌充当野牌（宝牌不是 winning_tile）
+- **换宝**：弃牌堆 + 非暗杠副露中宝牌累计 ≥ 3 张时重摇骰子；碰/吃/杠成功后均会触发检测
 - **自动检测**：后端在每次出牌后调用 `check_and_trigger_bao()` 检测，无需玩家主动宣听
-- **前端**：揭示时弹出通知（骰子点数 + 听牌者 + 宝牌图样）；顶栏持续显示宝牌 badge；手中宝牌金色发光高亮
+- **听牌标识**：玩家进入听牌状态后，其区域显示绿色脉冲"听"字 badge（`.tenpai-badge`，区分庄家的金色"庄"badge）
+- **听牌后行为**：摸到胡牌张/宝牌→自动胡；其他张→自动打回（不换听）
+- **前端**：揭示/换宝时弹出通知（骰子点数 + 听牌者 + 宝牌图样）；顶栏持续显示宝牌 badge；手中宝牌金色发光高亮
 
 ---
 
@@ -289,11 +296,11 @@ unit = min(CHIP_CAP, 2^(番数-1))
 
 | 消息类型 | 关键字段 |
 |---|---|
-| `game_state` | `players`、`discards`、`phase`、`ruleset`、`cumulative_scores`、`dealer_idx`、`round_wind_idx`、`bao_tile`、`bao_declared`、`tenpai_players` |
+| `game_state` | `players`、`discards`、`phase`、`ruleset`、`cumulative_scores`、`dealer_idx`、`round_wind_idx`、`bao_tile`、`bao_declared`、`bao_revealed_count`、`tenpai_players` |
 | `action_required` | `actions`、`drawn_tile` |
 | `claim_window` | `tile`、`actions`、`timeout` |
 | `game_over` | `winner_id`、`win_ron`、`han_breakdown`、`han_total`、`chip_changes`、`cumulative_scores`、`dealer_idx`、`next_dealer_idx` |
-| `bao_declared` | `player_idx`、`dice`、`bao_tile`（大连专属：首次宣听触发宝牌揭示） |
+| `bao_declared` | `player_idx`（-1 表示换宝）、`dice`、`bao_tile`、`rerolled`（大连专属：首次揭示或 3 张明牌后换宝） |
 
 ---
 
@@ -457,6 +464,11 @@ gcloud run deploy mahjong \
 | 29 | 流局弹窗显示「Winner: Player 1」| `game.js` `handleGameOver` | `null + 1 = 1`（JS 特性），流局时 `winner_idx=null` 导致 `winnerName="Player 1"`；修复：先检查 `hasWinner` 再计算 winnerName |
 | 30 | 大连荒庄时庄家错误换庄 | `websocket.py` `_handle_game_over` | 流局时统一换庄，未区分大连荒庄庄不换；修复：大连流局不推进 `dealer_idx` |
 | 31 | 大连门清可胡（违反规则） | `hand.py` `is_winning_hand_dalian` | 未检查 `n_declared_melds == 0`；修复：首个条件加 `if n_declared_melds == 0: return False` |
+| 32 | 自摸冲宝不计番（冲宝条件限定为荣和） | `hand.py` `calculate_han_dalian` | `if ron and winning_tile == bao_tile` 漏掉自摸冲宝；修复：去掉 `ron` 条件，改为 `if winning_tile == bao_tile` |
+| 33 | 换宝仅检测弃牌，碰/吃/杠后明牌不触发 | `game_state.py` + `websocket.py` | 旧方案用 `bao_discard_count` 仅在 `discard_tile` 计数；修复：废弃该字段，改用 `_count_bao_revealed()` 统计弃牌堆 + 非暗杠副露，并在碰/吃/杠完成后亦调用 `check_and_maybe_reroll_bao()` |
+| 34 | 大连听牌后无任何 UI 标识 | `game.html` + `css/style.css` | 缺少听牌状态展示；修复：新增 `.tenpai-badge` 绿色脉冲样式，game.html 两处标签渲染加入"听"字 badge |
+| 35 | 大连听牌后可任意换牌（违反不换听规则） | `game_state.py` `discard_tile` | 未验证出牌后仍在听牌；修复：在 `discard_tile` 中对大连听牌玩家校验 `is_tenpai_dalian(hand_after)` |
+| 36 | 大连听牌摸到胡牌张须手动点胡（应自动） | `websocket.py` `_run_ai_turn` | 人类玩家听牌摸牌后走正常流程；修复：检测到听牌状态后，胡牌张→自动 `declare_win`，其他张→自动 `discard_tile(last_drawn_tile)` |
 
 ---
 
