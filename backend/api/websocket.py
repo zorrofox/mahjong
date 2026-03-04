@@ -154,17 +154,38 @@ async def _broadcast_game_state(room_id: str) -> None:
         await _send(ws, {"type": "game_state", "state": state_dict})
 
 
-async def _broadcast_bao_declared(room_id: str, event: dict) -> None:
-    """大连宝牌揭示 / 重摇 — 广播给房间所有连线玩家。"""
-    payload = {
+async def _broadcast_bao_declared(room_id: str, event: dict, gs=None) -> None:
+    """
+    大连宝牌揭示 / 重摇。
+
+    规则：宝牌只有已听牌的玩家才能看到（"别人不允许知道"）。
+    - 已在 tenpai_players 的玩家：收到含 bao_tile 的完整消息
+    - 其他玩家：收到 bao_tile=null 的通知（知道有人摇了骰子但不知道是哪张）
+
+    换宝（rerolled=True）时，只有当前听牌玩家知道新宝牌。
+    """
+    tenpai_pids = (
+        {gs.players[i].id for i in gs.tenpai_players if i < len(gs.players)}
+        if gs is not None else set()
+    )
+
+    base = {
         "type": "bao_declared",
         "player_idx": event.get("player_idx", -1),
         "dice": event["dice"],
-        "bao_tile": event["bao_tile"],
     }
     if event.get("rerolled"):
-        payload["rerolled"] = True
-    await _broadcast(room_id, payload)
+        base["rerolled"] = True
+
+    room = room_manager.get_room(room_id)
+    if room is None:
+        return
+
+    for ws, (_, pid) in list(_connections.get(room_id, {}).items()):
+        payload = dict(base)
+        # 非听牌玩家只看到 null（知道骰子被摇了，但不知道是哪张宝牌）
+        payload["bao_tile"] = event["bao_tile"] if pid in tenpai_pids else None
+        await _send(ws, payload)
 
 
 async def _check_bao_reroll_and_broadcast(room_id: str, gs) -> None:
@@ -178,7 +199,30 @@ async def _check_bao_reroll_and_broadcast(room_id: str, gs) -> None:
     if reroll_event:
         reroll_event["rerolled"] = True
         reroll_event["player_idx"] = -1
-        await _broadcast_bao_declared(room_id, reroll_event)
+        await _broadcast_bao_declared(room_id, reroll_event, gs=gs)
+
+
+async def _notify_new_tenpai_players_bao(room_id: str, gs, prev_tenpai: set) -> None:
+    """
+    大连专用：宝牌已揭示时，若出牌后有新玩家达到听牌，单独通知他们宝牌。
+    （后续听牌者"直接看宝"，无需重新掷骰子）
+    """
+    if gs.ruleset != "dalian" or not gs.bao_declared or not gs.bao_tile:
+        return
+    new_tenpai = gs.tenpai_players - prev_tenpai
+    if not new_tenpai:
+        return
+    new_pids = {gs.players[i].id for i in new_tenpai if i < len(gs.players)}
+    payload = {
+        "type": "bao_declared",
+        "player_idx": -1,  # 无特定触发者（宝牌已存在）
+        "dice": gs.bao_dice_roll,
+        "bao_tile": gs.bao_tile,
+        "new_tenpai": True,  # 标记：仅通知新达到听牌的玩家
+    }
+    for ws, (_, pid) in list(_connections.get(room_id, {}).items()):
+        if pid in new_pids:
+            await _send(ws, payload)
 
 
 async def _broadcast_room_update() -> None:
@@ -390,13 +434,15 @@ async def _run_ai_turn(room_id: str) -> None:
                     logger.warning("AI discard failed: %s", e)
                     return
 
-                # 大连：AI 出牌后检测明牌重摇或首次听牌宝牌
+                # 大连：AI 出牌后检测明牌重摇或听牌宝牌
                 if gs.ruleset == "dalian":
                     await _check_bao_reroll_and_broadcast(room_id, gs)
-                    if not gs.bao_declared:
-                        bao_event = gs.check_and_trigger_bao()
-                        if bao_event:
-                            await _broadcast_bao_declared(room_id, bao_event)
+                    _prev_tenpai_ai = set(gs.tenpai_players)
+                    bao_event = gs.check_and_trigger_bao()
+                    if bao_event:
+                        await _broadcast_bao_declared(room_id, bao_event, gs=gs)
+                    else:
+                        await _notify_new_tenpai_players_bao(room_id, gs, _prev_tenpai_ai)
 
                 await _broadcast_game_state(room_id)
 
@@ -1021,13 +1067,15 @@ async def _handle_message(
             return
 
         if gs.ruleset == "dalian":
-            # 出牌后检测明牌重摇（弃牌已计入，副露稍后处理）
             await _check_bao_reroll_and_broadcast(room_id, gs)
-            # 首次听牌触发宝牌
-            if not gs.bao_declared:
-                bao_event = gs.check_and_trigger_bao()
-                if bao_event:
-                    await _broadcast_bao_declared(room_id, bao_event)
+            _prev_tenpai = set(gs.tenpai_players)
+            bao_event = gs.check_and_trigger_bao()
+            if bao_event:
+                # 首次听牌：广播给所有人（tenpai 玩家见宝牌，其他见 null）
+                await _broadcast_bao_declared(room_id, bao_event, gs=gs)
+            else:
+                # 宝牌已揭示：如有新达到听牌的玩家，单独通知他们宝牌
+                await _notify_new_tenpai_players_bao(room_id, gs, _prev_tenpai)
 
         await _broadcast_game_state(room_id)
 

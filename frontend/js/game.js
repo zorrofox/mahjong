@@ -541,13 +541,26 @@ function handleClaimWindow(msg) {
    BAO (宝牌) HANDLERS — Dalian ruleset treasure tile
    ============================================================ */
 function handleBaoDeclared(msg) {
-  _baoTile = msg.bao_tile;
-  // player_idx == -1 表示宝牌重摇（非首次触发）
+  // 若 bao_tile 为 null，说明我是非听牌玩家（不应知道宝牌），忽略内容
+  if (msg.bao_tile !== null && msg.bao_tile !== undefined) {
+    _baoTile = msg.bao_tile;
+  }
+
+  // player_idx >= 0 且非重摇：记录首个听牌玩家
   if (msg.player_idx >= 0 && !_tenpaiPlayers.includes(msg.player_idx)) {
     _tenpaiPlayers.push(msg.player_idx);
   }
-  updateBaoBadge(msg.bao_tile);
-  showBaoAnnounce(msg.player_idx, msg.dice, msg.bao_tile, msg.rerolled);
+
+  updateBaoBadge(_baoTile);
+
+  // new_tenpai=true：我是刚达到听牌的玩家，静默收到宝牌（不弹窗打扰）
+  if (msg.new_tenpai) {
+    getSpeech()?.speak('宝牌：' + (tileToDisplay(_baoTile)?.label || _baoTile), 'queue');
+    return;
+  }
+
+  // 正常弹窗（首次揭示或换宝）
+  showBaoAnnounce(msg.player_idx, msg.dice, _baoTile, msg.rerolled);
   getSpeech()?.speak(msg.rerolled ? '换宝！' : '宝牌！', 'immediate');
 }
 
@@ -1475,6 +1488,10 @@ function sendStartGame() {
    CLAIM WINDOW OVERLAY
    ============================================================ */
 function showClaimOverlay(tileStr, actions, timeout) {
+  // 声索窗口出现时，立即关闭宝牌弹窗（避免重叠）
+  const baoEl = document.getElementById('bao-announce');
+  if (baoEl) baoEl.style.display = 'none';
+
   const overlay  = document.getElementById('claim-overlay');
   const tileDisp = document.getElementById('claim-tile-display');
   const tileName = document.getElementById('claim-tile-name');

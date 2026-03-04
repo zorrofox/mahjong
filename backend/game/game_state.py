@@ -451,21 +451,23 @@ class GameState:
 
     def check_and_trigger_bao(self) -> Optional[dict]:
         """
-        检测是否有玩家首次进入听牌状态，若是则掷骰子确定宝牌。
+        检测所有玩家是否新进入听牌状态，并在首次听牌时掷骰子确定宝牌。
 
-        调用时机：每次出牌（discard_tile）或副露后 phase 进入 claiming/discarding 时。
-        仅在 ruleset=="dalian" 且宝牌尚未揭示时有效。
+        关键设计：
+        - 即使宝牌已揭示（bao_declared=True），仍继续扫描其余玩家是否达到听牌，
+          以便后续玩家也能被加入 tenpai_players（获得听牌标识、看见宝牌）。
+        - 只有第一位达到听牌的玩家才触发骰子选宝；后续玩家直接获知宝牌。
 
         Returns:
-            {"player_idx": int, "dice": int, "bao_tile": str}  — 若新触发宝牌
-            None  — 若无变化
+            {"player_idx": int, "dice": int, "bao_tile": str}  — 若本次首次触发宝牌
+            None  — 无新变化（包含仅新增听牌玩家但宝牌已存在的情况）
         """
         if self.ruleset != "dalian":
             return None
-        if self.bao_declared:
-            return None
         if not self.wall:
             return None
+
+        bao_event: Optional[dict] = None
 
         for i, player in enumerate(self.players):
             if i in self.tenpai_players:
@@ -475,11 +477,16 @@ class GameState:
             expected_tenpai_count = 13 - 3 * len(player.melds)
             if len(hand) != expected_tenpai_count:
                 continue
-            waits = is_tenpai_dalian(hand, len(player.melds), player.melds)
+            waits = is_tenpai_dalian(hand, len(player.melds), player.melds,
+                                      bao_tile=self.bao_tile)
             if not waits:
                 continue
-            # 玩家进入听牌
+
+            # 玩家新进入听牌
             self.tenpai_players.add(i)
+            logger.info("Dalian: player %d reached tenpai room=%s", i, self.room_id)
+
+            # 首次听牌触发骰子选宝
             if not self.bao_declared:
                 import random
                 dice = random.randint(1, 6)
@@ -491,8 +498,10 @@ class GameState:
                     "Dalian: player %d tenpai → dice=%d bao_tile=%s room=%s",
                     i, dice, self.bao_tile, self.room_id
                 )
-                return {"player_idx": i, "dice": dice, "bao_tile": self.bao_tile}
-        return None
+                bao_event = {"player_idx": i, "dice": dice, "bao_tile": self.bao_tile}
+                # 继续扫描，确保其他同时听牌的玩家也被记录
+
+        return bao_event
 
     def _count_bao_revealed(self) -> int:
         """
@@ -1223,9 +1232,17 @@ class GameState:
             "players": players_data,
             "winner": self.winner,
             "winning_tile": self.winning_tile,
-            "bao_tile": self.bao_tile,
+            # 宝牌只对已听牌的玩家可见（"别人不允许知道"）
+            # viewing_player_idx=None 时为调试视角，显示所有信息
+            "bao_tile": (
+                self.bao_tile
+                if (viewing_player_idx is None or viewing_player_idx in self.tenpai_players)
+                else None
+            ),
             "bao_declared": self.bao_declared,
-            "bao_dice_roll": self.bao_dice_roll,
+            "bao_dice_roll": self.bao_dice_roll if (
+                viewing_player_idx is None or viewing_player_idx in self.tenpai_players
+            ) else None,
             "bao_revealed_count": self._count_bao_revealed(),
             "tenpai_players": list(self.tenpai_players),
             "available_actions": (
