@@ -4,7 +4,11 @@
 
 ## 项目概述
 
-基于浏览器的多人麻将游戏，支持 1–4 名玩家共享一个房间，空位由 AI 自动填补。采用标准中国香港麻将规则，Python FastAPI 后端 + 原生 HTML/JS 前端，通过 WebSocket 实现实时通信，部署于 Google Cloud Run + IAP。
+基于浏览器的多人麻将游戏，支持 1–4 名玩家共享一个房间，空位由 AI 自动填补。**同时支持两种规则集**：
+- **港式麻将**（`ruleset="hk"`）：144 张（含花/季牌），标准香港规则
+- **大连穷胡**（`ruleset="dalian"`）：136 张（无花/季牌），含三色全/幺九/至少一刻/禁止门清/宝牌机制
+
+Python FastAPI 后端 + 原生 HTML/JS 前端，通过 WebSocket 实现实时通信，部署于 Google Cloud Run + IAP。
 
 ---
 
@@ -58,7 +62,9 @@ majiang/
 │       ├── test_game_state.py
 │       ├── test_ai_player.py
 │       ├── test_room_manager.py
-│       └── test_routes.py
+│       ├── test_routes.py
+│       ├── test_dalian_hand.py      # 大连穷胡手牌规则测试
+│       └── test_dalian_settlement.py # 大连穷胡结算逻辑测试
 ├── frontend/
 │   ├── index.html                   # 大厅页：房间列表、创建/加入
 │   ├── game.html                    # 游戏页：四方牌桌、手牌、操作按钮
@@ -98,11 +104,22 @@ majiang/
 
 ### 牌型（`tiles.py`）
 
-144 张标准麻将：万子/条子/筒子各 9 种 × 4 张（108 张）、风牌东南西北各 4 张（16 张）、字牌中发白各 4 张（12 张）、花牌/季牌各 1 张（8 张）。牌以字符串表示，如 `"BAMBOO_5"`、`"EAST"`、`"RED"`、`"FLOWER_1"`。
+`build_deck(ruleset="hk")` 按规则集生成牌组：
+- **港式**（`"hk"`）：144 张（含花牌/季牌各 4 张）
+- **大连**（`"dalian"`）：136 张（无花/季牌）
+
+牌以字符串表示，如 `"BAMBOO_5"`、`"EAST"`、`"RED"`、`"FLOWER_1"`。
 
 ### 胡牌判断（`hand.py`）
 
-`is_winning_hand_given_melds(concealed_tiles, n_declared_melds)` 使用递归回溯：枚举对子候选，移除后尝试从最小牌起剥离刻子或顺子，恰好剥完 `(4 - n_melds)` 组即为胡牌。副露牌保持锁定，不参与重组。额外支持七对子（7 个不同对子）。
+**港式函数：**
+- `is_winning_hand_given_melds(concealed_tiles, n_declared_melds)`：递归回溯，支持七对子
+
+**大连穷胡函数：**
+- `is_winning_hand_dalian(concealed, n_melds, declared_melds, bao_tile=None)`：验证六个条件（禁止门清/三色全/幺九/至少一刻/禁手把一/结构），支持宝牌野牌替换
+- `is_tenpai_dalian(concealed, n_melds, declared_melds, bao_tile=None)`：遍历 34 种候选张，返回所有等待张列表
+- `decompose_winning_hand_dalian(concealed)`：三元牌禁刻子的手牌分解
+- `calculate_han_dalian(...)`:  基础/自摸/夹胡/庄家/杠上开花(+2)/抢杠胡(+2)/冲宝(+2)/摸宝(+1)
 
 ### 游戏状态机（`game_state.py`）
 
@@ -114,27 +131,84 @@ drawing → discarding → claiming → (下一轮 drawing)
 
 关键设计：
 - **声索优先级**：胡 > 碰/杠 > 吃；同优先级取距出牌者座位最近者（`_seat_distance`）
-- **花牌自动收取**：摸到花牌立即从牌墙后端补牌（`_collect_bonus_tiles`，支持级联）
+- **花牌自动收取**（HK）：摸到花牌立即从牌墙后端补牌（`_collect_bonus_tiles`，支持级联）
 - **杠后补牌**：从牌墙后端补一张；`last_drawn_tile` 在 `_collect_bonus_tiles` 之后用 `hand[-1]` 更新
-- **人类玩家摸牌**：drawing 阶段由服务端自动完成，不暴露 draw 消息给客户端
-- **嶺上開花**：杠后补牌时设 `lingshang_pending=True`，`_finalize_win` 消费后清除，出牌时清除
-- **搶杠胡**：加杠时开搶杠声索窗口；声索窗口中只允许胡/过；无人搶杠才完成杠
+- **嶺上開花**：杠后补牌时设 `lingshang_pending=True`，`_finalize_win` 消费后清除
+- **搶杠胡**：加杠时开搶杠声索窗口；仅允许胡/过；无人搶杠才完成杠
+- **大连荒庄**：牌墙 ≤14 张（7 墩）时游戏结束，庄不换
+- **大连三元牌禁碰**：`claim_pung` 对 RED/GREEN/WHITE 直接返回 False
+- **大连宝牌**：`check_and_trigger_bao()` 在每次出牌后检测首次听牌，触发骰子确定宝牌；`bao_tile` 字段在整局游戏中持久有效
 
 ### AI 逻辑（`ai_player.py`）
 
-- **出牌**：为每张牌打分（已成副 +30、刻子 +25、对子 +15、相邻 +4、孤张 -5），优先打分最低的牌
-- **声索决策**：永远声索胡牌；碰/杠/吃在模拟后若进度分提升则声索
-- **副露胡牌检查**：使用 `is_winning_hand_given_melds(playable, n_melds)`，与服务端逻辑一致
+**港式策略：**
+- `choose_discard(hand, melds, ruleset="hk")`：基于连通性评分，孤张优先丢弃
+- `should_declare_win(hand, melds, ruleset="hk", bao_tile=None)`：按规则集调用对应胡牌检测
+
+**大连专属策略（`_discard_score_dalian`）：**
+- 宝牌保护：手中宝牌评分 +80，不轻易丢弃
+- 三色全保护：副露未覆盖的稀缺花色最后 1 张 +80、≤3 张 +30
+- 幺九保护：唯一字牌且无幺九 +25；最后幺九牌 +30
+- 三元牌策略：第 3 张龙牌 -200 立即丢弃
+- 刻子保护：对子/刻子候选额外加分
 
 ### 房间管理（`room_manager.py`）
 
-每房间最多 4 名人类玩家；`join_room()` 若目标房间已满自动创建新房间（返回 `was_redirected=True`）；`start_game()` 用 `ai_player_1..3` 填满空位并发牌。
+`Room` 含 `ruleset` 字段（`"hk"` / `"dalian"`）；`create_room(ruleset=)` 接受规则集；`start_game()` 将 ruleset 传给 `GameState`；`to_dict()` 序列化包含 `ruleset`。
 
 ---
 
 ## 番数与筹码结算
 
-### 番型（港式规则，16 种）
+### 大连穷胡规则（`ruleset="dalian"`）
+
+#### 胡牌必要条件（全部同时满足）
+
+| 条件 | 说明 |
+|---|---|
+| 禁止门清 | 必须至少有一副明副露（碰/吃/杠）才能胡牌 |
+| 三色全 | 手牌（含副露）必须同时含条/饼/万三种花色 |
+| 幺九 | 含 1 或 9；若手牌有风牌或字牌则豁免 |
+| 至少一刻子 | 副露或暗刻至少有一组刻子 |
+| 禁手把一 | 副露数 < 4（全吃碰杠不可胡） |
+| 三元牌禁刻子 | 中/發/白只能做将，不可碰/组刻子 |
+
+#### 大连番型
+
+| 番型 | 番数 | 条件 |
+|---|---|---|
+| 基础 | +1 | 始终 |
+| 自摸 | +1 | 自摸 |
+| 夹胡 | +1 | 荣和时坎张等待（胡牌张为两侧牌的中间张） |
+| 庄家 | +1 | 胡牌玩家为庄家 |
+| 杠上开花 | +2 | 杠后补牌自摸 |
+| 抢杠胡 | +2 | 搶加杠荣和 |
+| 摸宝 | +1 | 自摸时手中有宝牌（充当野牌） |
+| 冲宝 | +2 | 荣和时胡牌张本身即宝牌 |
+
+#### 大连筹码结算
+
+```
+unit = min(CHIP_CAP, 2^(总番-1))
+
+荣和（放炮）：放炮者按 han+1 番付钱，其余两家不付
+自摸：三家各按自己所受的番数付钱
+  未开门（loser 无副露）+1 番（加在输家身上）
+  三家门清（三位 loser 均无副露）+1 番（每位输家叠加）
+荒庄（流局）：无筹码结算；杠钱仍正常结算
+庄家轮换：荒庄时庄不换，闲家胡或普通流局换庄
+```
+
+#### 宝牌机制（宝牌/野牌）
+
+- **触发**：第一位进入听牌（需至少 1 副副露）的玩家触发骰子（1–6），`bao_tile = wall[(dice-1) % len(wall)]`（只看不取出）
+- **效果**：宝牌确定后，任意玩家摸到宝牌可代替所需张完成胡牌
+- **自动检测**：后端在每次出牌后调用 `check_and_trigger_bao()` 检测，无需玩家主动宣听
+- **前端**：揭示时弹出通知（骰子点数 + 听牌者 + 宝牌图样）；顶栏持续显示宝牌 badge；手中宝牌金色发光高亮
+
+---
+
+### 番型（港式规则）
 
 | 番型 | 番数 | 条件 |
 |---|---|---|
@@ -182,6 +256,7 @@ unit = min(CHIP_CAP, 2^(番数-1))
 | `CHIP_CAP` | `websocket.py` | 64 | 单局最大支付单位（7 番封顶） |
 | `CLAIM_TIMEOUT` | `websocket.py` | 30.0 | 声索窗口超时秒数 |
 | `AI_TAKEOVER_GRACE` | `websocket.py` | 20.0 | 断线后 AI 接管宽限期（秒） |
+| 荒庄阈值 | `game_state.py` `draw_tile` | ≤14 张 | 大连穷胡：牌墙 ≤14 张时荒庄 |
 
 ---
 
@@ -192,7 +267,7 @@ unit = min(CHIP_CAP, 2^(番数-1))
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/api/rooms` | 获取所有房间列表 |
-| POST | `/api/rooms` | 创建新房间（可选 `name` 字段） |
+| POST | `/api/rooms` | 创建新房间（body: `{"name": "...", "ruleset": "hk"|"dalian"}`） |
 | POST | `/api/rooms/{id}/join` | 加入房间，body: `{"player_id": "..."}` |
 | POST | `/api/rooms/{id}/start` | 开始游戏（补 AI、发牌） |
 
@@ -214,10 +289,11 @@ unit = min(CHIP_CAP, 2^(番数-1))
 
 | 消息类型 | 关键字段 |
 |---|---|
-| `game_state` | `players`、`discards`、`phase`、`cumulative_scores`、`dealer_idx`、`round_wind_idx` |
+| `game_state` | `players`、`discards`、`phase`、`ruleset`、`cumulative_scores`、`dealer_idx`、`round_wind_idx`、`bao_tile`、`bao_declared`、`tenpai_players` |
 | `action_required` | `actions`、`drawn_tile` |
 | `claim_window` | `tile`、`actions`、`timeout` |
 | `game_over` | `winner_id`、`win_ron`、`han_breakdown`、`han_total`、`chip_changes`、`cumulative_scores`、`dealer_idx`、`next_dealer_idx` |
+| `bao_declared` | `player_idx`、`dice`、`bao_tile`（大连专属：首次宣听触发宝牌揭示） |
 
 ---
 
@@ -314,10 +390,10 @@ pytest -v
 
 | 层级 | 测试数 | 覆盖范围 |
 |---|---|---|
-| 后端单元测试 | 360 | tiles/hand/game_state/ai_player/room_manager/routes/dalian_hand/dalian_settlement |
+| 后端单元测试 | 367 | tiles/hand/game_state/ai_player/room_manager/routes/dalian_hand/dalian_settlement |
 | 前端单元测试 | 111 | game.js 纯函数（排序、番数渲染、touch 交互等） |
 | 集成测试 | 79 | REST 端点、WS 流程、声索窗口、重开局、Rejoin |
-| **合计** | **550** | |
+| **合计** | **557** | |
 
 ---
 
@@ -377,6 +453,10 @@ gcloud run deploy mahjong \
 | 25 | 声索验证传 `player.hand` 而非 `hand_without_bonus()` | `game_state.py` `claim_pung`/`claim_kong`/`claim_chow` | 花牌滞留手中时验证结果与 `get_available_actions` 不一致；统一改用 `hand_without_bonus()` |
 | 26 | 庄家荣和筹码公式错误（应收 6u 实收 3u） | `websocket.py` `_pay()` | 庄家赢时 `winner_idx == dealer_idx`，所有 payer 均为闲家，应一律返回 `2*unit`；原代码因 payer_idx 判断路径错误只返回 `1*unit` |
 | 27 | 七对子 + 本命花不叠加（本命花番数丢失） | `hand.py` `calculate_han` | 七对子分支提前 `return`，跳过了本命花与嶺上開花计算；修复：在 `return` 前插入本命花/嶺上開花逻辑，本命花与手牌结构无关，所有胡型均应计入 |
+| 28 | 大连 AI 全局流局（AI 从未胡牌） | `ai_player.py` + `websocket.py` | `should_declare_win` 用港式检测无法识别大连胡型；`choose_discard` 港式评分破坏三色全；修复：按 ruleset 分发，新增 `_discard_score_dalian` |
+| 29 | 流局弹窗显示「Winner: Player 1」| `game.js` `handleGameOver` | `null + 1 = 1`（JS 特性），流局时 `winner_idx=null` 导致 `winnerName="Player 1"`；修复：先检查 `hasWinner` 再计算 winnerName |
+| 30 | 大连荒庄时庄家错误换庄 | `websocket.py` `_handle_game_over` | 流局时统一换庄，未区分大连荒庄庄不换；修复：大连流局不推进 `dealer_idx` |
+| 31 | 大连门清可胡（违反规则） | `hand.py` `is_winning_hand_dalian` | 未检查 `n_declared_melds == 0`；修复：首个条件加 `if n_declared_melds == 0: return False` |
 
 ---
 
@@ -388,5 +468,5 @@ gcloud run deploy mahjong \
 | 玩家认证 | 无，player_id 自生成 | JWT / Session |
 | AI 强度 | 启发式贪心 | 蒙特卡洛或规则引擎 |
 | 多实例路由 | 同房间玩家须路由到同实例 | WebSocket 粘性路由 / 共享状态 |
-| 测试覆盖 | 504 tests | E2E 浏览器测试（Playwright） |
+| 测试覆盖 | 557 tests | E2E 浏览器测试（Playwright） |
 | 横屏适配 | 未专项优化 | 横屏布局调整 |

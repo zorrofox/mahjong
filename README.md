@@ -1,24 +1,24 @@
 # 麻将游戏 / Mahjong
 
-基于浏览器的多人麻将游戏，支持 1–4 名真人玩家，空位由 AI 自动填补。
+基于浏览器的多人麻将游戏，支持 1–4 名真人玩家，空位由 AI 自动填补。**同时支持港式麻将与大连穷胡两种规则集。**
 
-A browser-based multiplayer Mahjong game. Supports 1–4 human players per room; empty seats are filled by AI.
+A browser-based multiplayer Mahjong game supporting both Hong Kong and Dalian Qionghu rulesets. Supports 1–4 human players per room; empty seats are filled by AI.
 
-![Python](https://img.shields.io/badge/Python-3.11-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-0.111-green) ![Tests](https://img.shields.io/badge/tests-504%20passed-brightgreen) ![Tiles](https://img.shields.io/badge/tiles-Cangjie6%20SVG-orange)
+![Python](https://img.shields.io/badge/Python-3.11-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-0.111-green) ![Tests](https://img.shields.io/badge/tests-557%20passed-brightgreen) ![Tiles](https://img.shields.io/badge/tiles-Cangjie6%20SVG-orange)
 
 ---
 
 ## 功能特性 / Features
 
-- 标准中国香港麻将规则（144 张牌，含花牌季牌）
+- **双规则集**：港式麻将（144 张，花牌/季牌，16 种番型）和大连穷胡（136 张，三色全/幺九/至少一刻/禁止门清/宝牌野牌机制）；大厅创建房间时选择规则
 - 实时多人对战（WebSocket）
-- AI 自动填补空位，启发式出牌与声索决策；人类玩家可在游戏进行中加入并接管 AI 座位
+- AI 自动填补空位，启发式出牌与声索决策；大连模式下 AI 使用专属出牌策略（三色保护/宝牌保留）；人类玩家可在游戏进行中加入并接管 AI 座位
 - 声索优先级：胡 > 碰/杠 > 吃；加杠时支持搶杠胡（限声索赢牌）；有多口可吃时分别显示三张牌序列供玩家选择（如「吃 三四五」/「吃 四五六」）
 - 自摸与荣和均支持；最低番数门槛可配置（当前 1 番，即任意合法手牌可胡）
 - 七对（七對）为合法胡牌型，计 +3 番
 - 声索窗口 30 秒倒计时，归零自动跳过
-- **番数驱动筹码结算**：`unit = min(64, 2^(番数-1))`（1番=1,2番=2,3番=4…7番+=64）；庄家付/收 2×unit，闲家付/收 1×unit；荣和放炮全包（放炮者独付三人自摸份额之和）；杠即时结算（各家付 1 筹码）；跨局累计，初始 1000 筹码；结算弹窗显示本局筹码变化量（±N，绿色/红色）
-- **胡牌番数详情**：游戏结束时展示本局达成的番型列表及合计番数（支持 16 种港式番型）；胡牌时语音播报类型（「胡！自摸！」/「胡！点炮！」/「胡！嶺上開花！」）；弹窗显示胡牌类型（自摸 Tsumo / 点炮 Ron / 嶺上開花 Lingshang）
+- **番数驱动筹码结算**：港式 `unit = min(64, 2^(番-1))`，庄家双倍，荣和放炮全包；大连放炮者按 han+1 番独付，未开门/三家门清可叠加加成；杠即时结算（各家付 1 筹码）；跨局累计，初始 1000 筹码
+- **胡牌番数详情**：游戏结束时展示本局达成的番型列表及合计番数；大连支持冲宝(+2)/摸宝(+1)/夹胡(+1)/庄家(+1)等番型
 - **港式麻将牌面**：Wikimedia Commons Cangjie6 斜视 3D SVG（全套 42 张，含花牌季牌），传统象牙底面配色
 - 摸牌后自动选中刚抓到的牌，出牌按钮立即可用；**双击 / 双指点击手牌直接出牌**（桌面 `dblclick` + 移动端 `touchend` 时间差，合并选牌与打牌两步操作）
 - 庄家（庄）徽标显示在对应玩家名旁；庄家赢则连庄，闲家赢或流局则换庄
@@ -67,7 +67,7 @@ IAP 公网地址：`https://YOUR_APP_DOMAIN`（SSL 证书签发中）
 ├── backend/
 │   ├── game/          # 游戏引擎（牌型、胡牌、状态机、AI、番数计算）
 │   ├── api/           # FastAPI 路由 + WebSocket 处理
-│   └── tests/         # 后端单元测试（314 tests）
+│   └── tests/         # 后端单元测试（367 tests，含大连专项）
 ├── frontend/
 │   ├── js/            # 大厅 + 游戏客户端
 │   ├── tiles/         # Cangjie6 港式麻将 SVG 牌面（42 张）
@@ -117,6 +117,15 @@ pytest -v
 ## 番数与结算 / Han & Chip Settlement
 
 胡牌时自动计算番型，番数直接驱动筹码结算。
+
+### 大连穷胡结算
+
+| 规则点 | 说明 |
+|---|---|
+| 放炮 | 放炮者按 han+1 番付钱；其余两家不付 |
+| 未开门 | 输家无副露时额外 +1 番（加在输家身上） |
+| 三家门清 | 三位输家均无副露时每位再 +1 番 |
+| 荒庄 | 牌墙 ≤14 张时荒庄；庄不换，无筹码结算 |
 
 ### 番型（港式规则，16 种）
 
@@ -250,8 +259,9 @@ unit = min(64, 2^(番数-1))
 
 | 消息（服务器→客户端） | 说明 |
 |---|---|
-| `{"type": "game_state", "state": {...}}` | 完整游戏状态（含 `cumulative_scores`、`round_number`） |
+| `{"type": "game_state", "state": {...}}` | 完整游戏状态（含 `ruleset`、`cumulative_scores`、`bao_tile`、`tenpai_players`） |
 | `{"type": "claim_window", "tile": "...", "actions": [...], "timeout": 30}` | 声索窗口，含倒计时秒数 |
-| `{"type": "game_over", ..., "han_breakdown": [...], "han_total": N, "win_ron": bool, "chip_changes": {...}, "dealer_idx": N, "cumulative_scores": {...}}` | 游戏结束，含番型/胡牌类型/本局筹码变化/庄家标识 |
+| `{"type": "game_over", ..., "han_breakdown": [...], "han_total": N, "win_ron": bool, "chip_changes": {...}}` | 游戏结束，含番型/胡牌类型/本局筹码变化 |
+| `{"type": "bao_declared", "player_idx": N, "dice": N, "bao_tile": "..."}` | 大连专属：首次听牌触发宝牌揭示 |
 
 详细文档见 [CLAUDE.md](CLAUDE.md)。
