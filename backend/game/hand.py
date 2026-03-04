@@ -663,24 +663,6 @@ def calculate_han_dalian(
     if rob_kong:
         add('抢杠胡', 'Rob Kong', 2)
 
-    # ── 碰碰胡（全刻子）+1番 ──────────────────────────────────────────
-    # 检测：所有副露 + 暗手分解结果均为刻子（无顺子）
-    # 大连规则下碰碰胡比港式更难（需同时满足三色全+至少一刻等条件），额外 +1 番
-    def _dtype(m: list) -> str:
-        return 'pung' if (len(m) >= 3 and m[0] == m[1]) else 'chow'
-
-    decl_all_pung = all(_dtype(m) == 'pung' for m in declared_melds) if declared_melds else False
-    # 分解暗手查看是否全刻
-    hand_for_pung = [t for t in concealed_tiles if not is_flower_tile(t)]
-    concl_all_pung = False
-    if decl_all_pung:
-        decomp = decompose_winning_hand_dalian(hand_for_pung)
-        if decomp and not decomp.get('seven_pairs'):
-            concl_groups = decomp.get('groups', [])
-            concl_all_pung = bool(concl_groups) and all(g['type'] == 'pung' for g in concl_groups)
-    if decl_all_pung and concl_all_pung:
-        add('碰碰胡', 'All Pungs', 1)
-
     # ── 宝牌加番 ──────────────────────────────────────────────────────
     if bao_tile is not None:
         hand_clean = [t for t in concealed_tiles if not is_flower_tile(t)]
