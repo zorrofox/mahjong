@@ -339,7 +339,7 @@ async def _run_ai_turn(room_id: str) -> None:
                     if gs.ruleset == "dalian" and gs.current_turn in gs.tenpai_players:
                         player = gs.players[gs.current_turn]
                         hand = player.hand_without_bonus()
-                        if _ai.should_declare_win(hand, player.melds, "dalian", bao_tile=gs.bao_tile):
+                        if _ai.should_declare_win(hand, player.melds, "dalian", bao_tile=gs._effective_bao(gs.current_turn)):
                             # 摸到胡牌张或宝牌 → 自动胡
                             try:
                                 gs.declare_win(gs.current_turn)
@@ -391,7 +391,7 @@ async def _run_ai_turn(room_id: str) -> None:
                 player = gs.players[ai_idx]
 
                 # Check self-draw win
-                if _ai.should_declare_win(player.hand_without_bonus(), player.melds, gs.ruleset, bao_tile=gs.bao_tile):
+                if _ai.should_declare_win(player.hand_without_bonus(), player.melds, gs.ruleset, bao_tile=gs._effective_bao(ai_idx)):
                     try:
                         result = gs.declare_win(ai_idx)
                         await _broadcast_game_state(room_id)
@@ -427,7 +427,7 @@ async def _run_ai_turn(room_id: str) -> None:
                         pass
 
                 # Discard
-                tile_to_discard = _ai.choose_discard(player.hand_without_bonus(), player.melds, gs.ruleset, bao_tile=gs.bao_tile)
+                tile_to_discard = _ai.choose_discard(player.hand_without_bonus(), player.melds, gs.ruleset, bao_tile=gs._effective_bao(ai_idx))
                 try:
                     gs.discard_tile(ai_idx, tile_to_discard)
                 except ValueError as e:
@@ -516,7 +516,7 @@ async def _handle_claim_window(room_id: str) -> None:
 
             available = gs.get_available_actions(i)
 
-            if "win" in available and _ai.decide_claim(player.hand_without_bonus(), player.melds, tile, "win", gs.ruleset, bao_tile=gs.bao_tile):
+            if "win" in available and _ai.decide_claim(player.hand_without_bonus(), player.melds, tile, "win", gs.ruleset, bao_tile=gs._effective_bao(i)):
                 ai_decisions.append((i, "win", None))
                 continue
 
