@@ -638,6 +638,45 @@ class TestCalculateHanDalianBao:
         names = [x['name_cn'] for x in result['breakdown']]
         assert '摸宝' not in names
 
+    def test_tsumo_bao_as_wildcard_is_mobao_not_chongbao(self):
+        """Bug 修复验证：摸到宝牌通过野牌替代胡牌，应计摸宝(+1)不是冲宝(+2)。
+        即 winning_tile == bao_tile 但宝牌不是结构性等待张时，应为摸宝。"""
+        # 等待 CHARACTERS_3，摸到宝牌 BAMBOO_5（宝牌通过野牌替代 CHARACTERS_3）
+        concealed = [
+            'EAST', 'EAST',
+            'CIRCLES_1', 'CIRCLES_2', 'CIRCLES_3',
+            'BAMBOO_7', 'BAMBOO_8', 'BAMBOO_9',
+            'CHARACTERS_1', 'CHARACTERS_2',
+            'BAMBOO_5',   # 宝牌（摸到后代替 CHARACTERS_3）
+        ]
+        result = calculate_han_dalian(
+            concealed_tiles=concealed,
+            declared_melds=self._declared(),
+            ron=False,
+            winning_tile='BAMBOO_5',   # 摸到宝牌
+            bao_tile='BAMBOO_5',
+        )
+        names = [x['name_cn'] for x in result['breakdown']]
+        assert '摸宝' in names, "宝牌通过野牌替代胡牌应计摸宝"
+        assert '冲宝' not in names, "宝牌通过野牌替代时不应计冲宝（bug 修复验证）"
+        fan_mobao = next(x for x in result['breakdown'] if x['name_cn'] == '摸宝')
+        assert fan_mobao['fan'] == 1
+
+    def test_chong_bao_requires_structural_win(self):
+        """冲宝要求宝牌是结构性等待张：手牌去掉宝牌野牌效果后仍能直接胡。"""
+        # 结构性等待 CHARACTERS_3，宝牌也恰好是 CHARACTERS_3 → 真正冲宝
+        tiles_with_structural_wait = self._base_tiles()  # 含 CHARACTERS_1,2,3
+        result = calculate_han_dalian(
+            concealed_tiles=tiles_with_structural_wait,
+            declared_melds=self._declared(),
+            ron=False,
+            winning_tile='CHARACTERS_3',
+            bao_tile='CHARACTERS_3',   # 宝牌恰好是结构性等待张
+        )
+        names = [x['name_cn'] for x in result['breakdown']]
+        assert '冲宝' in names, "宝牌是结构性等待张时应计冲宝"
+        assert '摸宝' not in names
+
     def test_no_bao_bonus_when_bao_is_none(self):
         """bao_tile=None 时不计任何宝牌番"""
         tiles = self._base_tiles()

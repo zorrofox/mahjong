@@ -667,10 +667,23 @@ def calculate_han_dalian(
     if bao_tile is not None:
         hand_clean = [t for t in concealed_tiles if not is_flower_tile(t)]
         if winning_tile == bao_tile:
-            # 冲宝：胡牌张本身就是宝牌（自摸和荣和均适用）
-            add('冲宝', 'Chong Bao (Treasure Win)', 2)
+            # winning_tile == bao_tile 有两种情况需要区分：
+            #   冲宝：宝牌正好是结构性等待张，手牌不靠替代就能胡（+2番）
+            #   摸宝：摸到宝牌后宝牌充当野牌替代结构性等待张胡牌（+1番）
+            #         此时 winning_tile = 宝牌，但不是结构性等待张
+            # 判断方法：去掉宝牌野牌效果，看手牌能否直接胡
+            wins_structurally = is_winning_hand_dalian(
+                hand_clean, len(declared_melds), declared_melds, bao_tile=None
+            )
+            if wins_structurally:
+                # 宝牌就是结构性等待张，直接胡 → 冲宝
+                add('冲宝', 'Chong Bao (Treasure Win)', 2)
+            elif not ron:
+                # 宝牌通过野牌替代胡牌（自摸） → 摸宝
+                add('摸宝', 'Mo Bao (Treasure Draw)', 1)
+            # 荣和时宝牌通过野牌替代胡牌：视为普通荣和，不加额外番
         elif not ron and bao_tile in hand_clean:
-            # 摸宝：自摸时手中有宝牌充当野牌（宝牌不是 winning_tile）
+            # 宝牌在手中充当野牌，摸到的是结构性等待张 → 摸宝
             add('摸宝', 'Mo Bao (Treasure Draw)', 1)
 
     total = sum(x['fan'] for x in breakdown)
