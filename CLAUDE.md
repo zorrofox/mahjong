@@ -208,8 +208,9 @@ unit = min(CHIP_CAP, 2^(总番-1))
 
 - **触发**：第一位进入听牌（需至少 1 副副露）的玩家触发骰子（1–6），`bao_tile = wall[(dice-1) % len(wall)]`（只看不取出）
 - **效果**：宝牌确定后，任意玩家摸到宝牌可代替所需张完成胡牌
-- **冲宝**（+2）：胡牌张本身就是宝牌（自摸和荣和均适用，非荣和独享）
-- **摸宝**（+1）：自摸时手中有宝牌充当野牌（宝牌不是 winning_tile）
+- **冲宝**（+2）：宝牌恰好是结构性等待张，摸到/荣和宝牌**直接**胡牌（不靠野牌替代）
+- **摸宝**（+1）：自摸时摸到宝牌，宝牌通过野牌替代结构性等待张胡牌（非直接等待）；或宝牌已在手中，摸到实际等待张胡牌
+- **区分方法**：`is_winning_hand_dalian(hand, bao_tile=None)` 返回 True → 冲宝；False → 摸宝
 - **换宝**：弃牌堆 + 非暗杠副露中宝牌累计 ≥ 3 张时重摇骰子；碰/吃/杠成功后均会触发检测
 - **自动检测**：后端在每次出牌后调用 `check_and_trigger_bao()` 检测，无需玩家主动宣听
 - **听牌标识**：玩家进入听牌状态后，其区域显示绿色脉冲"听"字 badge（`.tenpai-badge`，区分庄家的金色"庄"badge）
@@ -400,10 +401,10 @@ pytest -v
 
 | 层级 | 测试数 | 覆盖范围 |
 |---|---|---|
-| 后端单元测试 | 410 | tiles/hand/game_state/ai_player/room_manager/routes/dalian_hand/dalian_settlement/dalian_game_state |
+| 后端单元测试 | 412 | tiles/hand/game_state/ai_player/room_manager/routes/dalian_hand/dalian_settlement/dalian_game_state |
 | 前端单元测试 | 111 | game.js 纯函数（排序、番数渲染、touch 交互等） |
 | 集成测试 | 79 | REST 端点、WS 流程、声索窗口、重开局、Rejoin |
-| **合计** | **600** | |
+| **合计** | **602** | |
 
 ---
 
@@ -475,6 +476,7 @@ gcloud run deploy mahjong \
 | 37 | `_broadcast_bao_declared` 崩溃导致游戏完全卡死 | `websocket.py` `_broadcast_bao_declared` | `_connections` 结构为 `{pid: ws}`，但代码写成 `for ws,(_, pid) in items()` 导致 unpack 崩溃；修复：改为 `for pid, ws in items()` |
 | 38 | 不换听校验用宝牌野牌导致无法出任何牌（死锁） | `game_state.py` `discard_tile` | 不换听检测传 `bao_tile=self.bao_tile`，宝牌野牌误判使所有出牌均被拒绝；修复：改为 `bao_tile=None`（结构性听牌），加安全阀（无合法出牌时移出 tenpai_players） |
 | 39 | 未上听玩家可用宝牌野牌胡牌（规则违反） | `game_state.py` 所有胡牌判断 | 所有玩家无差别传入 `bao_tile=self.bao_tile`；规则为「听牌后」方可用宝牌替代；修复：新增 `_effective_bao(player_idx)` 辅助方法，仅对 `tenpai_players` 成员返回宝牌 |
+| 40 | 冲宝概率虚高（摸宝被误计为冲宝+2） | `hand.py` `calculate_han_dalian` | `winning_tile == bao_tile` 同时匹配两种情况：① 宝牌直接是结构性等待张（真冲宝+2）② 摸到宝牌后通过野牌替代胡牌（应为摸宝+1）；修复：新增 `is_winning_hand_dalian(bao_tile=None)` 结构性验证，False 则降为摸宝 |
 
 ---
 
@@ -486,5 +488,5 @@ gcloud run deploy mahjong \
 | 玩家认证 | 无，player_id 自生成 | JWT / Session |
 | AI 强度 | 启发式贪心 | 蒙特卡洛或规则引擎 |
 | 多实例路由 | 同房间玩家须路由到同实例 | WebSocket 粘性路由 / 共享状态 |
-| 测试覆盖 | 600 tests | E2E 浏览器测试（Playwright） |
+| 测试覆盖 | 602 tests | E2E 浏览器测试（Playwright） |
 | 横屏适配 | 未专项优化 | 横屏布局调整 |
