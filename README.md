@@ -4,7 +4,7 @@
 
 A browser-based multiplayer Mahjong game supporting both Hong Kong and Dalian Qionghu rulesets. Supports 1–4 human players per room; empty seats are filled by AI.
 
-![Python](https://img.shields.io/badge/Python-3.11-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-0.111-green) ![Tests](https://img.shields.io/badge/tests-557%20passed-brightgreen) ![Tiles](https://img.shields.io/badge/tiles-Cangjie6%20SVG-orange)
+![Python](https://img.shields.io/badge/Python-3.11-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-0.111-green) ![Tests](https://img.shields.io/badge/tests-600%20passed-brightgreen) ![Tiles](https://img.shields.io/badge/tiles-Cangjie6%20SVG-orange)
 
 ---
 
@@ -67,7 +67,7 @@ IAP 公网地址：`https://YOUR_APP_DOMAIN`（SSL 证书签发中）
 ├── backend/
 │   ├── game/          # 游戏引擎（牌型、胡牌、状态机、AI、番数计算）
 │   ├── api/           # FastAPI 路由 + WebSocket 处理
-│   └── tests/         # 后端单元测试（367 tests，含大连专项）
+│   └── tests/         # 后端单元测试（410 tests，含大连专项）
 ├── frontend/
 │   ├── js/            # 大厅 + 游戏客户端
 │   ├── tiles/         # Cangjie6 港式麻将 SVG 牌面（42 张）

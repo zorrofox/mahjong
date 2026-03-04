@@ -63,8 +63,9 @@ majiang/
 │       ├── test_ai_player.py
 │       ├── test_room_manager.py
 │       ├── test_routes.py
-│       ├── test_dalian_hand.py      # 大连穷胡手牌规则测试
-│       └── test_dalian_settlement.py # 大连穷胡结算逻辑测试
+│       ├── test_dalian_hand.py      # 大连穷胡手牌规则测试（含宝牌/听牌/冲摸宝）
+│       ├── test_dalian_settlement.py # 大连穷胡结算逻辑测试
+│       └── test_dalian_game_state.py # 大连穷胡状态机测试（荒庄/禁碰/宝牌/不换听）
 ├── frontend/
 │   ├── index.html                   # 大厅页：房间列表、创建/加入
 │   ├── game.html                    # 游戏页：四方牌桌、手牌、操作按钮
@@ -137,9 +138,11 @@ drawing → discarding → claiming → (下一轮 drawing)
 - **搶杠胡**：加杠时开搶杠声索窗口；仅允许胡/过；无人搶杠才完成杠
 - **大连荒庄**：牌墙 ≤14 张（7 墩）时游戏结束，庄不换
 - **大连三元牌禁碰**：`claim_pung` 对 RED/GREEN/WHITE 直接返回 False
-- **大连宝牌**：`check_and_trigger_bao()` 在每次出牌后检测首次听牌，触发骰子确定宝牌；`bao_tile` 字段在整局游戏中持久有效
+- **大连宝牌**：`check_and_trigger_bao()` 在每次出牌后检测首次结构性听牌（`bao_tile=None`），触发骰子确定宝牌；`bao_tile` 字段在整局游戏中持久有效
+- **大连宝牌野牌限制**：`_effective_bao(player_idx)` 辅助方法——仅对 `tenpai_players` 中的玩家返回 `bao_tile`，其他玩家返回 `None`。所有胡牌判断（`declare_win`/`get_available_actions`/`_finalize_win`/`_resolve_claims`/AI 决策）均通过此方法传递，确保「听牌后」的规则要求
 - **大连换宝**：`_count_bao_revealed()` 统计弃牌堆 + 非暗杠副露中的宝牌总数；`check_and_maybe_reroll_bao()` 在每次出牌/碰/吃/杠完成后调用，达到 3 张时重摇并广播
-- **大连听牌约束**：`discard_tile()` 对大连听牌玩家验证出牌后仍满足 `is_tenpai_dalian`（不换听）；websocket 层自动处理听牌状态下的摸牌（胡牌张→自动胡，其他张→自动打回）
+- **大连听牌约束**：`discard_tile()` 对大连听牌玩家验证出牌后仍满足结构性 `is_tenpai_dalian`（`bao_tile=None`，不换听）；设有安全阀：若所有牌均无法合法出（可能因误加入 tenpai_players），自动从 tenpai_players 移除，防止死锁
+- **大连听牌自动处理**：websocket 层对 tenpai_players 中的人类玩家，摸牌后自动判断（胡牌张→自动胡，其他张→自动打回）
 
 ### AI 逻辑（`ai_player.py`）
 
@@ -397,10 +400,10 @@ pytest -v
 
 | 层级 | 测试数 | 覆盖范围 |
 |---|---|---|
-| 后端单元测试 | 367 | tiles/hand/game_state/ai_player/room_manager/routes/dalian_hand/dalian_settlement |
+| 后端单元测试 | 410 | tiles/hand/game_state/ai_player/room_manager/routes/dalian_hand/dalian_settlement/dalian_game_state |
 | 前端单元测试 | 111 | game.js 纯函数（排序、番数渲染、touch 交互等） |
 | 集成测试 | 79 | REST 端点、WS 流程、声索窗口、重开局、Rejoin |
-| **合计** | **557** | |
+| **合计** | **600** | |
 
 ---
 
@@ -469,6 +472,9 @@ gcloud run deploy mahjong \
 | 34 | 大连听牌后无任何 UI 标识 | `game.html` + `css/style.css` | 缺少听牌状态展示；修复：新增 `.tenpai-badge` 绿色脉冲样式，game.html 两处标签渲染加入"听"字 badge |
 | 35 | 大连听牌后可任意换牌（违反不换听规则） | `game_state.py` `discard_tile` | 未验证出牌后仍在听牌；修复：在 `discard_tile` 中对大连听牌玩家校验 `is_tenpai_dalian(hand_after)` |
 | 36 | 大连听牌摸到胡牌张须手动点胡（应自动） | `websocket.py` `_run_ai_turn` | 人类玩家听牌摸牌后走正常流程；修复：检测到听牌状态后，胡牌张→自动 `declare_win`，其他张→自动 `discard_tile(last_drawn_tile)` |
+| 37 | `_broadcast_bao_declared` 崩溃导致游戏完全卡死 | `websocket.py` `_broadcast_bao_declared` | `_connections` 结构为 `{pid: ws}`，但代码写成 `for ws,(_, pid) in items()` 导致 unpack 崩溃；修复：改为 `for pid, ws in items()` |
+| 38 | 不换听校验用宝牌野牌导致无法出任何牌（死锁） | `game_state.py` `discard_tile` | 不换听检测传 `bao_tile=self.bao_tile`，宝牌野牌误判使所有出牌均被拒绝；修复：改为 `bao_tile=None`（结构性听牌），加安全阀（无合法出牌时移出 tenpai_players） |
+| 39 | 未上听玩家可用宝牌野牌胡牌（规则违反） | `game_state.py` 所有胡牌判断 | 所有玩家无差别传入 `bao_tile=self.bao_tile`；规则为「听牌后」方可用宝牌替代；修复：新增 `_effective_bao(player_idx)` 辅助方法，仅对 `tenpai_players` 成员返回宝牌 |
 
 ---
 
@@ -480,5 +486,5 @@ gcloud run deploy mahjong \
 | 玩家认证 | 无，player_id 自生成 | JWT / Session |
 | AI 强度 | 启发式贪心 | 蒙特卡洛或规则引擎 |
 | 多实例路由 | 同房间玩家须路由到同实例 | WebSocket 粘性路由 / 共享状态 |
-| 测试覆盖 | 557 tests | E2E 浏览器测试（Playwright） |
+| 测试覆盖 | 600 tests | E2E 浏览器测试（Playwright） |
 | 横屏适配 | 未专项优化 | 横屏布局调整 |
