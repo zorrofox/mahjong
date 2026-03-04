@@ -344,6 +344,21 @@ function handleGameState(state) {
     myPlayerIdx = state.players.findIndex(p => p.id === PLAYER_ID);
   }
 
+  // Show ruleset badge in topbar
+  const rulesetBadge = document.getElementById('ruleset-badge');
+  if (rulesetBadge && state.ruleset) {
+    if (state.ruleset === 'dalian') {
+      rulesetBadge.textContent = '大连穷胡';
+      rulesetBadge.style.background = '#7a4a10';
+      rulesetBadge.style.color = '#f0c060';
+    } else {
+      rulesetBadge.textContent = '港式';
+      rulesetBadge.style.background = '#0d3d5e';
+      rulesetBadge.style.color = '#80d0f0';
+    }
+    rulesetBadge.style.display = 'inline';
+  }
+
   // Auto-close the game-over modal when another player restarts the game.
   // Without this, the modal stays visible for non-initiators after restart.
   if (state.phase !== 'ended') {
@@ -507,11 +522,15 @@ function handleClaimWindow(msg) {
 }
 
 function handleGameOver(msg) {
-  const winnerName = msg.winner_id || `Player ${msg.winner_idx + 1}`;
+  const hasWinnerCheck = msg.winner_idx !== null && msg.winner_idx !== undefined && msg.winner_idx >= 0;
+  // null + 1 = 1 in JS, so compute name only when there's actually a winner
+  const winnerName = hasWinnerCheck
+    ? (msg.winner_id || `Player ${msg.winner_idx + 1}`)
+    : null;
 
   // Derive win type from win_ron flag and han breakdown.
   // win_ron: true=荣和, false=自摸, null/undefined=流局
-  const hasWinner = msg.winner_idx !== null && msg.winner_idx !== undefined && msg.winner_idx >= 0;
+  const hasWinner = hasWinnerCheck;
   let winType = null;  // null means draw (流局)
   if (hasWinner) {
     const isLingshang = (msg.han_breakdown || []).some(h => h.name_cn === '嶺上開花');
@@ -575,7 +594,7 @@ function handleGameOver(msg) {
     dealerId,
     winType
   );
-  setStatus(`Game over! Winner: ${winnerName}`, 'success');
+  setStatus(hasWinner ? `Game over! Winner: ${winnerName}` : 'Game over! 流局 Draw', 'success');
   disableAllActionButtons();
 }
 
@@ -1496,9 +1515,16 @@ function showGameOverModal(winnerName, scores, cumulativeScores, roundNumber, ha
 
   if (!modal) return;
 
-  winnerEl.textContent = winnerName;
+  // Winner row: show only when there is an actual winner; hide for draws.
+  const winnerRowEl = winnerEl ? winnerEl.closest('.winner-name') : null;
+  if (winType && winnerName) {
+    winnerEl.textContent = winnerName;
+    if (winnerRowEl) winnerRowEl.style.display = '';
+  } else {
+    if (winnerRowEl) winnerRowEl.style.display = 'none';
+  }
 
-  // Show win type label beneath the winner name.
+  // Win type / draw label beneath the winner name.
   const winTypeEl = document.getElementById('win-type-label');
   if (winTypeEl) {
     if (winType) {

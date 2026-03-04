@@ -314,10 +314,10 @@ pytest -v
 
 | 层级 | 测试数 | 覆盖范围 |
 |---|---|---|
-| 后端单元测试 | 314 | tiles/hand/game_state/ai_player/room_manager/routes |
+| 后端单元测试 | 360 | tiles/hand/game_state/ai_player/room_manager/routes/dalian_hand/dalian_settlement |
 | 前端单元测试 | 111 | game.js 纯函数（排序、番数渲染、touch 交互等） |
 | 集成测试 | 79 | REST 端点、WS 流程、声索窗口、重开局、Rejoin |
-| **合计** | **504** | |
+| **合计** | **550** | |
 
 ---
 

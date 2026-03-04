@@ -359,6 +359,263 @@ def _is_seven_pairs(tiles: list[str]) -> bool:
 
 
 # ============================================================
+# Dalian Qionghu (大连穷胡) Rules
+# ============================================================
+
+_DALIAN_SUITS = frozenset({'BAMBOO', 'CIRCLES', 'CHARACTERS'})
+
+
+def _extract_groups_rec_dalian(tiles: list[str], groups: list) -> bool:
+    """Like _extract_groups_rec but dragons (RED/GREEN/WHITE) cannot form pungs — pair only."""
+    if not tiles:
+        return True
+    tile = tiles[0]
+    # Dragons are pair-only in Dalian rules; skip pung extraction for them
+    is_dragon = tile in ('RED', 'GREEN', 'WHITE')
+    # Try pung (only for non-dragons)
+    if not is_dragon and tiles.count(tile) >= 3:
+        remaining = _remove_tiles(tiles, [tile, tile, tile])
+        groups.append({'type': 'pung', 'tiles': [tile, tile, tile]})
+        if _extract_groups_rec_dalian(remaining, groups):
+            return True
+        groups.pop()
+    # Try chow (tile must be lowest)
+    if is_suit_tile(tile):
+        suit = get_suit(tile)
+        num = get_number(tile)
+        n1 = f"{suit}_{num + 1}"
+        n2 = f"{suit}_{num + 2}"
+        if num <= 7 and n1 in tiles and n2 in tiles:
+            remaining = _remove_tiles(tiles, [tile, n1, n2])
+            groups.append({'type': 'chow', 'tiles': [tile, n1, n2]})
+            if _extract_groups_rec_dalian(remaining, groups):
+                return True
+            groups.pop()
+    return False
+
+
+def decompose_winning_hand_dalian(concealed_tiles: list[str]) -> 'Optional[dict]':
+    """
+    Find one valid decomposition for Dalian Qionghu rules.
+    Dragons (中/發/白) cannot form pungs — they may only serve as the pair.
+    No seven-pairs in Dalian rules.
+    """
+    hand = sorted([t for t in concealed_tiles if not is_flower_tile(t)])
+
+    for pair_tile in find_pairs(hand):
+        remaining = _remove_tiles(hand, [pair_tile, pair_tile])
+        groups: list = []
+        if _extract_groups_rec_dalian(remaining, groups):
+            return {
+                'pair': pair_tile,
+                'groups': groups,
+                'seven_pairs': False,
+            }
+    return None
+
+
+def _try_extract_melds_dalian(tiles: list[str]) -> bool:
+    """Like _try_extract_melds but dragons cannot form pungs."""
+    if not tiles:
+        return True
+    tile = tiles[0]
+    is_dragon = tile in ('RED', 'GREEN', 'WHITE')
+    # Try pung (skip for dragons)
+    if not is_dragon and tiles.count(tile) >= 3:
+        remaining = _remove_tiles(tiles, [tile, tile, tile])
+        if _try_extract_melds_dalian(remaining):
+            return True
+    # Try chow (only suit tiles, tile must be lowest)
+    if is_suit_tile(tile):
+        suit = get_suit(tile)
+        num = get_number(tile)
+        next1 = f"{suit}_{num + 1}"
+        next2 = f"{suit}_{num + 2}"
+        if num <= 7 and next1 in tiles and next2 in tiles:
+            remaining = _remove_tiles(tiles, [tile, next1, next2])
+            if _try_extract_melds_dalian(remaining):
+                return True
+    return False
+
+
+def is_winning_hand_dalian(
+    concealed_tiles: list[str],
+    n_declared_melds: int,
+    declared_melds: list,
+) -> bool:
+    """
+    Check if a hand is a valid winning hand under Dalian Qionghu rules.
+
+    Requirements:
+    1. Basic structure: 1 pair + (4-n_melds) melds (no seven pairs; dragons pair-only)
+    2. 三色全: tiles span all three suits (条/饼/万)
+    3. 幺九: contains at least one terminal (1 or 9); exempted if hand has honors (winds/dragons)
+    4. At least one pung (in declared melds or in concealed decomposition)
+    5. 手把一禁手: n_declared_melds < 4
+    """
+    hand = [t for t in concealed_tiles if not is_flower_tile(t)]
+    expected = 14 - 3 * n_declared_melds
+    if len(hand) != expected:
+        return False
+
+    # 禁手: 手把一 (all 4 melds declared = 手把一 is illegal in Dalian)
+    if n_declared_melds >= 4:
+        return False
+
+    sorted_hand = sorted(hand)
+
+    # Basic structure check (dragons pair-only)
+    valid_structure = False
+    for pair_tile in find_pairs(sorted_hand):
+        remaining = _remove_tiles(sorted_hand, [pair_tile, pair_tile])
+        if _try_extract_melds_dalian(remaining):
+            valid_structure = True
+            break
+    if not valid_structure:
+        return False
+
+    # Combine all tiles for further checks
+    all_tiles = list(hand)
+    for m in declared_melds:
+        all_tiles.extend(m[:3])
+
+    # 三色全: must span all three suits
+    suits_present = {get_suit(t) for t in all_tiles if get_suit(t)}
+    if not (_DALIAN_SUITS <= suits_present):
+        return False
+
+    # 幺九: must have at least one terminal (1 or 9), unless hand contains any honor tile
+    has_honor = any(t in ('EAST', 'SOUTH', 'WEST', 'NORTH', 'RED', 'GREEN', 'WHITE') for t in all_tiles)
+    if not has_honor:
+        has_terminal = any(get_number(t) in (1, 9) for t in all_tiles if get_number(t) is not None)
+        if not has_terminal:
+            return False
+
+    # 至少一刻子: must have at least one pung (declared or in concealed decomposition)
+    declared_pung_tiles = {
+        m[0] for m in declared_melds
+        if len(m) >= 3 and m[0] == m[1] == m[2]
+    }
+    if declared_pung_tiles:
+        return True  # has a declared pung
+
+    # Check concealed decomposition for a pung
+    for pair_tile in find_pairs(sorted_hand):
+        remaining = _remove_tiles(sorted_hand, [pair_tile, pair_tile])
+        groups: list = []
+        if _extract_groups_rec_dalian(remaining, groups):
+            if any(g['type'] == 'pung' for g in groups):
+                return True
+
+    return False
+
+
+def _is_kanchan(winning_tile: str, concealed_without_winning: list[str]) -> bool:
+    """
+    Detect if the winning tile fills a kanchan (坎张/夹胡) wait.
+
+    A kanchan means the winning tile was the middle tile of a sequential triple
+    (e.g. hand has 4,6 and winning tile is 5 — the middle piece of 4-5-6).
+
+    Returns True only if:
+    - winning_tile is a suited tile with number 2-8
+    - There exists a valid decomposition where winning_tile is the middle of a chow
+    - Removing winning_tile from that chow leaves no other valid winning structure
+      (i.e. the kanchan is the *only* way to complete the hand)
+    """
+    suit = get_suit(winning_tile)
+    num = get_number(winning_tile)
+    if suit is None or num is None or num < 2 or num > 8:
+        return False
+
+    lower = f"{suit}_{num - 1}"
+    upper = f"{suit}_{num + 1}"
+
+    # Check if winning_tile can be the middle of a kanchan triple (lower, winning, upper)
+    tiles_check = list(concealed_without_winning)
+    if tiles_check.count(lower) < 1 or tiles_check.count(upper) < 1:
+        return False
+
+    # Check two-sided (双面) wait: winning_tile could also be the low or high end of a chow
+    # If there's a two-sided alternative, it's not a pure kanchan
+    two_sided_possible = False
+    # Can winning_tile be the LOW end of a chow? (need winning+1 and winning+2)
+    t1 = f"{suit}_{num + 1}"
+    t2 = f"{suit}_{num + 2}"
+    if num <= 7 and tiles_check.count(t1) >= 1 and tiles_check.count(t2) >= 1:
+        two_sided_possible = True
+    # Can winning_tile be the HIGH end of a chow? (need winning-2 and winning-1)
+    t3 = f"{suit}_{num - 2}"
+    t4 = f"{suit}_{num - 1}"
+    if num >= 3 and tiles_check.count(t3) >= 1 and tiles_check.count(t4) >= 1:
+        two_sided_possible = True
+
+    # Single tile wait (单钓): check if we have tiles that support a tanki wait on winning_tile
+    # (i.e. winning_tile is the pair; only valid if it appears ≥2 times in the full hand)
+    # In kanchan detection we don't consider tanki.
+
+    return not two_sided_possible
+
+
+def calculate_han_dalian(
+    concealed_tiles: list[str],
+    declared_melds: list,
+    ron: bool,
+    player_seat: int = 0,
+    round_wind_idx: int = 0,
+    ling_shang: bool = False,
+    is_dealer: bool = False,
+    winning_tile: 'Optional[str]' = None,
+    rob_kong: bool = False,
+) -> dict:
+    """
+    Calculate Han (番) for a Dalian Qionghu winning hand.
+
+    番型:
+      基础 1番    — always
+      自摸 +1    — not ron
+      夹胡 +1    — kanchan wait (only when ron=True and winning_tile qualifies)
+      庄家 +1    — is_dealer
+      杠上开花 +2 — ling_shang and not ron
+      抢杠胡 +2  — rob_kong
+
+    Returns: {'breakdown': [...], 'total': int}
+    """
+    breakdown: list[dict] = []
+
+    def add(name_cn: str, name_en: str, fan: int) -> None:
+        breakdown.append({'name_cn': name_cn, 'name_en': name_en, 'fan': fan})
+
+    add('基础', 'Base', 1)
+
+    if not ron:
+        add('自摸', 'Tsumo (Self-draw)', 1)
+
+    if is_dealer:
+        add('庄家', 'Dealer Bonus', 1)
+
+    # 夹胡 (kanchan) — applies when winning by ron
+    if ron and winning_tile is not None:
+        hand_without_win = list(concealed_tiles)
+        if winning_tile in hand_without_win:
+            hand_without_win.remove(winning_tile)
+        else:
+            # winning tile was not yet added (pre-win state); skip kanchan check
+            hand_without_win = list(concealed_tiles)
+        if _is_kanchan(winning_tile, hand_without_win):
+            add('夹胡', 'Kanchan (Middle Wait)', 1)
+
+    if ling_shang and not ron:
+        add('杠上开花', 'Kong Win (Lingshang)', 2)
+
+    if rob_kong:
+        add('抢杠胡', 'Rob Kong', 2)
+
+    total = sum(x['fan'] for x in breakdown)
+    return {'breakdown': breakdown, 'total': total}
+
+
+# ============================================================
 # Han (番) Calculation
 # ============================================================
 

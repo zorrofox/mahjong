@@ -229,7 +229,9 @@ class TestClaimPung:
 
     def test_claim_pung_insufficient_tiles(self):
         gs, tile = self._setup_claim_scenario()
-        # Player 2 doesn't have the tiles
+        # Ensure player 2 definitely doesn't have 2 copies (remove any extras to be deterministic)
+        while gs.players[2].hand.count(tile) >= 2:
+            gs.players[2].hand.remove(tile)
         result = gs.claim_pung(2)
         assert result is False
 

@@ -42,6 +42,7 @@ class Room:
     round_wind_idx: int = 0   # prevailing wind: 0=East, 1=South, 2=West, 3=North
     dealer_advances: int = 0  # total dealer changes; every 4 advances = one wind round
     last_chip_changes: dict = field(default_factory=dict)  # player_id → chip delta for last round
+    ruleset: str = "hk"  # "hk" = Hong Kong rules, "dalian" = Dalian Qionghu rules
 
     @property
     def player_count(self) -> int:
@@ -61,6 +62,7 @@ class Room:
             "created_at": self.created_at.isoformat(),
             "cumulative_scores": dict(self.cumulative_scores),
             "round_number": self.round_number,
+            "ruleset": self.ruleset,
         }
 
 
@@ -79,12 +81,13 @@ class RoomManager:
     # Room lifecycle
     # ------------------------------------------------------------------
 
-    def create_room(self, name: Optional[str] = None) -> Room:
+    def create_room(self, name: Optional[str] = None, ruleset: str = "hk") -> Room:
         """
         Create a new room with a unique ID.
 
         Args:
-            name: Optional display name for the room. Defaults to "Room <short-id>".
+            name:    Optional display name for the room. Defaults to "Room <short-id>".
+            ruleset: "hk" for Hong Kong rules (default), "dalian" for Dalian Qionghu rules.
 
         Returns:
             The newly created Room.
@@ -92,9 +95,9 @@ class RoomManager:
         room_id = str(uuid.uuid4())
         if name is None:
             name = f"Room {room_id[:8]}"
-        room = Room(id=room_id, name=name)
+        room = Room(id=room_id, name=name, ruleset=ruleset)
         self._rooms[room_id] = room
-        logger.info("Room created: id=%s name=%s", room_id, name)
+        logger.info("Room created: id=%s name=%s ruleset=%s", room_id, name, ruleset)
         return room
 
     def get_room(self, room_id: str) -> Optional[Room]:
@@ -224,6 +227,7 @@ class RoomManager:
             player_ids=player_ids,
             dealer_idx=room.dealer_idx,
             round_wind_idx=room.round_wind_idx,
+            ruleset=room.ruleset,
         )
 
         # Mark AI players

@@ -19,10 +19,12 @@ from .tiles import build_deck, shuffle_deck, is_flower_tile, is_suit_tile, get_s
 from .hand import (
     is_winning_hand,
     is_winning_hand_given_melds,
+    is_winning_hand_dalian,
     can_pung,
     can_kong,
     can_chow,
     calculate_han,
+    calculate_han_dalian,
 )
 
 logger = logging.getLogger(__name__)
@@ -83,17 +85,18 @@ class GameState:
     A kong gives the player a replacement tile from the back of the wall.
     """
 
-    def __init__(self, room_id: str, player_ids: list[str], dealer_idx: int = 0, round_wind_idx: int = 0) -> None:
+    def __init__(self, room_id: str, player_ids: list[str], dealer_idx: int = 0, round_wind_idx: int = 0, ruleset: str = "hk") -> None:
         if len(player_ids) != NUM_PLAYERS:
             raise ValueError(f"Mahjong requires exactly {NUM_PLAYERS} players.")
 
         self.room_id: str = room_id
+        self.ruleset: str = ruleset
         self.players: list[PlayerState] = [
             PlayerState(id=pid) for pid in player_ids
         ]
 
         # The wall; dealt from the front, kong replacements from the back.
-        wall = build_deck()
+        wall = build_deck(ruleset)
         self.wall: list[str] = shuffle_deck(wall)
 
         # Per-player discard piles (index matches player index)
@@ -243,6 +246,7 @@ class GameState:
         claimer = self.players[claimer_idx]
 
         if claim_type == "win":
+            _was_rob_kong = self._is_rob_kong_window
             if self._is_rob_kong_window:
                 # Robbing the kong (搶杠胡): revert the konger's extended meld back to
                 # a 3-tile pung before processing the win.
@@ -259,9 +263,15 @@ class GameState:
 
             # Add the claimed tile to the winner's hand, then finalize
             claimer.hand.append(discard_tile)
-            _pre_han = calculate_han(
-                claimer.hand_without_bonus(), claimer.melds, claimer.flowers, ron=True
-            )
+            if self.ruleset == "dalian":
+                _pre_han = calculate_han_dalian(
+                    claimer.hand_without_bonus(), claimer.melds, ron=True,
+                    winning_tile=discard_tile,
+                )
+            else:
+                _pre_han = calculate_han(
+                    claimer.hand_without_bonus(), claimer.melds, claimer.flowers, ron=True
+                )
             if _pre_han['total'] < MIN_HAN:
                 # Insufficient fan — reject the win, advance to next turn
                 claimer.hand.remove(discard_tile)
@@ -271,7 +281,7 @@ class GameState:
                 )
                 self._advance_turn()
                 return
-            self._finalize_win(claimer_idx, discard_tile, ron=True)
+            self._finalize_win(claimer_idx, discard_tile, ron=True, rob_kong=_was_rob_kong)
             # player.score is set inside _finalize_win (= han_total)
 
         elif claim_type in ("pung", "kong"):
@@ -377,7 +387,7 @@ class GameState:
         self.last_discard_player = None
         self.phase = "discarding"
 
-    def _finalize_win(self, player_idx: int, winning_tile: str, ron: bool = False) -> None:
+    def _finalize_win(self, player_idx: int, winning_tile: str, ron: bool = False, rob_kong: bool = False) -> None:
         """Mark the game as ended with the given player as winner."""
         self.winner = self.players[player_idx].id
         self.winning_tile = winning_tile
@@ -385,18 +395,29 @@ class GameState:
         self.win_discarder_idx = self.last_discard_player if ron else None
         self.phase = "ended"
         logger.info(
-            "Player %s wins! Room=%s tile=%s ron=%s",
-            self.winner, self.room_id, winning_tile, ron
+            "Player %s wins! Room=%s tile=%s ron=%s ruleset=%s",
+            self.winner, self.room_id, winning_tile, ron, self.ruleset
         )
         # Calculate Han breakdown
         player = self.players[player_idx]
         concealed = player.hand_without_bonus()
-        result = calculate_han(
-            concealed, player.melds, player.flowers, ron,
-            player_seat=player_idx,
-            round_wind_idx=self.round_wind_idx,
-            ling_shang=self.lingshang_pending and not ron,
-        )
+        if self.ruleset == "dalian":
+            result = calculate_han_dalian(
+                concealed, player.melds, ron,
+                player_seat=player_idx,
+                round_wind_idx=self.round_wind_idx,
+                ling_shang=self.lingshang_pending and not ron,
+                is_dealer=(player_idx == self.dealer_idx),
+                winning_tile=winning_tile,
+                rob_kong=rob_kong,
+            )
+        else:
+            result = calculate_han(
+                concealed, player.melds, player.flowers, ron,
+                player_seat=player_idx,
+                round_wind_idx=self.round_wind_idx,
+                ling_shang=self.lingshang_pending and not ron,
+            )
         self.lingshang_pending = False  # consumed
         self.han_breakdown = result['breakdown']
         self.han_total = result['total']
@@ -458,14 +479,15 @@ class GameState:
                 if tile is not None:
                     self.players[player_idx].hand.append(tile)
 
-        # Auto-collect bonus tiles for all players
-        for player_idx in range(NUM_PLAYERS):
-            self._collect_bonus_tiles(player_idx)
+        # Auto-collect bonus tiles for all players (HK only; Dalian has no bonus tiles)
+        if self.ruleset == "hk":
+            for player_idx in range(NUM_PLAYERS):
+                self._collect_bonus_tiles(player_idx)
 
         # Dealer starts by discarding (they already have 14 tiles)
         self.current_turn = self.dealer_idx
         self.phase = "discarding"
-        logger.info("Initial tiles dealt. Room=%s dealer=%d", self.room_id, self.dealer_idx)
+        logger.info("Initial tiles dealt. Room=%s dealer=%d ruleset=%s", self.room_id, self.dealer_idx, self.ruleset)
 
     def draw_tile(self, player_idx: int) -> Optional[str]:
         """
@@ -487,6 +509,12 @@ class GameState:
         if player_idx != self.current_turn:
             raise ValueError(f"It is not player {player_idx}'s turn.")
 
+        # Dalian: 荒庄 when wall has ≤14 tiles (7 墩) remaining
+        if self.ruleset == "dalian" and len(self.wall) <= 14:
+            self.phase = "ended"
+            logger.info("Dalian: wall ≤14 tiles — exhausted game. Room=%s", self.room_id)
+            return None
+
         tile = self._draw_from_front()
         if tile is None:
             # Wall is exhausted — draw game
@@ -496,9 +524,10 @@ class GameState:
 
         player = self.players[player_idx]
         player.hand.append(tile)
-        self._collect_bonus_tiles(player_idx)
+        # HK only: auto-collect flower/season bonus tiles
+        if self.ruleset == "hk":
+            self._collect_bonus_tiles(player_idx)
         self.phase = "discarding"
-        # If the drawn tile was a bonus tile (花/季), _collect_bonus_tiles replaced it.
         # last_drawn_tile must point to the actual non-bonus tile now in hand.
         self.last_drawn_tile = player.hand[-1] if player.hand else tile
 
@@ -563,6 +592,10 @@ class GameState:
 
         tile = self.last_discard
         player = self.players[player_idx]
+
+        # Dalian: dragons (中/發/白) are pair-only and cannot be punged
+        if self.ruleset == "dalian" and tile in ('RED', 'GREEN', 'WHITE'):
+            return False
 
         if not can_pung(player.hand_without_bonus(), tile):
             return False
@@ -778,9 +811,17 @@ class GameState:
             # Use is_winning_hand_given_melds so declared meld tiles are treated
             # as fixed and are NOT recombined with the concealed hand.
             effective_hand = player.hand_without_bonus()
-            if not is_winning_hand_given_melds(effective_hand, len(player.melds)):
-                raise ValueError(f"Player {player_idx}'s hand is not a winning hand.")
-            _pre_han = calculate_han(effective_hand, player.melds, player.flowers, ron=False)
+            if self.ruleset == "dalian":
+                if not is_winning_hand_dalian(effective_hand, len(player.melds), player.melds):
+                    raise ValueError(f"Player {player_idx}'s hand is not a winning hand.")
+                _pre_han = calculate_han_dalian(
+                    effective_hand, player.melds, ron=False,
+                    winning_tile=self.last_drawn_tile,
+                )
+            else:
+                if not is_winning_hand_given_melds(effective_hand, len(player.melds)):
+                    raise ValueError(f"Player {player_idx}'s hand is not a winning hand.")
+                _pre_han = calculate_han(effective_hand, player.melds, player.flowers, ron=False)
             if _pre_han['total'] < MIN_HAN:
                 raise ValueError(
                     f"Hand has only {_pre_han['total']} fan; minimum {MIN_HAN} required to win."
@@ -798,9 +839,14 @@ class GameState:
             # Validate using a temporary copy — do NOT modify the real hand here.
             # _resolve_claims will add the tile and finalize when the window closes.
             effective_hand = player.hand_without_bonus() + [tile]
-            if not is_winning_hand_given_melds(effective_hand, len(player.melds)):
-                raise ValueError(f"Player {player_idx}'s hand + '{tile}' is not a winning hand.")
-            _pre_han = calculate_han(effective_hand, player.melds, player.flowers, ron=True)
+            if self.ruleset == "dalian":
+                if not is_winning_hand_dalian(effective_hand, len(player.melds), player.melds):
+                    raise ValueError(f"Player {player_idx}'s hand + '{tile}' is not a winning hand.")
+                _pre_han = calculate_han_dalian(effective_hand, player.melds, ron=True, winning_tile=tile)
+            else:
+                if not is_winning_hand_given_melds(effective_hand, len(player.melds)):
+                    raise ValueError(f"Player {player_idx}'s hand + '{tile}' is not a winning hand.")
+                _pre_han = calculate_han(effective_hand, player.melds, player.flowers, ron=True)
             if _pre_han['total'] < MIN_HAN:
                 raise ValueError(
                     f"Hand has only {_pre_han['total']} fan; minimum {MIN_HAN} required to win."
@@ -916,10 +962,15 @@ class GameState:
             # Check self-draw win (declared melds are fixed — do NOT mix them
             # back into the concealed hand for validation).
             effective_hand = player.hand_without_bonus()
-            if is_winning_hand_given_melds(effective_hand, len(player.melds)):
-                han = calculate_han(effective_hand, player.melds, player.flowers, ron=False)
-                if han['total'] >= MIN_HAN:
-                    actions.append("win")
+            if self.ruleset == "dalian":
+                _can_win = is_winning_hand_dalian(effective_hand, len(player.melds), player.melds)
+                _win_han = calculate_han_dalian(effective_hand, player.melds, ron=False,
+                                                winning_tile=self.last_drawn_tile) if _can_win else None
+            else:
+                _can_win = is_winning_hand_given_melds(effective_hand, len(player.melds))
+                _win_han = calculate_han(effective_hand, player.melds, player.flowers, ron=False) if _can_win else None
+            if _can_win and _win_han and _win_han['total'] >= MIN_HAN:
+                actions.append("win")
             # Check self-drawn kong — concealed (4-of-a-kind) or extend-pung (加杠)
             from collections import Counter
             counts = Counter(player.hand_without_bonus())
@@ -939,23 +990,35 @@ class GameState:
 
                 if self._is_rob_kong_window:
                     # Rob-the-kong window (搶杠胡): ONLY win or skip allowed
-                    if is_winning_hand_given_melds(effective_hand + [tile], len(player.melds)):
-                        han = calculate_han(effective_hand + [tile], player.melds,
-                                            player.flowers, ron=True)
-                        if han['total'] >= MIN_HAN:
-                            actions.append("win")
+                    if self.ruleset == "dalian":
+                        _can_win_rob = is_winning_hand_dalian(effective_hand + [tile], len(player.melds), player.melds)
+                        _rob_han = calculate_han_dalian(effective_hand + [tile], player.melds, ron=True,
+                                                        winning_tile=tile, rob_kong=True) if _can_win_rob else None
+                    else:
+                        _can_win_rob = is_winning_hand_given_melds(effective_hand + [tile], len(player.melds))
+                        _rob_han = calculate_han(effective_hand + [tile], player.melds,
+                                                 player.flowers, ron=True) if _can_win_rob else None
+                    if _can_win_rob and _rob_han and _rob_han['total'] >= MIN_HAN:
+                        actions.append("win")
                     actions.append("skip")
                     return sorted(set(actions))
 
                 # Normal claim window ─────────────────────────────────────────
                 # Check win (declared melds are fixed — do NOT mix them back).
-                if is_winning_hand_given_melds(effective_hand + [tile], len(player.melds)):
-                    han = calculate_han(effective_hand + [tile], player.melds, player.flowers, ron=True)
-                    if han['total'] >= MIN_HAN:
-                        actions.append("win")
+                if self.ruleset == "dalian":
+                    _can_win_claim = is_winning_hand_dalian(effective_hand + [tile], len(player.melds), player.melds)
+                    _claim_han = calculate_han_dalian(effective_hand + [tile], player.melds, ron=True,
+                                                      winning_tile=tile) if _can_win_claim else None
+                else:
+                    _can_win_claim = is_winning_hand_given_melds(effective_hand + [tile], len(player.melds))
+                    _claim_han = calculate_han(effective_hand + [tile], player.melds, player.flowers, ron=True) if _can_win_claim else None
+                if _can_win_claim and _claim_han and _claim_han['total'] >= MIN_HAN:
+                    actions.append("win")
 
-                # Check pung
-                if can_pung(effective_hand, tile):
+                # Check pung (Dalian: cannot pung dragons)
+                if self.ruleset == "dalian" and tile in ('RED', 'GREEN', 'WHITE'):
+                    pass  # dragon pung not allowed in Dalian
+                elif can_pung(effective_hand, tile):
                     actions.append("pung")
 
                 # Check kong
@@ -1010,6 +1073,7 @@ class GameState:
 
         return {
             "room_id": self.room_id,
+            "ruleset": self.ruleset,
             "phase": self.phase,
             "current_turn": self.current_turn,
             "dealer_idx": self.dealer_idx,

@@ -34,6 +34,7 @@ from .tiles import (
 from .hand import (
     is_winning_hand,
     is_winning_hand_given_melds,
+    is_winning_hand_dalian,
     can_pung,
     can_kong,
     can_chow,
@@ -57,6 +58,7 @@ class AIPlayer:
         self,
         hand: list[str],
         melds: list[list[str]],
+        ruleset: str = "hk",
     ) -> str:
         """
         Choose the best tile to discard from the current hand.
@@ -68,9 +70,9 @@ class AIPlayer:
           3. Isolated suit tiles with the lowest connectivity score.
 
         Args:
-            hand:  The player's current hand tiles.
-            melds: Already committed melds (for context; not typically
-                   modified here, but influences hand size expectations).
+            hand:    The player's current hand tiles.
+            melds:   Already committed melds.
+            ruleset: "hk" or "dalian" — affects scoring weights.
 
         Returns:
             The tile string to discard.
@@ -93,7 +95,10 @@ class AIPlayer:
             raise ValueError("No non-bonus tiles available to discard.")
 
         # Score each tile; the tile with the LOWEST score is discarded.
-        scored = [(self._discard_score(tile, playable), tile) for tile in playable]
+        if ruleset == "dalian":
+            scored = [(self._discard_score_dalian(tile, playable, melds), tile) for tile in playable]
+        else:
+            scored = [(self._discard_score(tile, playable), tile) for tile in playable]
         scored.sort(key=lambda x: (x[0], x[1]))  # deterministic tie-breaking
         return scored[0][1]
 
@@ -135,6 +140,79 @@ class AIPlayer:
             return self._suit_tile_score(tile, hand, counts)
 
         return 0.0
+
+    def _discard_score_dalian(
+        self, tile: str, hand: list[str], melds: list[list[str]]
+    ) -> float:
+        """
+        Discard scoring for Dalian Qionghu rules.
+
+        Additional concerns vs HK:
+        - 三色全: protect suits not already covered by declared melds
+        - 幺九: keep at least one terminal or honor tile
+        - 至少一刻: prefer tiles that can form pungs; keep pairs
+        - 三元牌禁刻子: dragons (RED/GREEN/WHITE) can only be the PAIR
+        """
+        from collections import Counter as _Counter
+        counts = _Counter(hand)
+        _HONORS = ('EAST', 'SOUTH', 'WEST', 'NORTH', 'RED', 'GREEN', 'WHITE')
+        _DRAGONS = ('RED', 'GREEN', 'WHITE')
+
+        # ── dragons are pair-only: aggressively discard 3rd+ copy ──────────
+        if tile in _DRAGONS:
+            c = counts[tile]
+            if c >= 3:
+                return -200.0   # can't pung; 3rd copy is dead weight
+            elif c == 2:
+                return 10.0     # pair potential
+            else:
+                return -8.0     # single dragon; low value
+
+        # ── base score from connectivity (reuse HK logic) ───────────────────
+        score = self._discard_score(tile, hand)
+
+        # ── 三色全: protect suits not already covered by declared melds ──────
+        # A suit is "covered" if at least one declared meld belongs to it
+        declared_suits = {get_suit(t) for m in melds for t in m[:3] if get_suit(t)}
+        suit = get_suit(tile)
+        if suit is not None and suit not in declared_suits:
+            # This suit must appear in the hand; protect it when thin
+            suit_tiles_in_hand = [t for t in hand if get_suit(t) == suit]
+            suit_count = len(suit_tiles_in_hand)
+            if suit_count <= 1:
+                score += 80.0   # last tile of this suit — critical to keep
+            elif suit_count <= 3:
+                score += 30.0   # suit is thin
+            elif suit_count <= 5:
+                score += 10.0   # mild caution
+
+        # ── 幺九: need at least one terminal (1 or 9) or any honor tile ──────
+        num = get_number(tile)
+        all_honors_in_hand = [t for t in hand if t in _HONORS]
+        has_honor = len(all_honors_in_hand) > 0
+
+        # Protect the last honor tile if we have no terminals either
+        if tile in _HONORS and counts[tile] == 1:
+            # This is a single honor tile in hand
+            other_honors = [t for t in all_honors_in_hand if t != tile]
+            if not other_honors:
+                # Last honor — check if any terminal exists
+                has_terminal = any(get_number(t) in (1, 9) for t in hand if get_number(t))
+                if not has_terminal:
+                    score += 25.0   # losing all honors with no terminal breaks 幺九
+
+        if not has_honor and num in (1, 9):
+            all_terminals = [t for t in hand if get_number(t) in (1, 9)]
+            if len(all_terminals) <= 2:
+                score += 30.0   # last terminals — protect 幺九
+
+        # ── 至少一刻: protect pair/pung candidates ─────────────────────────
+        if counts[tile] == 2:
+            score += 10.0
+        elif counts[tile] >= 3:
+            score += 20.0
+
+        return score
 
     def _suit_tile_score(
         self, tile: str, hand: list[str], counts: Counter
@@ -187,6 +265,7 @@ class AIPlayer:
         melds: list[list[str]],
         tile: str,
         claim_type: str,
+        ruleset: str = "hk",
     ) -> bool:
         """
         Decide whether to claim the given tile with the specified claim type.
@@ -196,14 +275,18 @@ class AIPlayer:
             melds:      Already committed melds.
             tile:       The tile being offered.
             claim_type: One of "win", "pung", "kong", "chow".
+            ruleset:    "hk" or "dalian".
 
         Returns:
             True if the AI should make the claim.
         """
         if claim_type == "win":
-            return True  # Always win when possible
+            return True  # Always win when possible (server validates)
 
         if claim_type == "pung":
+            # Dalian: dragons cannot be punged
+            if ruleset == "dalian" and tile in ('RED', 'GREEN', 'WHITE'):
+                return False
             return self._should_claim_pung(hand, melds, tile)
 
         if claim_type == "kong":
@@ -288,23 +371,23 @@ class AIPlayer:
     # ------------------------------------------------------------------ #
 
     def should_declare_win(
-        self, hand: list[str], melds: list[list[str]]
+        self, hand: list[str], melds: list[list[str]], ruleset: str = "hk"
     ) -> bool:
         """
         Check if the current hand plus committed melds form a winning hand.
 
-        For simplicity, this checks if the in-hand tiles (excluding bonus tiles)
-        complete a winning hand given the already-declared melds.
-
         Args:
-            hand:  Current hand tiles (should exclude bonus tiles).
-            melds: Already committed melds.
+            hand:    Current hand tiles (should exclude bonus tiles).
+            melds:   Already committed melds.
+            ruleset: "hk" or "dalian" — selects the appropriate win validator.
 
         Returns:
             True if the player should declare a win.
         """
         playable = [t for t in hand if not is_flower_tile(t)]
 
+        if ruleset == "dalian":
+            return is_winning_hand_dalian(playable, len(melds), melds)
         # Use is_winning_hand_given_melds so that declared meld tiles are
         # treated as fixed and are NOT recombined with the concealed hand.
         return is_winning_hand_given_melds(playable, len(melds))

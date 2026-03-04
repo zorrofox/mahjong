@@ -94,12 +94,16 @@ SEASON_TILES = frozenset({"SEASON_1", "SEASON_2", "SEASON_3", "SEASON_4"})
 BONUS_TILES = FLOWER_TILES | SEASON_TILES
 
 
-def build_deck() -> list[str]:
+def build_deck(ruleset: str = "hk") -> list[str]:
     """
-    Build a standard 144-tile Mahjong deck.
+    Build a standard Mahjong deck.
+
+    Args:
+        ruleset: "hk" for Hong Kong rules (144 tiles, includes flowers/seasons),
+                 "dalian" for Dalian Qionghu rules (136 tiles, no flowers/seasons).
 
     Returns:
-        A list of 144 tile strings in canonical order (not shuffled).
+        A list of tile strings in canonical order (not shuffled).
     """
     deck: list[str] = []
 
@@ -117,15 +121,20 @@ def build_deck() -> list[str]:
     for dragon in ("RED", "GREEN", "WHITE"):
         deck.extend([dragon] * 4)
 
-    # Flower tiles: 1 copy each = 4 tiles
-    for i in range(1, 5):
-        deck.append(f"FLOWER_{i}")
+    if ruleset == "hk":
+        # Flower tiles: 1 copy each = 4 tiles
+        for i in range(1, 5):
+            deck.append(f"FLOWER_{i}")
 
-    # Season tiles: 1 copy each = 4 tiles
-    for i in range(1, 5):
-        deck.append(f"SEASON_{i}")
+        # Season tiles: 1 copy each = 4 tiles
+        for i in range(1, 5):
+            deck.append(f"SEASON_{i}")
 
-    assert len(deck) == 144, f"Deck should have 144 tiles, got {len(deck)}"
+        assert len(deck) == 144, f"HK deck should have 144 tiles, got {len(deck)}"
+    else:
+        # "dalian": no flower/season tiles
+        assert len(deck) == 136, f"Dalian deck should have 136 tiles, got {len(deck)}"
+
     return deck
 
 

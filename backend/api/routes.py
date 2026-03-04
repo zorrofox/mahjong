@@ -28,6 +28,7 @@ room_manager = RoomManager()
 
 class CreateRoomRequest(BaseModel):
     name: Optional[str] = None
+    ruleset: str = "hk"
 
 
 class JoinRoomRequest(BaseModel):
@@ -48,7 +49,8 @@ def list_rooms():
 @router.post("/rooms", status_code=201)
 def create_room(body: CreateRoomRequest = CreateRoomRequest()):
     """Create a new room and return its info."""
-    room = room_manager.create_room(name=body.name)
+    ruleset = body.ruleset if body.ruleset in ("hk", "dalian") else "hk"
+    room = room_manager.create_room(name=body.name, ruleset=ruleset)
     return room.to_dict()
 
 

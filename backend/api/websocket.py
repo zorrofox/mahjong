@@ -286,7 +286,7 @@ async def _run_ai_turn(room_id: str) -> None:
                 player = gs.players[ai_idx]
 
                 # Check self-draw win
-                if _ai.should_declare_win(player.hand_without_bonus(), player.melds):
+                if _ai.should_declare_win(player.hand_without_bonus(), player.melds, gs.ruleset):
                     try:
                         result = gs.declare_win(ai_idx)
                         await _broadcast_game_state(room_id)
@@ -322,7 +322,7 @@ async def _run_ai_turn(room_id: str) -> None:
                         pass
 
                 # Discard
-                tile_to_discard = _ai.choose_discard(player.hand_without_bonus(), player.melds)
+                tile_to_discard = _ai.choose_discard(player.hand_without_bonus(), player.melds, gs.ruleset)
                 try:
                     gs.discard_tile(ai_idx, tile_to_discard)
                 except ValueError as e:
@@ -401,19 +401,19 @@ async def _handle_claim_window(room_id: str) -> None:
 
             available = gs.get_available_actions(i)
 
-            if "win" in available and _ai.decide_claim(player.hand_without_bonus(), player.melds, tile, "win"):
+            if "win" in available and _ai.decide_claim(player.hand_without_bonus(), player.melds, tile, "win", gs.ruleset):
                 ai_decisions.append((i, "win", None))
                 continue
 
-            if "kong" in available and _ai.decide_claim(player.hand_without_bonus(), player.melds, tile, "kong"):
+            if "kong" in available and _ai.decide_claim(player.hand_without_bonus(), player.melds, tile, "kong", gs.ruleset):
                 ai_decisions.append((i, "kong", tile))
                 continue
 
-            if "pung" in available and _ai.decide_claim(player.hand_without_bonus(), player.melds, tile, "pung"):
+            if "pung" in available and _ai.decide_claim(player.hand_without_bonus(), player.melds, tile, "pung", gs.ruleset):
                 ai_decisions.append((i, "pung", None))
                 continue
 
-            if "chow" in available and _ai.decide_claim(player.hand_without_bonus(), player.melds, tile, "chow"):
+            if "chow" in available and _ai.decide_claim(player.hand_without_bonus(), player.melds, tile, "chow", gs.ruleset):
                 from game.hand import can_chow
                 possible_chows = can_chow(player.hand_without_bonus(), tile)
                 if possible_chows:
@@ -546,11 +546,14 @@ async def _handle_game_over(room_id: str) -> None:
     # ----------------------------------------------------------------
     # Dealer rotation
     # ----------------------------------------------------------------
-    # Dealer (庄家) keeps their seat if they win; otherwise passes to the
-    # next seat clockwise.  A draw (no winner) also advances the dealer.
-    if winner_idx is not None and winner_idx == gs.dealer_idx:
-        pass  # dealer wins — 连庄, no rotation
-    else:
+    # HK:     庄家赢 → 连庄；闲家赢或流局 → 换庄
+    # Dalian: 庄家赢 → 连庄；闲家赢 → 换庄；荒庄（流局）→ 庄不换
+    is_draw = (winner_idx is None)
+    dealer_stays = (
+        (winner_idx is not None and winner_idx == gs.dealer_idx)  # 庄赢 连庄
+        or (is_draw and room.ruleset == "dalian")                  # 大连荒庄 庄不换
+    )
+    if not dealer_stays:
         room.dealer_idx = (gs.dealer_idx + 1) % len(gs.players)  # 换庄
         room.dealer_advances += 1
         # Every 4 dealer changes complete one wind round (East→South→West→North)
@@ -593,50 +596,92 @@ async def _handle_game_over(room_id: str) -> None:
 
     # 2. Han-based win payment
     if winner_idx is not None and gs.han_total > 0:
-        unit = min(CHIP_CAP, 2 ** (gs.han_total - 1))
-        dealer_idx = gs.dealer_idx
+        han = gs.han_total
 
-        def _pay(payer_idx: int) -> int:
-            """Chips that payer_idx owes in a tsumo scenario for this winner.
-
-            Rule:
-              - Dealer wins   → every non-dealer loser pays 2×unit.
-              - Non-dealer wins → dealer pays 2×unit; each non-dealer pays 1×unit.
-
-            Note: when the dealer wins, winner_idx == dealer_idx, so dealer_idx is
-            excluded from the summation; all remaining payers are non-dealers and
-            each pays 2×unit (giving 3×2u = 6u total to the dealer winner).
-            """
-            if winner_idx == dealer_idx:
-                # Dealer wins: every loser (all non-dealer) pays double
-                return 2 * unit
-            # Non-dealer wins: dealer pays double, other non-dealers pay single
-            return 2 * unit if payer_idx == dealer_idx else unit
-
-        if gs.win_ron and gs.win_discarder_idx is not None:
-            # Ron: discarder alone pays the combined tsumo total.
-            # Non-dealer win: 2u + u + u = 4u   Dealer win: 2u + 2u + 2u = 6u
-            full = sum(
-                _pay(i) for i in range(len(gs.players)) if i != winner_idx
+        if room.ruleset == "dalian":
+            # ── 大连穷胡结算 ──────────────────────────────────────────────────
+            # 三家门清加成：三位输家均无副露时，每位输家额外 +1 番
+            others_clean = all(
+                not gs.players[i].melds
+                for i in range(len(gs.players)) if i != winner_idx
             )
-            discarder_id = gs.players[gs.win_discarder_idx].id
-            room.cumulative_scores[winner_id] = (
-                room.cumulative_scores.get(winner_id, INITIAL_CHIPS) + full
-            )
-            room.cumulative_scores[discarder_id] = (
-                room.cumulative_scores.get(discarder_id, INITIAL_CHIPS) - full
-            )
-        elif gs.win_ron is False:
-            # Tsumo: each loser pays their individual share
-            for i, p in enumerate(gs.players):
-                if i != winner_idx:
-                    pay = _pay(i)
-                    room.cumulative_scores[winner_id] = (
-                        room.cumulative_scores.get(winner_id, INITIAL_CHIPS) + pay
-                    )
-                    room.cumulative_scores[p.id] = (
-                        room.cumulative_scores.get(p.id, INITIAL_CHIPS) - pay
-                    )
+            three_clean_bonus = 1 if others_clean else 0
+
+            def _loser_unit(loser_idx: int, is_discarder: bool = False) -> int:
+                extra = (1 if not gs.players[loser_idx].melds else 0)  # 未开门
+                extra += three_clean_bonus                               # 三家门清
+                if is_discarder:
+                    extra += 1                                           # 放炮额外 +1
+                return min(CHIP_CAP, 2 ** (han + extra - 1))
+
+            if gs.win_ron and gs.win_discarder_idx is not None:
+                # 荣和：只有放炮者付钱
+                pay = _loser_unit(gs.win_discarder_idx, is_discarder=True)
+                discarder_id = gs.players[gs.win_discarder_idx].id
+                room.cumulative_scores[winner_id] = (
+                    room.cumulative_scores.get(winner_id, INITIAL_CHIPS) + pay
+                )
+                room.cumulative_scores[discarder_id] = (
+                    room.cumulative_scores.get(discarder_id, INITIAL_CHIPS) - pay
+                )
+            elif gs.win_ron is False:
+                # 自摸：三家各按自己的番数付钱
+                for i, p in enumerate(gs.players):
+                    if i != winner_idx:
+                        pay = _loser_unit(i)
+                        room.cumulative_scores[winner_id] = (
+                            room.cumulative_scores.get(winner_id, INITIAL_CHIPS) + pay
+                        )
+                        room.cumulative_scores[p.id] = (
+                            room.cumulative_scores.get(p.id, INITIAL_CHIPS) - pay
+                        )
+
+        else:
+            # ── 港式麻将结算 ──────────────────────────────────────────────────
+            unit = min(CHIP_CAP, 2 ** (han - 1))
+            dealer_idx = gs.dealer_idx
+
+            def _pay(payer_idx: int) -> int:
+                """Chips that payer_idx owes in a tsumo scenario for this winner.
+
+                Rule:
+                  - Dealer wins   → every non-dealer loser pays 2×unit.
+                  - Non-dealer wins → dealer pays 2×unit; each non-dealer pays 1×unit.
+
+                Note: when the dealer wins, winner_idx == dealer_idx, so dealer_idx is
+                excluded from the summation; all remaining payers are non-dealers and
+                each pays 2×unit (giving 3×2u = 6u total to the dealer winner).
+                """
+                if winner_idx == dealer_idx:
+                    # Dealer wins: every loser (all non-dealer) pays double
+                    return 2 * unit
+                # Non-dealer wins: dealer pays double, other non-dealers pay single
+                return 2 * unit if payer_idx == dealer_idx else unit
+
+            if gs.win_ron and gs.win_discarder_idx is not None:
+                # Ron: discarder alone pays the combined tsumo total.
+                # Non-dealer win: 2u + u + u = 4u   Dealer win: 2u + 2u + 2u = 6u
+                full = sum(
+                    _pay(i) for i in range(len(gs.players)) if i != winner_idx
+                )
+                discarder_id = gs.players[gs.win_discarder_idx].id
+                room.cumulative_scores[winner_id] = (
+                    room.cumulative_scores.get(winner_id, INITIAL_CHIPS) + full
+                )
+                room.cumulative_scores[discarder_id] = (
+                    room.cumulative_scores.get(discarder_id, INITIAL_CHIPS) - full
+                )
+            elif gs.win_ron is False:
+                # Tsumo: each loser pays their individual share
+                for i, p in enumerate(gs.players):
+                    if i != winner_idx:
+                        pay = _pay(i)
+                        room.cumulative_scores[winner_id] = (
+                            room.cumulative_scores.get(winner_id, INITIAL_CHIPS) + pay
+                        )
+                        room.cumulative_scores[p.id] = (
+                            room.cumulative_scores.get(p.id, INITIAL_CHIPS) - pay
+                        )
 
     # Compute and persist per-player chip changes for this round.
     room.last_chip_changes = {

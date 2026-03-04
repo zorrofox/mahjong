@@ -45,7 +45,7 @@ function renderRooms(rooms) {
   tbody.innerHTML = '';
 
   if (!rooms || rooms.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="5" class="no-rooms">No rooms yet. Create one to get started!</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" class="no-rooms">No rooms yet. Create one to get started!</td></tr>`;
     return;
   }
 
@@ -67,8 +67,13 @@ function renderRooms(rooms) {
     const btnLabel  = isEnded ? 'Rejoin 重回' : 'Join';
     const btnClass  = isEnded ? 'btn-secondary' : 'btn-primary';
 
+    const rulesetLabel = room.ruleset === 'dalian'
+      ? '<span style="color:#e0a050;font-weight:700">大连</span>'
+      : '<span style="color:#60b8e0">港式</span>';
+
     tr.innerHTML = `
       <td>${escapeHtml(room.name || room.id)}</td>
+      <td>${rulesetLabel}</td>
       <td>${playerCount}/${maxPlayers}</td>
       <td><span class="${statusClass}">${formatStatus(room.status)}</span></td>
       <td>${chipsCell}</td>
@@ -115,15 +120,22 @@ function updateRefreshTime() {
 
 /* ---------- Create room ---------- */
 async function createRoom() {
-  const name = prompt('Room name (optional):', '') ;
+  const name = prompt('Room name (optional):', '');
   if (name === null) return; // user cancelled
+
+  const rulesetChoice = prompt(
+    'Rules / 规则:\n  1 = 港式麻将 (Hong Kong)\n  2 = 大连穷胡 (Dalian Qionghu)\nEnter 1 or 2:',
+    '1'
+  );
+  if (rulesetChoice === null) return; // user cancelled
+  const ruleset = rulesetChoice.trim() === '2' ? 'dalian' : 'hk';
 
   try {
     // Create room
     const createRes = await fetch(`${API_BASE}/api/rooms`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: name.trim() || undefined, player_id: playerId })
+      body: JSON.stringify({ name: name.trim() || undefined, player_id: playerId, ruleset })
     });
 
     if (!createRes.ok) {
