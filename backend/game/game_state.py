@@ -477,8 +477,8 @@ class GameState:
             expected_tenpai_count = 13 - 3 * len(player.melds)
             if len(hand) != expected_tenpai_count:
                 continue
-            waits = is_tenpai_dalian(hand, len(player.melds), player.melds,
-                                      bao_tile=self.bao_tile)
+            # 结构性听牌检测（不传 bao_tile）避免宝牌野牌导致误判
+            waits = is_tenpai_dalian(hand, len(player.melds), player.melds, bao_tile=None)
             if not waits:
                 continue
 
@@ -690,13 +690,30 @@ class GameState:
             hand_after = list(player.hand_without_bonus())
             if tile in hand_after:
                 hand_after.remove(tile)  # 只移除一张（不能用推导式，否则对子会被全删）
-            # Only remove one occurrence (for duplicates)
+            # 不换听检测使用结构性听牌（不依赖宝牌野牌），防止 bao 误判导致错误限制
             waits_after = is_tenpai_dalian(hand_after, len(player.melds), player.melds,
-                                            bao_tile=self.bao_tile)
+                                            bao_tile=None)
             if not waits_after:
-                raise ValueError(
-                    f"Discarding '{tile}' would break tenpai for player {player_idx}. 不能换听。"
-                )
+                # 安全阀：检查是否存在任何合法出牌（防止卡死）
+                playable = player.hand_without_bonus()
+                has_any_valid = False
+                for t in set(playable):
+                    tmp = list(playable)
+                    tmp.remove(t)
+                    if is_tenpai_dalian(tmp, len(player.melds), player.melds, bao_tile=None):
+                        has_any_valid = True
+                        break
+                if has_any_valid:
+                    raise ValueError(
+                        f"Discarding '{tile}' would break tenpai for player {player_idx}. 不能换听。"
+                    )
+                else:
+                    # 无合法出牌 → 可能误加入 tenpai_players，解除约束防止卡死
+                    self.tenpai_players.discard(player_idx)
+                    logger.warning(
+                        "Dalian: player %d has no valid tenpai discard → removed from tenpai_players room=%s",
+                        player_idx, self.room_id
+                    )
 
         player.hand.remove(tile)
         self.discards[player_idx].append(tile)

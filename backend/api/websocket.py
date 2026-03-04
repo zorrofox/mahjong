@@ -181,7 +181,7 @@ async def _broadcast_bao_declared(room_id: str, event: dict, gs=None) -> None:
     if room is None:
         return
 
-    for ws, (_, pid) in list(_connections.get(room_id, {}).items()):
+    for pid, ws in list(_connections.get(room_id, {}).items()):
         payload = dict(base)
         # 非听牌玩家只看到 null（知道骰子被摇了，但不知道是哪张宝牌）
         payload["bao_tile"] = event["bao_tile"] if pid in tenpai_pids else None
@@ -220,7 +220,7 @@ async def _notify_new_tenpai_players_bao(room_id: str, gs, prev_tenpai: set) -> 
         "bao_tile": gs.bao_tile,
         "new_tenpai": True,  # 标记：仅通知新达到听牌的玩家
     }
-    for ws, (_, pid) in list(_connections.get(room_id, {}).items()):
+    for pid, ws in list(_connections.get(room_id, {}).items()):
         if pid in new_pids:
             await _send(ws, payload)
 

@@ -530,6 +530,9 @@ function handleClaimWindow(msg) {
   inClaimWindow = true;
   pendingActions = msg.actions || [];
 
+  // 声索窗口打开时，清除所有普通操作按钮（防止出牌按钮与声索窗口并存）
+  updateActionButtons([]);
+
   showClaimOverlay(msg.tile, pendingActions, msg.timeout || 30);
   // Announce the tile available to claim
   getSpeech()?.speakTile(msg.tile);
