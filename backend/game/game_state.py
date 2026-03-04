@@ -847,6 +847,12 @@ class GameState:
                 return True
 
             # ── Concealed kong (暗杠): 4-of-a-kind entirely in hand ──
+            # 大连: 三元牌（中/發/白）只能做将，不能杠（暗杠/明杠均禁）
+            if self.ruleset == "dalian" and tile in ('RED', 'GREEN', 'WHITE'):
+                self.lingshang_pending = False
+                raise ValueError(
+                    f"Player {player_idx} cannot kong dragon tile '{tile}' in Dalian (三元牌只能做将)."
+                )
             # 大连: 未开门的玩家不能暗杠
             if self.ruleset == "dalian" and not player.melds:
                 self.lingshang_pending = False
@@ -889,6 +895,10 @@ class GameState:
             raise ValueError(f"Player {player_idx} is not eligible to claim.")
         if tile != self.last_discard:
             raise ValueError(f"Claimed tile '{tile}' does not match last discard.")
+
+        # 大连: 三元牌（中/發/白）只能做将，不能明杠
+        if self.ruleset == "dalian" and tile in ('RED', 'GREEN', 'WHITE'):
+            return False
 
         if not can_kong(player.hand_without_bonus(), tile):
             return False
@@ -1164,7 +1174,12 @@ class GameState:
             # Check self-drawn kong — concealed (4-of-a-kind) or extend-pung (加杠)
             from collections import Counter
             counts = Counter(player.hand_without_bonus())
-            has_concealed_kong = any(c >= 4 for c in counts.values())
+            _dalian_dragons = ('RED', 'GREEN', 'WHITE')
+            # 大连：三元牌不能杠（只能做将）
+            has_concealed_kong = any(
+                c >= 4 and (self.ruleset != "dalian" or t not in _dalian_dragons)
+                for t, c in counts.items()
+            )
             pung_meld_tiles = {
                 m[0] for m in player.melds
                 if len(m) == 3 and m[0] == m[1] == m[2]
@@ -1215,9 +1230,10 @@ class GameState:
                 elif can_pung(effective_hand, tile):
                     actions.append("pung")
 
-                # Check kong
+                # Check kong（大连：三元牌不能明杠）
                 if can_kong(effective_hand, tile):
-                    actions.append("kong")
+                    if not (self.ruleset == "dalian" and tile in ('RED', 'GREEN', 'WHITE')):
+                        actions.append("kong")
 
                 # Check chow (only from left player)
                 left_of_player = (player_idx - 1) % NUM_PLAYERS
