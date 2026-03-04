@@ -3,7 +3,7 @@ test_dalian_hand.py - 大连穷胡手牌规则单元测试
 
 覆盖：
   - decompose_winning_hand_dalian：三元牌禁刻子
-  - is_winning_hand_dalian：三色全/幺九/至少一刻/禁手把一
+  - is_winning_hand_dalian：禁止门清/三色全/幺九/至少一刻/禁手把一
   - _is_kanchan：坎张检测（True/False）
   - calculate_han_dalian：各番型加成
 """
@@ -89,84 +89,97 @@ class TestDecomposeWinningHandDalian:
 # is_winning_hand_dalian
 # ---------------------------------------------------------------------------
 
-# 辅助：构造一个合法大连基础胡型（三色全、有幺九/风牌、有刻子）
+# 辅助：构造一个合法大连基础胡型（三色全、有幺九/风牌、有刻子、已开门）
 def _base_hand():
     """
-    合法大连基础胡型：
+    合法大连基础胡型（隐藏牌 + 1 副明刻）：
+    副露：BAMBOO_1 BAMBOO_1 BAMBOO_1（明刻，满足开门+至少一刻）
     将：EAST EAST (风牌)
-    刻：BAMBOO_1 BAMBOO_1 BAMBOO_1
     顺：CHARACTERS_1 CHARACTERS_2 CHARACTERS_3
     顺：CIRCLES_1 CIRCLES_2 CIRCLES_3
     顺：BAMBOO_7 BAMBOO_8 BAMBOO_9
-    = 14 张，三色全，有幺九，有刻子
+    隐藏牌 = 11 张（14 - 3×1），三色全，有幺九
     """
-    return (
+    concealed = (
         ['EAST', 'EAST']
-        + ['BAMBOO_1'] * 3
         + ['CHARACTERS_1', 'CHARACTERS_2', 'CHARACTERS_3']
         + ['CIRCLES_1', 'CIRCLES_2', 'CIRCLES_3']
         + ['BAMBOO_7', 'BAMBOO_8', 'BAMBOO_9']
     )
+    declared = [['BAMBOO_1', 'BAMBOO_1', 'BAMBOO_1']]
+    return concealed, declared
 
 
 class TestIsWinningHandDalian:
 
     def test_valid_base_hand(self):
-        """合法基础胡型应返回 True"""
-        assert is_winning_hand_dalian(_base_hand(), 0, [])
+        """合法基础胡型（有副露）应返回 True"""
+        concealed, declared = _base_hand()
+        assert is_winning_hand_dalian(concealed, 1, declared)
 
-    def test_missing_san_se_quan(self):
-        """缺色（只有条和万，没有饼）应返回 False"""
+    def test_menqing_forbidden(self):
+        """门清（无副露）禁止胡牌"""
+        # 结构完全合法，但 n_declared_melds=0 → False
         tiles = (
             ['EAST', 'EAST']
             + ['BAMBOO_1'] * 3
             + ['CHARACTERS_1', 'CHARACTERS_2', 'CHARACTERS_3']
-            + ['BAMBOO_3', 'BAMBOO_4', 'BAMBOO_5']
+            + ['CIRCLES_1', 'CIRCLES_2', 'CIRCLES_3']
             + ['BAMBOO_7', 'BAMBOO_8', 'BAMBOO_9']
         )
         assert not is_winning_hand_dalian(tiles, 0, [])
 
+    def test_missing_san_se_quan(self):
+        """缺色（只有条和万，没有饼）应返回 False"""
+        # 副露：BAMBOO_1 * 3（满足开门），但隐藏牌缺饼
+        declared = [['BAMBOO_1', 'BAMBOO_1', 'BAMBOO_1']]
+        concealed = (
+            ['EAST', 'EAST']
+            + ['CHARACTERS_1', 'CHARACTERS_2', 'CHARACTERS_3']
+            + ['BAMBOO_3', 'BAMBOO_4', 'BAMBOO_5']
+            + ['BAMBOO_7', 'BAMBOO_8', 'BAMBOO_9']
+        )
+        assert not is_winning_hand_dalian(concealed, 1, declared)
+
     def test_no_terminal_no_honor_fails(self):
         """全是 2-8 数牌无风无字，没有幺九，应失败"""
-        # 凑 14 张，三色均有，但全是 2-8
-        tiles = (
+        # 副露：BAMBOO_5 * 3，隐藏牌全 2-8，三色均有
+        declared = [['BAMBOO_5', 'BAMBOO_5', 'BAMBOO_5']]
+        concealed = (
             ['BAMBOO_2', 'BAMBOO_2']
-            + ['BAMBOO_2', 'BAMBOO_3', 'BAMBOO_4']
             + ['CIRCLES_2', 'CIRCLES_3', 'CIRCLES_4']
             + ['CHARACTERS_2', 'CHARACTERS_3', 'CHARACTERS_4']
-            + ['BAMBOO_5', 'BAMBOO_6', 'BAMBOO_7']
+            + ['BAMBOO_6', 'BAMBOO_7', 'BAMBOO_8']
         )
-        assert not is_winning_hand_dalian(tiles, 0, [])
+        assert not is_winning_hand_dalian(concealed, 1, declared)
 
     def test_honor_exempts_yaojiu_check(self):
-        """包含风牌/字牌时豁免幺九检查（全 2-8 + EAST 成将）"""
-        tiles = (
+        """包含风牌时豁免幺九检查（全 2-8 + EAST 成将 + 副露刻子）"""
+        declared = [['BAMBOO_5', 'BAMBOO_5', 'BAMBOO_5']]
+        concealed = (
             ['EAST', 'EAST']
             + ['BAMBOO_2', 'BAMBOO_3', 'BAMBOO_4']
             + ['CIRCLES_2', 'CIRCLES_3', 'CIRCLES_4']
             + ['CHARACTERS_2', 'CHARACTERS_3', 'CHARACTERS_4']
-            + ['BAMBOO_5', 'BAMBOO_5', 'BAMBOO_5']
         )
-        # 有 EAST 所以豁免幺九；但需要至少一刻子 (BAMBOO_5 * 3)
-        assert is_winning_hand_dalian(tiles, 0, [])
+        # EAST 豁免幺九；BAMBOO_5*3 副露满足至少一刻
+        assert is_winning_hand_dalian(concealed, 1, declared)
 
     def test_no_pung_fails(self):
-        """全顺子无刻子，应失败"""
-        # 将 EAST EAST，四组顺子
-        tiles = (
+        """全顺子无刻子（包括副露），应失败"""
+        # 副露：顺子（不是刻子）
+        declared = [['BAMBOO_1', 'BAMBOO_2', 'BAMBOO_3']]
+        concealed = (
             ['EAST', 'EAST']
-            + ['BAMBOO_1', 'BAMBOO_2', 'BAMBOO_3']
             + ['CIRCLES_1', 'CIRCLES_2', 'CIRCLES_3']
             + ['CHARACTERS_1', 'CHARACTERS_2', 'CHARACTERS_3']
             + ['BAMBOO_7', 'BAMBOO_8', 'BAMBOO_9']
         )
-        assert not is_winning_hand_dalian(tiles, 0, [])
+        assert not is_winning_hand_dalian(concealed, 1, declared)
 
     def test_declared_pung_counts(self):
         """副露中有刻子时满足至少一刻子条件"""
-        # 副露刻子（BAMBOO_1 * 3）
         declared_melds = [['BAMBOO_1', 'BAMBOO_1', 'BAMBOO_1']]
-        # 隐藏牌 14-3=11 张
         concealed = (
             ['EAST', 'EAST']
             + ['CIRCLES_1', 'CIRCLES_2', 'CIRCLES_3']
@@ -183,21 +196,20 @@ class TestIsWinningHandDalian:
             ['CHARACTERS_1', 'CHARACTERS_2', 'CHARACTERS_3'],
             ['BAMBOO_7', 'BAMBOO_8', 'BAMBOO_9'],
         ]
-        # 隐藏牌 14-12=2 张（就是将）
         concealed = ['EAST', 'EAST']
         assert not is_winning_hand_dalian(concealed, 4, declared_melds)
 
     def test_dragon_pung_not_allowed_in_hand(self):
         """三张中形成刻子违反规则（三元牌禁刻子）"""
-        tiles = (
+        # 即使有副露，RED*3 也无法成刻子
+        declared = [['BAMBOO_1', 'BAMBOO_2', 'BAMBOO_3']]
+        concealed = (
             ['GREEN', 'GREEN']
             + ['RED'] * 3
-            + ['BAMBOO_1', 'BAMBOO_2', 'BAMBOO_3']
             + ['CIRCLES_1', 'CIRCLES_2', 'CIRCLES_3']
             + ['CHARACTERS_1', 'CHARACTERS_2', 'CHARACTERS_3']
         )
-        # RED*3 无法成刻子 → decompose 返回 None → False
-        assert not is_winning_hand_dalian(tiles, 0, [])
+        assert not is_winning_hand_dalian(concealed, 1, declared)
 
 
 # ---------------------------------------------------------------------------

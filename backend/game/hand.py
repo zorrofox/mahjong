@@ -448,14 +448,19 @@ def is_winning_hand_dalian(
 
     Requirements:
     1. Basic structure: 1 pair + (4-n_melds) melds (no seven pairs; dragons pair-only)
-    2. 三色全: tiles span all three suits (条/饼/万)
-    3. 幺九: contains at least one terminal (1 or 9); exempted if hand has honors (winds/dragons)
-    4. At least one pung (in declared melds or in concealed decomposition)
-    5. 手把一禁手: n_declared_melds < 4
+    2. 禁止门清: must have at least one declared meld (开门) to win
+    3. 三色全: tiles span all three suits (条/饼/万)
+    4. 幺九: contains at least one terminal (1 or 9); exempted if hand has honors (winds/dragons)
+    5. At least one pung (in declared melds or in concealed decomposition)
+    6. 手把一禁手: n_declared_melds < 4
     """
     hand = [t for t in concealed_tiles if not is_flower_tile(t)]
     expected = 14 - 3 * n_declared_melds
     if len(hand) != expected:
+        return False
+
+    # 禁止门清: must have at least one declared meld (开门)
+    if n_declared_melds == 0:
         return False
 
     # 禁手: 手把一 (all 4 melds declared = 手把一 is illegal in Dalian)
