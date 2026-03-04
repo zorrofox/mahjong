@@ -560,7 +560,7 @@ async def _handle_claim_window(room_id: str) -> None:
         _claim_window_active.discard(room_id)
 
     # 大连：声索窗口关闭后检测副露中宝牌数（碰/吃/明杠可能使宝牌进入明牌）
-    if gs.phase not in ("claiming", "ended"):
+    if gs.ruleset == "dalian" and gs.phase not in ("claiming", "ended"):
         await _check_bao_reroll_and_broadcast(room_id, gs)
 
     # Broadcast updated state after resolution
@@ -1084,7 +1084,7 @@ async def _handle_message(
             return
 
         # 大连：碰成功后检测副露中宝牌数，可能触发重摇
-        if gs.phase != "claiming":
+        if gs.ruleset == "dalian" and gs.phase != "claiming":
             await _check_bao_reroll_and_broadcast(room_id, gs)
 
         await _broadcast_game_state(room_id)
@@ -1115,7 +1115,7 @@ async def _handle_message(
             return
 
         # 大连：吃成功后检测副露中宝牌数，可能触发重摇
-        if gs.phase != "claiming":
+        if gs.ruleset == "dalian" and gs.phase != "claiming":
             await _check_bao_reroll_and_broadcast(room_id, gs)
 
         await _broadcast_game_state(room_id)
@@ -1146,7 +1146,7 @@ async def _handle_message(
             return
 
         # 大连：杠成功（明杠/加杠）后检测副露中宝牌数，可能触发重摇
-        if gs.phase not in ("claiming", "ended"):
+        if gs.ruleset == "dalian" and gs.phase not in ("claiming", "ended"):
             await _check_bao_reroll_and_broadcast(room_id, gs)
 
         await _broadcast_game_state(room_id)

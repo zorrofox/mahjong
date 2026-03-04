@@ -454,14 +454,14 @@ function handleGameState(state) {
 
   if (isDealEvent) _lastDealRound = newRound;
 
-  // 同步宝牌状态（重连或首次加载时恢复）
-  if (state.bao_tile && state.bao_tile !== _baoTile) {
-    _baoTile = state.bao_tile;
-    updateBaoBadge(state.bao_tile);
+  // 同步宝牌状态（重连/新局开始/规则集切换时均须同步）
+  // 注：必须在 state.bao_tile==null 时也主动清空，否则大连局重开后旧宝牌继续高亮
+  const newBao = state.bao_tile || null;
+  if (newBao !== _baoTile) {
+    _baoTile = newBao;
+    updateBaoBadge(newBao);
   }
-  if (state.tenpai_players) {
-    _tenpaiPlayers = state.tenpai_players;
-  }
+  _tenpaiPlayers = state.tenpai_players || [];
 
   renderBoard(state);
   updateActionButtonsForState(state);
