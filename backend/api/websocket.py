@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import random
 from typing import Optional
 
@@ -56,19 +57,19 @@ _claim_window_active: set[str] = set()
 _ai = AIPlayer()
 
 # Claim-window timeout in seconds (shown as countdown in the UI)
-CLAIM_TIMEOUT = 30.0
+CLAIM_TIMEOUT = float(os.environ.get("MJ_CLAIM_TIMEOUT", "30.0"))
 
 # Maximum chip unit per hand (caps at 7+ fan). Each fan doubles the unit:
 # 1 fan → 1 chip, 2 → 2, 3 → 4, 4 → 8, 5 → 16, 6 → 32, 7+ → 64.
 CHIP_CAP = 64
 
 # AI action delay range (seconds) – makes AI feel natural
-AI_DELAY_MIN = 0.2
-AI_DELAY_MAX = 0.6
+AI_DELAY_MIN = float(os.environ.get("MJ_AI_DELAY_MIN", "0.2"))
+AI_DELAY_MAX = float(os.environ.get("MJ_AI_DELAY_MAX", "0.6"))
 
 # Seconds to wait after a disconnect before handing the seat to AI.
 # During this window the player can reconnect and resume control.
-AI_TAKEOVER_GRACE = 20.0
+AI_TAKEOVER_GRACE = float(os.environ.get("MJ_AI_TAKEOVER_GRACE", "20.0"))
 
 # Pending AI-takeover tasks keyed by "{room_id}:{player_id}".
 _ai_takeover_tasks: dict[str, asyncio.Task] = {}

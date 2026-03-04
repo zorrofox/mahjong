@@ -1,0 +1,4 @@
+playwright>=1.44
+pytest>=8
+pytest-asyncio>=0.23
+pytest-timeout>=2.3
