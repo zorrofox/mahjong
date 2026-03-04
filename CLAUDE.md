@@ -383,6 +383,13 @@ npm run test:coverage
 cd tests/integration
 pip install -r requirements.txt
 pytest -v
+
+# E2E 浏览器测试（Playwright）
+pip install -r tests/e2e/requirements.txt
+playwright install chromium          # 首次需安装 Chromium
+playwright install-deps chromium     # Linux 需要（需 root/sudo）
+pytest tests/e2e/ -v                 # 全套，约 20 分钟
+pytest tests/e2e/test_hk_lobby.py tests/e2e/test_dalian_lobby.py -v  # 快速冒烟，~6s
 ```
 
 ### 覆盖率
@@ -404,7 +411,18 @@ pytest -v
 | 后端单元测试 | 412 | tiles/hand/game_state/ai_player/room_manager/routes/dalian_hand/dalian_settlement/dalian_game_state |
 | 前端单元测试 | 111 | game.js 纯函数（排序、番数渲染、touch 交互等） |
 | 集成测试 | 79 | REST 端点、WS 流程、声索窗口、重开局、Rejoin |
-| **合计** | **602** | |
+| **E2E 测试（Playwright）** | **28** | 港式/大连大厅、完整游戏流程、结算弹窗、宝牌 badge、听牌标识 |
+| **合计** | **630** | |
+
+### E2E 测试设计要点
+
+E2E 测试使用**全 AI 自动完成**策略，无需人工参与：
+
+- `conftest.py` 在随机端口启动后端，注入加速参数（AI 延迟 0.15s、声索超时 1.5s）
+- `run_all_ai_game()` 创建房间 → 短暂 WebSocket 连接触发 AI 循环 → 轮询等待 ended
+- 游戏结束后，浏览器以重连方式进入游戏页，服务端发送 `game_over(is_reconnect=True)` → 结算弹窗
+- 关键设计：kick 玩家必须用非 `ai_player_` 前缀 ID，否则 AI 接管定时器不会触发（服务端安全限制）
+- 大连测试额外覆盖：荒庄流局（概率测试）、宝牌 badge、听牌「听」字标识
 
 ---
 
@@ -488,5 +506,5 @@ gcloud run deploy mahjong \
 | 玩家认证 | 无，player_id 自生成 | JWT / Session |
 | AI 强度 | 启发式贪心 | 蒙特卡洛或规则引擎 |
 | 多实例路由 | 同房间玩家须路由到同实例 | WebSocket 粘性路由 / 共享状态 |
-| 测试覆盖 | 602 tests | E2E 浏览器测试（Playwright） |
+| 测试覆盖 | 630 tests | E2E 测试更完善（可用 Playwright 扩展） |
 | 横屏适配 | 未专项优化 | 横屏布局调整 |

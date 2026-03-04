@@ -4,7 +4,7 @@
 
 A browser-based multiplayer Mahjong game supporting both Hong Kong and Dalian Qionghu rulesets. Supports 1–4 human players per room; empty seats are filled by AI.
 
-![Python](https://img.shields.io/badge/Python-3.11-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-0.111-green) ![Tests](https://img.shields.io/badge/tests-602%20passed-brightgreen) ![Tiles](https://img.shields.io/badge/tiles-Cangjie6%20SVG-orange)
+![Python](https://img.shields.io/badge/Python-3.11-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-0.111-green) ![Tests](https://img.shields.io/badge/tests-630%20passed-brightgreen) ![Tiles](https://img.shields.io/badge/tiles-Cangjie6%20SVG-orange)
 
 ---
 
@@ -67,13 +67,14 @@ IAP 公网地址：`https://YOUR_APP_DOMAIN`（SSL 证书签发中）
 ├── backend/
 │   ├── game/          # 游戏引擎（牌型、胡牌、状态机、AI、番数计算）
 │   ├── api/           # FastAPI 路由 + WebSocket 处理
-│   └── tests/         # 后端单元测试（410 tests，含大连专项）
+│   └── tests/         # 后端单元测试（412 tests，含大连专项）
 ├── frontend/
 │   ├── js/            # 大厅 + 游戏客户端
 │   ├── tiles/         # Cangjie6 港式麻将 SVG 牌面（42 张）
 │   └── tests/         # 前端单元测试（111 tests）
 └── tests/
-    └── integration/   # REST + WebSocket 集成测试（79 tests）
+    ├── integration/   # REST + WebSocket 集成测试（79 tests）
+    └── e2e/           # Playwright E2E 浏览器测试（28 tests，港式+大连）
 ```
 
 ---
@@ -100,6 +101,19 @@ pip install -r requirements.txt
 pytest -v
 ```
 
+**E2E 浏览器测试（Playwright）**
+```bash
+# 安装依赖（首次）
+pip install -r tests/e2e/requirements.txt
+playwright install chromium
+playwright install-deps chromium   # Linux 需要（需 root/sudo）
+
+# 运行（服务器自动启动，无需手动启动后端）
+pytest tests/e2e/ -v               # 全套（约 20 分钟）
+pytest tests/e2e/test_hk_lobby.py tests/e2e/test_dalian_lobby.py -v  # 快速冒烟（~6s）
+pytest tests/e2e/ -v --headed      # 有界面调试模式
+```
+
 ---
 
 ## 技术栈 / Tech Stack
@@ -110,7 +124,7 @@ pytest -v
 | 实时通信 | WebSocket（Starlette 内置） |
 | 前端 | 原生 HTML5 + CSS3 + JavaScript |
 | 牌面图片 | Wikimedia Commons Cangjie6 SVG（CC BY-SA 4.0） |
-| 测试 | pytest + Vitest |
+| 测试 | pytest + Vitest + Playwright（E2E） |
 
 ---
 
