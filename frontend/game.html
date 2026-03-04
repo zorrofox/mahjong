@@ -644,12 +644,13 @@
             // Use larger sizes so tiles are legible.
             const rw = position === 'left' || position === 'right' ? '22px' : '26px';
             const rh = position === 'left' || position === 'right' ? '31px' : '36px';
-            const tiles = getHandTiles(player);
+            const tilesRaw = getHandTiles(player);
+            const tiles = sortHandTiles(tilesRaw);  // 胡牌翻牌后按花色/数值排序
             const winnerIdx = state.winner
               ? (state.players || []).findIndex(p => p.id === state.winner)
               : -1;
             const winTile   = state.winning_tile || null;
-            const revealKey = tiles.join(',') + '|reveal|' + (winTile || '');
+            const revealKey = [...tiles].sort().join(',') + '|reveal|' + (winTile || '');
             if (handEl.dataset.tilesKey !== revealKey) {
               handEl.dataset.tilesKey = revealKey;
               handEl.innerHTML = '';

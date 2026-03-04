@@ -613,6 +613,56 @@ def _is_kanchan(winning_tile: str, concealed_without_winning: list[str]) -> bool
     return not two_sided_possible
 
 
+def _is_kanchan_in_hand(winning_tile: str, concealed_without_winning: list[str]) -> bool:
+    """
+    精确坎张检测，需要完整手牌上下文（calculate_han_dalian 专用）。
+
+    相比 _is_kanchan 的启发式计数，此函数通过实际分解验证：
+    若所有可能使 winning_tile 成为「非坎张」的双面方案在分解后均不合法，
+    则认定为坎张（即 winning_tile 唯一的用途是填坎）。
+
+    例：手有 1-2-3-4-6（等 5），虽 3 和 4 同时存在（表面像双面），
+        但移除 3-4（作 3-4-5 高端双面）后，1-2-6 无法组成合法搭子，
+        因此这是真正的坎张等待。
+    """
+    suit = get_suit(winning_tile)
+    num = get_number(winning_tile)
+    if suit is None or num is None or num < 2 or num > 8:
+        return False
+
+    lower = f"{suit}_{num - 1}"
+    upper = f"{suit}_{num + 1}"
+    tiles_check = list(concealed_without_winning)
+    if tiles_check.count(lower) < 1 or tiles_check.count(upper) < 1:
+        return False  # 坎张需要上下各一张
+
+    full_hand = sorted(tiles_check + [winning_tile])
+
+    def can_decompose_rest(remaining: list) -> bool:
+        """剩余牌能否组成 pair + melds（Dalian 规则）。"""
+        for pair_tile in find_pairs(remaining):
+            rem = _remove_tiles(remaining, [pair_tile, pair_tile])
+            if _try_extract_melds_dalian(rem):
+                return True
+        return False
+
+    # 检验 winning 作为低端（需要 winning+1, winning+2）
+    t1, t2 = f"{suit}_{num + 1}", f"{suit}_{num + 2}"
+    if num <= 7 and full_hand.count(t1) >= 1 and full_hand.count(t2) >= 1:
+        remaining = _remove_tiles(full_hand, [winning_tile, t1, t2])
+        if can_decompose_rest(remaining):
+            return False  # 有合法的双面替代方案，不是坎张
+
+    # 检验 winning 作为高端（需要 winning-2, winning-1）
+    t3, t4 = f"{suit}_{num - 2}", f"{suit}_{num - 1}"
+    if num >= 3 and full_hand.count(t3) >= 1 and full_hand.count(t4) >= 1:
+        remaining = _remove_tiles(full_hand, [t3, t4, winning_tile])
+        if can_decompose_rest(remaining):
+            return False  # 有合法的双面替代方案，不是坎张
+
+    return True  # 坎张（无合法双面替代）
+
+
 def calculate_han_dalian(
     concealed_tiles: list[str],
     declared_melds: list,
@@ -654,14 +704,15 @@ def calculate_han_dalian(
         add('庄家', 'Dealer Bonus', 1)
 
     # 夹胡 (kanchan) — applies when winning by ron
+    # 使用 _is_kanchan_in_hand 精确检测（需要完整暗手上下文），
+    # 可避免「3 已被 1-2-3 占用」等情形的误判
     if ron and winning_tile is not None:
         hand_without_win = list(concealed_tiles)
         if winning_tile in hand_without_win:
             hand_without_win.remove(winning_tile)
         else:
-            # winning tile was not yet added (pre-win state); skip kanchan check
             hand_without_win = list(concealed_tiles)
-        if _is_kanchan(winning_tile, hand_without_win):
+        if _is_kanchan_in_hand(winning_tile, hand_without_win):
             add('夹胡', 'Kanchan (Middle Wait)', 1)
 
     if ling_shang and not ron:
