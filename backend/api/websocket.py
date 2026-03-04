@@ -708,6 +708,8 @@ async def _handle_game_over(room_id: str) -> None:
                   for pid in (p.id for p in gs.players)}
 
     # 1. Apply accumulated kong chip transfers
+    # HK: kong_chip_transfers 有值（任何杠立即结算）
+    # Dalian: kong_chip_transfers 为空（大连杠分只在胡牌者赢时结算，见下方 kong_log 处理）
     for pid, delta in gs.kong_chip_transfers.items():
         room.cumulative_scores[pid] = (
             room.cumulative_scores.get(pid, INITIAL_CHIPS) + delta
@@ -753,6 +755,23 @@ async def _handle_game_over(room_id: str) -> None:
                         )
                         room.cumulative_scores[p.id] = (
                             room.cumulative_scores.get(p.id, INITIAL_CHIPS) - pay
+                        )
+
+            # ── 大连杠分：只有胡牌者的杠才结算 ──────────────────────────────
+            # 明杠 = 1×底注/家，暗杠 = 2×底注/家，三家都付给胡牌者
+            winner_kongs = [k for k in gs.kong_log if k['player_idx'] == winner_idx]
+            if winner_kongs:
+                kong_per_player = sum(
+                    1 if k['type'] == 'min' else 2
+                    for k in winner_kongs
+                )
+                for i, p in enumerate(gs.players):
+                    if i != winner_idx:
+                        room.cumulative_scores[winner_id] = (
+                            room.cumulative_scores.get(winner_id, INITIAL_CHIPS) + kong_per_player
+                        )
+                        room.cumulative_scores[p.id] = (
+                            room.cumulative_scores.get(p.id, INITIAL_CHIPS) - kong_per_player
                         )
 
         else:

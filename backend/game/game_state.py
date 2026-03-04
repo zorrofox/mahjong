@@ -148,10 +148,14 @@ class GameState:
         self._rob_kong_tile: Optional[str] = None       # the tile being extended
         self._rob_kong_player_idx: Optional[int] = None # the konger
 
-        # Accumulated chip transfers from kong declarations during the hand.
+        # HK only: accumulated chip transfers from kong declarations (immediate payments).
         # Applied at game end alongside the win payment.
         # Keys are player_id strings; values are net chip deltas (can be negative).
         self.kong_chip_transfers: dict[str, int] = {}
+
+        # 大连专用：杠分记录（只有胡牌者才算）
+        # 明杠(min)=1×底注/家，暗杠(an)=2×底注/家，不管自摸还是荣和，三家都付给胡牌者
+        self.kong_log: list[dict] = []  # [{'player_idx': int, 'type': 'min'|'an'}]
 
         # ── 宝牌状态（大连穷胡专用）─────────────────────────────────
         self.bao_tile: Optional[str] = None        # 已确定的宝牌（None 表示未揭示）
@@ -305,8 +309,8 @@ class GameState:
             claimer.melds.append(meld)
 
             if claim_type == "kong":
-                # Record kong chip payment before drawing
-                self.record_kong_payment(claimer_idx)
+                # Record kong payment (明杠 from discard)
+                self._record_kong(claimer_idx, 'min')
                 # Draw replacement tile from back of wall
                 replacement = self._draw_from_back()
                 if replacement is not None:
@@ -375,8 +379,8 @@ class GameState:
         self._pending_claims.clear()
         self._skipped_claims.clear()
 
-        # Record chip payment (each other player pays 1 chip)
-        self.record_kong_payment(konger_idx)
+        # Record kong payment (加杠/extend-pung = 明杠)
+        self._record_kong(konger_idx, 'min')
 
         # Draw replacement tile from back of wall
         replacement = self._draw_from_back()
@@ -438,20 +442,34 @@ class GameState:
         # Store han total as the round score for display (replaces old _calculate_score)
         player.score = self.han_total
 
+    def _record_kong(self, konger_idx: int, kong_type: str) -> None:
+        """
+        统一记录杠牌。
+        - HK 规则：任何玩家杠牌立即从其他三家各收 1 筹码（kong_chip_transfers）
+        - 大连规则：只有胡牌者的杠牌才算钱，记录到 kong_log 供结算时使用
+          明杠(min)=1×底注/家, 暗杠(an)=2×底注/家
+
+        Args:
+            konger_idx: 杠牌玩家索引
+            kong_type:  'min'（明杠：声索/加杠）或 'an'（暗杠：手中4张自摸）
+        """
+        if self.ruleset == "dalian":
+            self.kong_log.append({'player_idx': konger_idx, 'type': kong_type})
+        else:
+            # HK: immediate 1-chip payment from each other player
+            konger_id = self.players[konger_idx].id
+            self.kong_chip_transfers[konger_id] = (
+                self.kong_chip_transfers.get(konger_id, 0) + 3
+            )
+            for i, p in enumerate(self.players):
+                if i != konger_idx:
+                    self.kong_chip_transfers[p.id] = (
+                        self.kong_chip_transfers.get(p.id, 0) - 1
+                    )
+
     def record_kong_payment(self, konger_idx: int) -> None:
-        """
-        Record an immediate kong payment: each of the other 3 players pays 1 chip
-        to the konger.  Accumulated in kong_chip_transfers; applied at hand end.
-        """
-        konger_id = self.players[konger_idx].id
-        self.kong_chip_transfers[konger_id] = (
-            self.kong_chip_transfers.get(konger_id, 0) + 3
-        )
-        for i, p in enumerate(self.players):
-            if i != konger_idx:
-                self.kong_chip_transfers[p.id] = (
-                    self.kong_chip_transfers.get(p.id, 0) - 1
-                )
+        """兼容旧接口，默认为明杠。"""
+        self._record_kong(konger_idx, 'min')
 
     def check_and_trigger_bao(self) -> Optional[dict]:
         """
@@ -829,6 +847,12 @@ class GameState:
                 return True
 
             # ── Concealed kong (暗杠): 4-of-a-kind entirely in hand ──
+            # 大连: 未开门的玩家不能暗杠
+            if self.ruleset == "dalian" and not player.melds:
+                self.lingshang_pending = False
+                raise ValueError(
+                    f"Player {player_idx} cannot declare concealed kong without any declared melds first (未开门不能暗杠)."
+                )
             if player.hand.count(tile) < 4:
                 # Clear any stale lingshang flag so it doesn't bleed into the
                 # player's next discard after a failed kong attempt.
@@ -851,8 +875,8 @@ class GameState:
             else:
                 self.phase = "ended"
                 return True
-            # Record kong chip payment (each other player pays 1 chip)
-            self.record_kong_payment(player_idx)
+            # Record kong payment (暗杠 = concealed kong)
+            self._record_kong(player_idx, 'an')
             # Player stays in discarding phase to discard again
             return True
 
