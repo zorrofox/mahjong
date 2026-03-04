@@ -502,6 +502,9 @@ def is_winning_hand_dalian(
             yaojiu_ok = has_honor or any(get_number(t) in (1, 9) for t in all_tiles if get_number(t) is not None)
             if yaojiu_ok:
                 # 至少一刻子: must have at least one pung (declared or in concealed decomposition)
+                # 豁免规则（wiki 原文）：「用红中、发财、白板做将时可免」
+                # 三元牌禁刻，只能做将，因此以三元牌做将时豁免刻子要求
+                _DALIAN_DRAGON_SET = frozenset({'RED', 'GREEN', 'WHITE'})
                 declared_pung_tiles = {
                     m[0] for m in declared_melds
                     if len(m) >= 3 and m[0] == m[1] == m[2]
@@ -509,12 +512,16 @@ def is_winning_hand_dalian(
                 if declared_pung_tiles:
                     return True  # has a declared pung
 
-                # Check concealed decomposition for a pung
+                # Check concealed decomposition for a pung OR dragon-pair exemption
                 for pair_tile in find_pairs(sorted_hand):
                     remaining = _remove_tiles(sorted_hand, [pair_tile, pair_tile])
                     groups: list = []
                     if _extract_groups_rec_dalian(remaining, groups):
+                        # 有暗刻 → 满足至少一刻子
                         if any(g['type'] == 'pung' for g in groups):
+                            return True
+                        # 三元牌做将时豁免刻子要求（红中/发财/白板）
+                        if pair_tile in _DALIAN_DRAGON_SET:
                             return True
 
     # ── 宝牌野牌替换（Dalian only）────────────────────────────────────
