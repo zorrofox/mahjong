@@ -20,6 +20,7 @@ from .hand import (
     is_winning_hand,
     is_winning_hand_given_melds,
     is_winning_hand_dalian,
+    is_tenpai_dalian,
     can_pung,
     can_kong,
     can_chow,
@@ -152,6 +153,12 @@ class GameState:
         # Keys are player_id strings; values are net chip deltas (can be negative).
         self.kong_chip_transfers: dict[str, int] = {}
 
+        # ── 宝牌状态（大连穷胡专用）─────────────────────────────────
+        self.bao_tile: Optional[str] = None        # 已确定的宝牌（None 表示未揭示）
+        self.bao_declared: bool = False            # 是否已触发过宝牌
+        self.bao_dice_roll: Optional[int] = None   # 骰子点数（展示用）
+        self.tenpai_players: set[int] = set()      # 已进入听牌的玩家索引集合
+
         logger.info("GameState created: room=%s players=%s", room_id, player_ids)
 
     # ------------------------------------------------------------------
@@ -267,6 +274,7 @@ class GameState:
                 _pre_han = calculate_han_dalian(
                     claimer.hand_without_bonus(), claimer.melds, ron=True,
                     winning_tile=discard_tile,
+                    bao_tile=self.bao_tile,
                 )
             else:
                 _pre_han = calculate_han(
@@ -410,6 +418,7 @@ class GameState:
                 is_dealer=(player_idx == self.dealer_idx),
                 winning_tile=winning_tile,
                 rob_kong=rob_kong,
+                bao_tile=self.bao_tile,
             )
         else:
             result = calculate_han(
@@ -438,6 +447,51 @@ class GameState:
                 self.kong_chip_transfers[p.id] = (
                     self.kong_chip_transfers.get(p.id, 0) - 1
                 )
+
+    def check_and_trigger_bao(self) -> Optional[dict]:
+        """
+        检测是否有玩家首次进入听牌状态，若是则掷骰子确定宝牌。
+
+        调用时机：每次出牌（discard_tile）或副露后 phase 进入 claiming/discarding 时。
+        仅在 ruleset=="dalian" 且宝牌尚未揭示时有效。
+
+        Returns:
+            {"player_idx": int, "dice": int, "bao_tile": str}  — 若新触发宝牌
+            None  — 若无变化
+        """
+        if self.ruleset != "dalian":
+            return None
+        if self.bao_declared:
+            return None
+        if not self.wall:
+            return None
+
+        for i, player in enumerate(self.players):
+            if i in self.tenpai_players:
+                continue
+            hand = player.hand_without_bonus()
+            # 听牌检测：手牌数须为 13 - 3*n_melds（摸牌前状态）
+            expected_tenpai_count = 13 - 3 * len(player.melds)
+            if len(hand) != expected_tenpai_count:
+                continue
+            waits = is_tenpai_dalian(hand, len(player.melds), player.melds)
+            if not waits:
+                continue
+            # 玩家进入听牌
+            self.tenpai_players.add(i)
+            if not self.bao_declared:
+                import random
+                dice = random.randint(1, 6)
+                bao_idx = (dice - 1) % len(self.wall)
+                self.bao_tile = self.wall[bao_idx]
+                self.bao_declared = True
+                self.bao_dice_roll = dice
+                logger.info(
+                    "Dalian: player %d tenpai → dice=%d bao_tile=%s room=%s",
+                    i, dice, self.bao_tile, self.room_id
+                )
+                return {"player_idx": i, "dice": dice, "bao_tile": self.bao_tile}
+        return None
 
     def _open_claim_window(self) -> None:
         """Open a claim window for all players except the discarder."""
@@ -812,11 +866,13 @@ class GameState:
             # as fixed and are NOT recombined with the concealed hand.
             effective_hand = player.hand_without_bonus()
             if self.ruleset == "dalian":
-                if not is_winning_hand_dalian(effective_hand, len(player.melds), player.melds):
+                if not is_winning_hand_dalian(effective_hand, len(player.melds), player.melds,
+                                               bao_tile=self.bao_tile):
                     raise ValueError(f"Player {player_idx}'s hand is not a winning hand.")
                 _pre_han = calculate_han_dalian(
                     effective_hand, player.melds, ron=False,
                     winning_tile=self.last_drawn_tile,
+                    bao_tile=self.bao_tile,
                 )
             else:
                 if not is_winning_hand_given_melds(effective_hand, len(player.melds)):
@@ -840,9 +896,12 @@ class GameState:
             # _resolve_claims will add the tile and finalize when the window closes.
             effective_hand = player.hand_without_bonus() + [tile]
             if self.ruleset == "dalian":
-                if not is_winning_hand_dalian(effective_hand, len(player.melds), player.melds):
+                if not is_winning_hand_dalian(effective_hand, len(player.melds), player.melds,
+                                               bao_tile=self.bao_tile):
                     raise ValueError(f"Player {player_idx}'s hand + '{tile}' is not a winning hand.")
-                _pre_han = calculate_han_dalian(effective_hand, player.melds, ron=True, winning_tile=tile)
+                _pre_han = calculate_han_dalian(effective_hand, player.melds, ron=True,
+                                                winning_tile=tile,
+                                                bao_tile=self.bao_tile)
             else:
                 if not is_winning_hand_given_melds(effective_hand, len(player.melds)):
                     raise ValueError(f"Player {player_idx}'s hand + '{tile}' is not a winning hand.")
@@ -963,9 +1022,11 @@ class GameState:
             # back into the concealed hand for validation).
             effective_hand = player.hand_without_bonus()
             if self.ruleset == "dalian":
-                _can_win = is_winning_hand_dalian(effective_hand, len(player.melds), player.melds)
+                _can_win = is_winning_hand_dalian(effective_hand, len(player.melds), player.melds,
+                                                   bao_tile=self.bao_tile)
                 _win_han = calculate_han_dalian(effective_hand, player.melds, ron=False,
-                                                winning_tile=self.last_drawn_tile) if _can_win else None
+                                                winning_tile=self.last_drawn_tile,
+                                                bao_tile=self.bao_tile) if _can_win else None
             else:
                 _can_win = is_winning_hand_given_melds(effective_hand, len(player.melds))
                 _win_han = calculate_han(effective_hand, player.melds, player.flowers, ron=False) if _can_win else None
@@ -991,9 +1052,11 @@ class GameState:
                 if self._is_rob_kong_window:
                     # Rob-the-kong window (搶杠胡): ONLY win or skip allowed
                     if self.ruleset == "dalian":
-                        _can_win_rob = is_winning_hand_dalian(effective_hand + [tile], len(player.melds), player.melds)
+                        _can_win_rob = is_winning_hand_dalian(effective_hand + [tile], len(player.melds), player.melds,
+                                                              bao_tile=self.bao_tile)
                         _rob_han = calculate_han_dalian(effective_hand + [tile], player.melds, ron=True,
-                                                        winning_tile=tile, rob_kong=True) if _can_win_rob else None
+                                                        winning_tile=tile, rob_kong=True,
+                                                        bao_tile=self.bao_tile) if _can_win_rob else None
                     else:
                         _can_win_rob = is_winning_hand_given_melds(effective_hand + [tile], len(player.melds))
                         _rob_han = calculate_han(effective_hand + [tile], player.melds,
@@ -1006,9 +1069,11 @@ class GameState:
                 # Normal claim window ─────────────────────────────────────────
                 # Check win (declared melds are fixed — do NOT mix them back).
                 if self.ruleset == "dalian":
-                    _can_win_claim = is_winning_hand_dalian(effective_hand + [tile], len(player.melds), player.melds)
+                    _can_win_claim = is_winning_hand_dalian(effective_hand + [tile], len(player.melds), player.melds,
+                                                             bao_tile=self.bao_tile)
                     _claim_han = calculate_han_dalian(effective_hand + [tile], player.melds, ron=True,
-                                                      winning_tile=tile) if _can_win_claim else None
+                                                      winning_tile=tile,
+                                                      bao_tile=self.bao_tile) if _can_win_claim else None
                 else:
                     _can_win_claim = is_winning_hand_given_melds(effective_hand + [tile], len(player.melds))
                     _claim_han = calculate_han(effective_hand + [tile], player.melds, player.flowers, ron=True) if _can_win_claim else None
@@ -1085,6 +1150,10 @@ class GameState:
             "players": players_data,
             "winner": self.winner,
             "winning_tile": self.winning_tile,
+            "bao_tile": self.bao_tile,
+            "bao_declared": self.bao_declared,
+            "bao_dice_roll": self.bao_dice_roll,
+            "tenpai_players": list(self.tenpai_players),
             "available_actions": (
                 self.get_available_actions(viewing_player_idx)
                 if viewing_player_idx is not None

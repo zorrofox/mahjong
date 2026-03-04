@@ -400,6 +400,12 @@
         -webkit-overflow-scrolling: touch;
       }
     }
+
+    .bao-highlight {
+      box-shadow: 0 0 8px 3px #ffd700, 0 0 2px 1px #e08000 !important;
+      border-color: #ffd700 !important;
+      border-radius: 4px;
+    }
   </style>
 </head>
 <body>
@@ -410,6 +416,9 @@
   <div id="topbar">
     <h1>麻將遊戲</h1>
     <span id="ruleset-badge" style="display:none;font-size:0.72rem;padding:2px 7px;border-radius:9px;font-weight:700;margin-left:4px;"></span>
+    <span id="bao-badge" style="display:none;font-size:0.72rem;padding:2px 8px;border-radius:9px;font-weight:700;margin-left:4px;background:#6b1a1a;color:#ffd700;align-items:center;gap:4px;">
+      宝: <span id="bao-tile-text"></span>
+    </span>
     <div id="room-info">Connecting…</div>
     <div class="conn-status">
       <span class="conn-indicator connecting" id="conn-dot"></span>
@@ -570,10 +579,20 @@
   </div>
 
   <!-- ====================================================
+       BAO ANNOUNCE OVERLAY（宝牌揭示弹窗）
+  ==================================================== -->
+  <div id="bao-announce" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:300;background:rgba(0,0,0,0.88);border:2px solid #ffd700;border-radius:14px;padding:1.2rem 2rem;text-align:center;color:#ffd700;min-width:200px;">
+    <div style="font-size:1.1rem;margin-bottom:0.6rem;">🎲 <span id="bao-dice-text"></span></div>
+    <div style="font-size:0.9rem;color:#ccc;margin-bottom:0.5rem;" id="bao-who-text"></div>
+    <div style="font-size:0.85rem;margin-bottom:0.5rem;">宝牌 / Treasure Tile</div>
+    <div id="bao-tile-el" style="display:flex;justify-content:center;margin:0.4rem 0;"></div>
+  </div>
+
+  <!-- ====================================================
        SCRIPTS
   ==================================================== -->
-  <script src="js/speech.js?v=20260302c"></script>
-  <script src="js/game.js?v=20260302c"></script>
+  <script src="js/speech.js?v=20260302d"></script>
+  <script src="js/game.js?v=20260302d"></script>
   <script>
     /*
      * Patch renderOpponent to use the dedicated DOM elements
@@ -748,7 +767,12 @@
               });
             } else {
               newTiles.forEach(tileStr => {
-                handEl.appendChild(makeTileEl(tileStr, { clickable: true }));
+                const tileElNode = makeTileEl(tileStr, { clickable: true });
+                // 宝牌高亮
+                if (typeof _baoTile !== 'undefined' && _baoTile && tileStr === _baoTile) {
+                  tileElNode.classList.add('bao-highlight');
+                }
+                handEl.appendChild(tileElNode);
               });
             }
           }

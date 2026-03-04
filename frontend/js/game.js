@@ -49,6 +49,10 @@ let _discardLayoutReady = false;
 // arriving multiple times (reconnect, board re-render) doesn't re-trigger.
 let _lastDealRound = -1;
 
+// Bao (宝牌) state — Dalian ruleset treasure tile mechanism.
+let _baoTile = null;          // 当前宝牌，null 表示未揭示
+let _tenpaiPlayers = [];      // 已宣听玩家索引列表
+
 /* ---------- Speech engine singleton ---------- */
 let _speech = null;
 function getSpeech() {
@@ -314,6 +318,9 @@ function handleServerMessage(msg) {
     case 'game_state':
       handleGameState(msg.state);
       break;
+    case 'bao_declared':
+      handleBaoDeclared(msg);
+      break;
     case 'action_required':
       handleActionRequired(msg);
       break;
@@ -447,6 +454,15 @@ function handleGameState(state) {
 
   if (isDealEvent) _lastDealRound = newRound;
 
+  // 同步宝牌状态（重连或首次加载时恢复）
+  if (state.bao_tile && state.bao_tile !== _baoTile) {
+    _baoTile = state.bao_tile;
+    updateBaoBadge(state.bao_tile);
+  }
+  if (state.tenpai_players) {
+    _tenpaiPlayers = state.tenpai_players;
+  }
+
   renderBoard(state);
   updateActionButtonsForState(state);
 
@@ -521,7 +537,61 @@ function handleClaimWindow(msg) {
   setStatus(`Claim opportunity: ${tileToDisplay(msg.tile).label}`);
 }
 
+/* ============================================================
+   BAO (宝牌) HANDLERS — Dalian ruleset treasure tile
+   ============================================================ */
+function handleBaoDeclared(msg) {
+  _baoTile = msg.bao_tile;
+  if (!_tenpaiPlayers.includes(msg.player_idx)) {
+    _tenpaiPlayers.push(msg.player_idx);
+  }
+  updateBaoBadge(msg.bao_tile);
+  showBaoAnnounce(msg.player_idx, msg.dice, msg.bao_tile);
+  getSpeech()?.speak('宝牌！', 'immediate');
+}
+
+function updateBaoBadge(tileStr) {
+  const badge = document.getElementById('bao-badge');
+  const text  = document.getElementById('bao-tile-text');
+  if (!badge || !text) return;
+  if (tileStr) {
+    const info = tileToDisplay(tileStr);
+    text.textContent = info ? info.char || info.text || tileStr : tileStr;
+    badge.style.display = 'inline-flex';
+  } else {
+    badge.style.display = 'none';
+    text.textContent = '';
+  }
+}
+
+function showBaoAnnounce(playerIdx, dice, tileStr) {
+  const el       = document.getElementById('bao-announce');
+  const diceEl   = document.getElementById('bao-dice-text');
+  const whoEl    = document.getElementById('bao-who-text');
+  const tileEl   = document.getElementById('bao-tile-el');
+  if (!el) return;
+
+  const playerName = gameState?.players?.[playerIdx]?.id || ('玩家' + (playerIdx + 1));
+  if (diceEl) diceEl.textContent = '骰子点数: ' + dice;
+  if (whoEl)  whoEl.textContent  = escapeHtml(playerName) + ' 首先听牌';
+  if (tileEl) {
+    tileEl.innerHTML = '';
+    const t = makeTileEl(tileStr);
+    t.style.width = '38px';
+    t.style.height = '54px';
+    tileEl.appendChild(t);
+  }
+
+  el.style.display = 'block';
+  setTimeout(() => { el.style.display = 'none'; }, 3500);
+}
+
 function handleGameOver(msg) {
+  // 重置宝牌状态，为下一局准备
+  _baoTile = null;
+  _tenpaiPlayers = [];
+  updateBaoBadge(null);
+
   const hasWinnerCheck = msg.winner_idx !== null && msg.winner_idx !== undefined && msg.winner_idx >= 0;
   // null + 1 = 1 in JS, so compute name only when there's actually a winner
   const winnerName = hasWinnerCheck
@@ -662,6 +732,10 @@ function renderMyHand(player, playerIdx, state) {
   const hand = getHandTiles(player);
   sortHandTiles(hand).forEach(tileStr => {
     const el = makeTileEl(tileStr, { clickable: true, selected: tileStr === selectedTile });
+    // 宝牌高亮
+    if (_baoTile && tileStr === _baoTile) {
+      el.classList.add('bao-highlight');
+    }
     handEl.appendChild(el);
   });
 

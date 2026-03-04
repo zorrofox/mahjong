@@ -35,6 +35,7 @@ from .hand import (
     is_winning_hand,
     is_winning_hand_given_melds,
     is_winning_hand_dalian,
+    is_tenpai_dalian,    # 新增
     can_pung,
     can_kong,
     can_chow,
@@ -59,6 +60,7 @@ class AIPlayer:
         hand: list[str],
         melds: list[list[str]],
         ruleset: str = "hk",
+        bao_tile=None,    # 新增
     ) -> str:
         """
         Choose the best tile to discard from the current hand.
@@ -73,6 +75,7 @@ class AIPlayer:
             hand:    The player's current hand tiles.
             melds:   Already committed melds.
             ruleset: "hk" or "dalian" — affects scoring weights.
+            bao_tile: 大连宝牌（如有），AI 出牌时会尽量保留宝牌。
 
         Returns:
             The tile string to discard.
@@ -96,7 +99,7 @@ class AIPlayer:
 
         # Score each tile; the tile with the LOWEST score is discarded.
         if ruleset == "dalian":
-            scored = [(self._discard_score_dalian(tile, playable, melds), tile) for tile in playable]
+            scored = [(self._discard_score_dalian(tile, playable, melds, bao_tile=bao_tile), tile) for tile in playable]
         else:
             scored = [(self._discard_score(tile, playable), tile) for tile in playable]
         scored.sort(key=lambda x: (x[0], x[1]))  # deterministic tie-breaking
@@ -142,7 +145,8 @@ class AIPlayer:
         return 0.0
 
     def _discard_score_dalian(
-        self, tile: str, hand: list[str], melds: list[list[str]]
+        self, tile: str, hand: list[str], melds: list[list[str]],
+        bao_tile=None,    # 新增
     ) -> float:
         """
         Discard scoring for Dalian Qionghu rules.
@@ -153,6 +157,10 @@ class AIPlayer:
         - 至少一刻: prefer tiles that can form pungs; keep pairs
         - 三元牌禁刻子: dragons (RED/GREEN/WHITE) can only be the PAIR
         """
+        # 宝牌保护：手中有宝牌时给予极高分（不要轻易丢掉）
+        if bao_tile and tile == bao_tile:
+            return 80.0   # 宝牌非常宝贵，不要丢
+
         from collections import Counter as _Counter
         counts = _Counter(hand)
         _HONORS = ('EAST', 'SOUTH', 'WEST', 'NORTH', 'RED', 'GREEN', 'WHITE')
@@ -266,6 +274,7 @@ class AIPlayer:
         tile: str,
         claim_type: str,
         ruleset: str = "hk",
+        bao_tile=None,    # 新增
     ) -> bool:
         """
         Decide whether to claim the given tile with the specified claim type.
@@ -276,6 +285,7 @@ class AIPlayer:
             tile:       The tile being offered.
             claim_type: One of "win", "pung", "kong", "chow".
             ruleset:    "hk" or "dalian".
+            bao_tile:   大连宝牌（如有）。
 
         Returns:
             True if the AI should make the claim.
@@ -371,7 +381,8 @@ class AIPlayer:
     # ------------------------------------------------------------------ #
 
     def should_declare_win(
-        self, hand: list[str], melds: list[list[str]], ruleset: str = "hk"
+        self, hand: list[str], melds: list[list[str]], ruleset: str = "hk",
+        bao_tile=None,    # 新增
     ) -> bool:
         """
         Check if the current hand plus committed melds form a winning hand.
@@ -380,6 +391,7 @@ class AIPlayer:
             hand:    Current hand tiles (should exclude bonus tiles).
             melds:   Already committed melds.
             ruleset: "hk" or "dalian" — selects the appropriate win validator.
+            bao_tile: 大连宝牌（如有）。
 
         Returns:
             True if the player should declare a win.
@@ -387,7 +399,7 @@ class AIPlayer:
         playable = [t for t in hand if not is_flower_tile(t)]
 
         if ruleset == "dalian":
-            return is_winning_hand_dalian(playable, len(melds), melds)
+            return is_winning_hand_dalian(playable, len(melds), melds, bao_tile=bao_tile)
         # Use is_winning_hand_given_melds so that declared meld tiles are
         # treated as fixed and are NOT recombined with the concealed hand.
         return is_winning_hand_given_melds(playable, len(melds))

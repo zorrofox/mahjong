@@ -364,6 +364,14 @@ def _is_seven_pairs(tiles: list[str]) -> bool:
 
 _DALIAN_SUITS = frozenset({'BAMBOO', 'CIRCLES', 'CHARACTERS'})
 
+# 所有大连规则下合法的牌种（34种，不含花牌）
+_ALL_DALIAN_TILES = (
+    [f"BAMBOO_{i}" for i in range(1, 10)]
+    + [f"CIRCLES_{i}" for i in range(1, 10)]
+    + [f"CHARACTERS_{i}" for i in range(1, 10)]
+    + ['EAST', 'SOUTH', 'WEST', 'NORTH', 'RED', 'GREEN', 'WHITE']
+)
+
 
 def _extract_groups_rec_dalian(tiles: list[str], groups: list) -> bool:
     """Like _extract_groups_rec but dragons (RED/GREEN/WHITE) cannot form pungs — pair only."""
@@ -442,6 +450,7 @@ def is_winning_hand_dalian(
     concealed_tiles: list[str],
     n_declared_melds: int,
     declared_melds: list,
+    bao_tile: Optional[str] = None,
 ) -> bool:
     """
     Check if a hand is a valid winning hand under Dalian Qionghu rules.
@@ -453,6 +462,8 @@ def is_winning_hand_dalian(
     4. 幺九: contains at least one terminal (1 or 9); exempted if hand has honors (winds/dragons)
     5. At least one pung (in declared melds or in concealed decomposition)
     6. 手把一禁手: n_declared_melds < 4
+
+    If bao_tile is provided, the bao tile in hand may act as a wildcard substitute.
     """
     hand = [t for t in concealed_tiles if not is_flower_tile(t)]
     expected = 14 - 3 * n_declared_melds
@@ -476,43 +487,76 @@ def is_winning_hand_dalian(
         if _try_extract_melds_dalian(remaining):
             valid_structure = True
             break
-    if not valid_structure:
-        return False
 
-    # Combine all tiles for further checks
-    all_tiles = list(hand)
-    for m in declared_melds:
-        all_tiles.extend(m[:3])
+    if valid_structure:
+        # Combine all tiles for further checks
+        all_tiles = list(hand)
+        for m in declared_melds:
+            all_tiles.extend(m[:3])
 
-    # 三色全: must span all three suits
-    suits_present = {get_suit(t) for t in all_tiles if get_suit(t)}
-    if not (_DALIAN_SUITS <= suits_present):
-        return False
+        # 三色全: must span all three suits
+        suits_present = {get_suit(t) for t in all_tiles if get_suit(t)}
+        if _DALIAN_SUITS <= suits_present:
+            # 幺九: must have at least one terminal (1 or 9), unless hand contains any honor tile
+            has_honor = any(t in ('EAST', 'SOUTH', 'WEST', 'NORTH', 'RED', 'GREEN', 'WHITE') for t in all_tiles)
+            yaojiu_ok = has_honor or any(get_number(t) in (1, 9) for t in all_tiles if get_number(t) is not None)
+            if yaojiu_ok:
+                # 至少一刻子: must have at least one pung (declared or in concealed decomposition)
+                declared_pung_tiles = {
+                    m[0] for m in declared_melds
+                    if len(m) >= 3 and m[0] == m[1] == m[2]
+                }
+                if declared_pung_tiles:
+                    return True  # has a declared pung
 
-    # 幺九: must have at least one terminal (1 or 9), unless hand contains any honor tile
-    has_honor = any(t in ('EAST', 'SOUTH', 'WEST', 'NORTH', 'RED', 'GREEN', 'WHITE') for t in all_tiles)
-    if not has_honor:
-        has_terminal = any(get_number(t) in (1, 9) for t in all_tiles if get_number(t) is not None)
-        if not has_terminal:
-            return False
+                # Check concealed decomposition for a pung
+                for pair_tile in find_pairs(sorted_hand):
+                    remaining = _remove_tiles(sorted_hand, [pair_tile, pair_tile])
+                    groups: list = []
+                    if _extract_groups_rec_dalian(remaining, groups):
+                        if any(g['type'] == 'pung' for g in groups):
+                            return True
 
-    # 至少一刻子: must have at least one pung (declared or in concealed decomposition)
-    declared_pung_tiles = {
-        m[0] for m in declared_melds
-        if len(m) >= 3 and m[0] == m[1] == m[2]
-    }
-    if declared_pung_tiles:
-        return True  # has a declared pung
-
-    # Check concealed decomposition for a pung
-    for pair_tile in find_pairs(sorted_hand):
-        remaining = _remove_tiles(sorted_hand, [pair_tile, pair_tile])
-        groups: list = []
-        if _extract_groups_rec_dalian(remaining, groups):
-            if any(g['type'] == 'pung' for g in groups):
+    # ── 宝牌野牌替换（Dalian only）────────────────────────────────────
+    # 若手牌中有宝牌，尝试将其替换为每种候选张，看替换后是否满足胡牌条件
+    if bao_tile and bao_tile in [t for t in concealed_tiles if not is_flower_tile(t)]:
+        hand_without_bao = list(concealed_tiles)
+        hand_without_bao.remove(bao_tile)  # 移除一张宝牌
+        for substitute in _ALL_DALIAN_TILES:
+            if substitute == bao_tile:
+                continue  # 替换为同种牌无意义
+            test_hand = hand_without_bao + [substitute]
+            # 递归调用时不传 bao_tile，避免无限递归
+            if is_winning_hand_dalian(test_hand, n_declared_melds, declared_melds, bao_tile=None):
                 return True
 
     return False
+
+
+def is_tenpai_dalian(
+    concealed_tiles: list[str],
+    n_declared_melds: int,
+    declared_melds: list,
+    bao_tile: Optional[str] = None,
+) -> list[str]:
+    """
+    返回让当前手牌在大连规则下胡牌的所有等待张列表。
+
+    前提：n_declared_melds >= 1（禁止门清），n_declared_melds <= 3。
+    手牌张数应为 13 - 3*n_declared_melds（摸牌前的手牌数）。
+
+    如果 bao_tile 已确定，会额外考虑宝牌作为野牌时的等待张。
+
+    Returns:
+        去重后的等待张字符串列表，空列表表示未听牌。
+    """
+    waits: list[str] = []
+    for candidate in _ALL_DALIAN_TILES:
+        test_hand = list(concealed_tiles) + [candidate]
+        if is_winning_hand_dalian(test_hand, n_declared_melds, declared_melds, bao_tile=bao_tile):
+            if candidate not in waits:
+                waits.append(candidate)
+    return waits
 
 
 def _is_kanchan(winning_tile: str, concealed_without_winning: list[str]) -> bool:
@@ -572,6 +616,7 @@ def calculate_han_dalian(
     is_dealer: bool = False,
     winning_tile: 'Optional[str]' = None,
     rob_kong: bool = False,
+    bao_tile: Optional[str] = None,
 ) -> dict:
     """
     Calculate Han (番) for a Dalian Qionghu winning hand.
@@ -583,6 +628,8 @@ def calculate_han_dalian(
       庄家 +1    — is_dealer
       杠上开花 +2 — ling_shang and not ron
       抢杠胡 +2  — rob_kong
+      冲宝 +2    — ron and winning_tile == bao_tile
+      摸宝 +1    — not ron and bao_tile in concealed_tiles (wildcard used)
 
     Returns: {'breakdown': [...], 'total': int}
     """
@@ -615,6 +662,17 @@ def calculate_han_dalian(
 
     if rob_kong:
         add('抢杠胡', 'Rob Kong', 2)
+
+    # ── 宝牌加番 ──────────────────────────────────────────────────────
+    if bao_tile is not None:
+        if ron and winning_tile == bao_tile:
+            # 冲宝：荣和时胡牌张本身就是宝牌
+            add('冲宝', 'Chong Bao (Treasure Win)', 2)
+        elif not ron and bao_tile in [t for t in concealed_tiles if not is_flower_tile(t)]:
+            # 摸宝：自摸时手中有宝牌（作为野牌使用）
+            # 宝牌不能同时是 winning_tile（那种情况归于普通自摸，无额外宝牌番）
+            if winning_tile != bao_tile:
+                add('摸宝', 'Mo Bao (Treasure Draw)', 1)
 
     total = sum(x['fan'] for x in breakdown)
     return {'breakdown': breakdown, 'total': total}

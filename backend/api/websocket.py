@@ -34,6 +34,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from game.game_state import GameState
 from game.ai_player import AIPlayer
 from game.room_manager import Room, INITIAL_CHIPS
+from game.hand import is_tenpai_dalian
 # Import the singleton room_manager from routes
 from api.routes import room_manager
 
@@ -151,6 +152,16 @@ async def _broadcast_game_state(room_id: str) -> None:
         state_dict["cumulative_scores"] = dict(room.cumulative_scores)
         state_dict["round_number"] = room.round_number
         await _send(ws, {"type": "game_state", "state": state_dict})
+
+
+async def _broadcast_bao_declared(room_id: str, event: dict) -> None:
+    """大连宝牌揭示 — 广播给房间所有连线玩家。"""
+    await _broadcast(room_id, {
+        "type": "bao_declared",
+        "player_idx": event["player_idx"],
+        "dice": event["dice"],
+        "bao_tile": event["bao_tile"],
+    })
 
 
 async def _broadcast_room_update() -> None:
@@ -286,7 +297,7 @@ async def _run_ai_turn(room_id: str) -> None:
                 player = gs.players[ai_idx]
 
                 # Check self-draw win
-                if _ai.should_declare_win(player.hand_without_bonus(), player.melds, gs.ruleset):
+                if _ai.should_declare_win(player.hand_without_bonus(), player.melds, gs.ruleset, bao_tile=gs.bao_tile):
                     try:
                         result = gs.declare_win(ai_idx)
                         await _broadcast_game_state(room_id)
@@ -322,12 +333,18 @@ async def _run_ai_turn(room_id: str) -> None:
                         pass
 
                 # Discard
-                tile_to_discard = _ai.choose_discard(player.hand_without_bonus(), player.melds, gs.ruleset)
+                tile_to_discard = _ai.choose_discard(player.hand_without_bonus(), player.melds, gs.ruleset, bao_tile=gs.bao_tile)
                 try:
                     gs.discard_tile(ai_idx, tile_to_discard)
                 except ValueError as e:
                     logger.warning("AI discard failed: %s", e)
                     return
+
+                # 大连：AI 出牌后检测听牌触发宝牌
+                if gs.ruleset == "dalian" and not gs.bao_declared:
+                    bao_event = gs.check_and_trigger_bao()
+                    if bao_event:
+                        await _broadcast_bao_declared(room_id, bao_event)
 
                 await _broadcast_game_state(room_id)
 
@@ -401,7 +418,7 @@ async def _handle_claim_window(room_id: str) -> None:
 
             available = gs.get_available_actions(i)
 
-            if "win" in available and _ai.decide_claim(player.hand_without_bonus(), player.melds, tile, "win", gs.ruleset):
+            if "win" in available and _ai.decide_claim(player.hand_without_bonus(), player.melds, tile, "win", gs.ruleset, bao_tile=gs.bao_tile):
                 ai_decisions.append((i, "win", None))
                 continue
 
@@ -946,6 +963,12 @@ async def _handle_message(
         except ValueError as e:
             await _send(ws, {"type": "error", "message": str(e)})
             return
+
+        # 大连：每次出牌后检测是否首次听牌，触发宝牌
+        if gs.ruleset == "dalian" and not gs.bao_declared:
+            bao_event = gs.check_and_trigger_bao()
+            if bao_event:
+                await _broadcast_bao_declared(room_id, bao_event)
 
         await _broadcast_game_state(room_id)
 
