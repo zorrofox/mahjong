@@ -473,12 +473,8 @@ function handleGameState(state) {
   }
   updateHideBaoBtn();
 
-  // 不看宝状态：宝牌已揭示 + 轮到自己出牌 + 首次弹窗 → 弹出看宝确认
-  if (_hideBao && newBao && !_baoPeekOffered
-      && state.phase === 'discarding' && state.current_turn === myPlayerIdx) {
-    _baoPeekOffered = true;
-    showBaoPeekPrompt();
-  }
+  // 注：看宝确认弹窗在 handleBaoDeclared 中触发（宝牌揭示时），
+  //     不依赖 phase/turn（听牌后出牌由服务端自动处理，人工出牌阶段不再出现）
 
   renderBoard(state);
   updateActionButtonsForState(state);
@@ -573,7 +569,15 @@ function handleBaoDeclared(msg) {
 
   updateBaoBadge(_baoTile);
 
-  // new_tenpai=true：我是刚达到听牌的玩家，宝牌已存在 → 弹窗提示并语音告知
+  // 不看宝模式：宝牌首次对本玩家揭示时弹出确认窗（含8秒倒计时）
+  // 触发条件：_baoTile 刚被设置（msg.bao_tile 不为 null）且尚未弹过
+  if (_hideBao && _baoTile && !_baoPeekOffered) {
+    _baoPeekOffered = true;
+    showBaoPeekPrompt();
+    return;
+  }
+
+  // new_tenpai=true：后续上听，宝牌已存在 → 静默（已在 peek prompt 里处理或已看宝）
   if (msg.new_tenpai) {
     if (!_hideBao) {
       getSpeech()?.speak('看宝', 'queue');
@@ -582,7 +586,7 @@ function handleBaoDeclared(msg) {
     return;
   }
 
-  // 正常弹窗（首次揭示或换宝）
+  // 正常弹窗（首次揭示或换宝，且已选择看宝）
   if (!_hideBao) {
     showBaoAnnounce(msg.player_idx, msg.dice, _baoTile, msg.rerolled, false);
     getSpeech()?.speak(msg.rerolled ? '换宝！' : '看宝', 'immediate');
@@ -672,15 +676,17 @@ function updateHideBaoBtn() {
     return;
   }
 
-  // 不看宝状态：显示按钮；只有自己出牌阶段才可点击
-  const canSwitch = phase === 'discarding' && gameState?.current_turn === myPlayerIdx;
+  // 不看宝状态：显示按钮；已听牌（tenpai_players 中含自己）才可点击
+  // 听牌后出牌由系统自动处理，不再限制只能在出牌阶段点击
+  const amTenpai = (_tenpaiPlayers || []).includes(myPlayerIdx);
+  const canSwitch = amTenpai && !!_baoTile;
   btn.style.display   = '';
   btn.textContent     = '看宝';
   btn.disabled        = !canSwitch;
   btn.style.opacity   = canSwitch ? '1' : '0.45';
   btn.title           = canSwitch
-    ? '点击立即查看当前生效宝牌（出牌前确认）'
-    : '仅在自己出牌时可查看宝牌';
+    ? '点击查看当前生效宝牌'
+    : '上听后方可查看宝牌';
 }
 
 function showBaoAnnounce(playerIdx, dice, tileStr, rerolled, newTenpai = false) {
@@ -2002,10 +2008,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnHideBao = document.getElementById('btn-hide-bao');
   if (btnHideBao) {
     btnHideBao.addEventListener('click', () => {
-      // 仅允许 不看宝→看宝 的单向切换，且必须在自己出牌阶段
-      const canSwitch = _hideBao
-        && gameState?.phase === 'discarding'
-        && gameState?.current_turn === myPlayerIdx;
+      // 仅允许 不看宝→看宝 的单向切换，且玩家须在听牌状态
+      const amTenpai = (_tenpaiPlayers || []).includes(myPlayerIdx);
+      const canSwitch = _hideBao && amTenpai && !!_baoTile;
       if (!canSwitch) return;
       _hideBao = false;
       updateHideBaoBtn();
