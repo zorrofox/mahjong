@@ -736,7 +736,7 @@ def calculate_han_dalian(
     番型:
       基础 1番    — always
       自摸 +1    — not ron
-      夹胡 +1    — kanchan wait (only when ron=True and winning_tile qualifies)
+      夹胡 +1    — kanchan wait (ron or tsumo, whenever winning_tile qualifies)
       庄家 +1    — is_dealer
       杠上开花 +2 — ling_shang and not ron
       抢杠胡 +2  — rob_kong
@@ -758,10 +758,10 @@ def calculate_han_dalian(
     if is_dealer:
         add('庄家', 'Dealer Bonus', 1)
 
-    # 夹胡 (kanchan) — applies when winning by ron
+    # 夹胡 (kanchan) — 坎张等待型加番，自摸/点炮均适用
     # 使用 _is_kanchan_in_hand 精确检测（需要完整暗手上下文），
     # 可避免「3 已被 1-2-3 占用」等情形的误判
-    if ron and winning_tile is not None:
+    if winning_tile is not None:
         hand_without_win = list(concealed_tiles)
         if winning_tile in hand_without_win:
             hand_without_win.remove(winning_tile)

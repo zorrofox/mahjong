@@ -445,8 +445,8 @@ class TestCalculateHanDalian:
         names = [x['name_cn'] for x in result['breakdown']]
         assert '夹胡' in names
 
-    def test_kanchan_not_on_tsumo(self):
-        """夹胡只在荣和时计入，自摸不计"""
+    def test_kanchan_on_tsumo(self):
+        """夹胡 +1 自摸坎张也应计入（Bug#51 修复验证）"""
         tiles = (
             ['EAST', 'EAST']
             + ['BAMBOO_1'] * 3
@@ -461,7 +461,29 @@ class TestCalculateHanDalian:
             winning_tile='CIRCLES_5',
         )
         names = [x['name_cn'] for x in result['breakdown']]
-        assert '夹胡' not in names
+        assert '夹胡' in names
+
+    def test_kanchan_tsumo_dealer_total(self):
+        """夹胡 + 自摸 + 庄家 = 4 番（坎张自摸庄家）"""
+        tiles = (
+            ['EAST', 'EAST']
+            + ['BAMBOO_1'] * 3
+            + ['CHARACTERS_1', 'CHARACTERS_2', 'CHARACTERS_3']
+            + ['BAMBOO_7', 'BAMBOO_8', 'BAMBOO_9']
+            + ['CIRCLES_4', 'CIRCLES_5', 'CIRCLES_6']
+        )
+        result = calculate_han_dalian(
+            concealed_tiles=tiles,
+            declared_melds=[],
+            ron=False,
+            winning_tile='CIRCLES_5',
+            is_dealer=True,
+        )
+        names = [x['name_cn'] for x in result['breakdown']]
+        assert '夹胡' in names
+        assert '自摸' in names
+        assert '庄家' in names
+        assert result['total'] == 4
 
 
 # ---------------------------------------------------------------------------
