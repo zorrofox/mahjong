@@ -639,12 +639,26 @@ function handleGameOver(msg) {
 
   // Derive win type from win_ron flag and han breakdown.
   // win_ron: true=荣和, false=自摸, null/undefined=流局
+  // Priority: 冲宝 > 摸宝 > 抢杠胡 > 杠上开花/嶺上開花 > 夹胡 > 庄家 > 自摸/点炮
   const hasWinner = hasWinnerCheck;
   let winType = null;  // null means draw (流局)
   if (hasWinner) {
-    const isLingshang = (msg.han_breakdown || []).some(h => h.name_cn === '嶺上開花');
-    if (isLingshang) {
+    const bd = msg.han_breakdown || [];
+    const has = name => bd.some(h => h.name_cn === name);
+    if (has('冲宝')) {
+      winType = '冲宝';
+    } else if (has('摸宝')) {
+      winType = '摸宝';
+    } else if (has('抢杠胡')) {
+      winType = '抢杠胡';
+    } else if (has('杠上开花')) {
+      winType = '杠上开花';
+    } else if (has('嶺上開花')) {
       winType = '嶺上開花';
+    } else if (has('夹胡')) {
+      winType = '夹胡';
+    } else if (has('庄家')) {
+      winType = '庄家';
     } else if (msg.win_ron === false) {
       winType = '自摸';
     } else {
@@ -1674,7 +1688,13 @@ function showGameOverModal(winnerName, scores, cumulativeScores, roundNumber, ha
   const winTypeEl = document.getElementById('win-type-label');
   if (winTypeEl) {
     if (winType) {
-      const winTypeMap = { '自摸': '自摸 Tsumo', '点炮': '点炮 Ron', '嶺上開花': '嶺上開花 Lingshang' };
+      const winTypeMap = {
+        '自摸': '自摸 Tsumo', '点炮': '点炮 Ron',
+        '嶺上開花': '嶺上開花 Lingshang', '杠上开花': '杠上开花 Kong Win',
+        '冲宝': '冲宝 Chong Bao', '摸宝': '摸宝 Mo Bao',
+        '抢杠胡': '抢杠胡 Rob Kong', '夹胡': '夹胡 Kanchan',
+        '庄家': '庄家胡 Dealer Win',
+      };
       winTypeEl.textContent = winTypeMap[winType] || winType;
       winTypeEl.style.display = '';
     } else {
