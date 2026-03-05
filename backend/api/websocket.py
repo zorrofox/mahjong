@@ -913,9 +913,12 @@ async def _handle_game_over(room_id: str) -> None:
         # 大连宝牌：游戏结束后公开揭示（结算弹窗展示本局宝牌）
         "bao_tile": gs.bao_tile if (gs and gs.bao_declared) else None,
         "bao_dice_roll": gs.bao_dice_roll if (gs and gs.bao_declared) else None,
-        # 大连杠钱：供前端结算弹窗展示
+        # 杠钱明细：供前端结算弹窗展示
+        # 大连：kong_log（杠记录）+ kong_chip_changes（专项变动）
+        # 港式：kong_chip_transfers 已包含各玩家杠钱总增减
         "kong_log": gs.kong_log if (gs and gs.ruleset == "dalian") else [],
-        "kong_chip_changes": kong_chip_changes,
+        "kong_chip_changes": kong_chip_changes if (gs and gs.ruleset == "dalian")
+                             else (dict(gs.kong_chip_transfers) if gs else {}),
     }
     await _broadcast(room_id, payload)
     await _broadcast_room_update()

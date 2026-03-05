@@ -1732,10 +1732,12 @@ function showGameOverModal(winnerName, scores, cumulativeScores, roundNumber, ha
   const kongSection = document.getElementById('kong-result-section');
   if (kongSection) {
     kongSection.innerHTML = '';
-    if (kongLog && kongLog.length > 0) {
-      // 按杠牌者汇总：{player_idx: {min: n, an: n}}
-      const kongerMap = {};
-      kongLog.forEach(k => {
+    const hasKongChips = Object.values(kongChipChanges).some(v => v !== 0);
+    if (hasKongChips) {
+      // 大连：从 kong_log 汇总各杠牌者类型和次数
+      // 港式：kong_log 为空，仅展示筹码变动
+      const kongerMap = {};  // player_idx → {min, an}
+      (kongLog || []).forEach(k => {
         if (!kongerMap[k.player_idx]) kongerMap[k.player_idx] = { min: 0, an: 0 };
         kongerMap[k.player_idx][k.type]++;
       });
@@ -1748,13 +1750,11 @@ function showGameOverModal(winnerName, scores, cumulativeScores, roundNumber, ha
       const tbl = document.createElement('table');
       tbl.style.cssText = 'width:100%;border-collapse:collapse;font-size:0.82rem;margin-bottom:4px;';
 
-      // 按玩家顺序展示（先杠牌者，再付钱者）
       const players = gameState?.players || [];
       players.forEach((p, idx) => {
         const delta = kongChipChanges[p.id] ?? 0;
-        if (delta === 0) return;  // 无杠钱变动则跳过
+        if (delta === 0) return;
         const tr = document.createElement('tr');
-        // 杠牌者：显示杠的类型和次数
         let detail = '';
         if (kongerMap[idx]) {
           const parts = [];
