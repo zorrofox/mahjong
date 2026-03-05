@@ -645,11 +645,16 @@
             const rw = position === 'left' || position === 'right' ? '22px' : '26px';
             const rh = position === 'left' || position === 'right' ? '31px' : '36px';
             const tilesRaw = getHandTiles(player);
-            const tiles = sortHandTiles(tilesRaw);  // 胡牌翻牌后按花色/数值排序
             const winnerIdx = state.winner
               ? (state.players || []).findIndex(p => p.id === state.winner)
               : -1;
             const winTile   = state.winning_tile || null;
+            // 赢家用胡牌结构排列（将+副露），宝牌占被替代张的位置；其他玩家用普通排序
+            const isWinnerPlayer = playerIdx === winnerIdx;
+            const arranged = state.winning_hand_arranged;
+            const tiles = (isWinnerPlayer && arranged && arranged.length)
+              ? arranged
+              : sortHandTiles(tilesRaw);
             const revealKey = [...tiles].sort().join(',') + '|reveal|' + (winTile || '');
             if (handEl.dataset.tilesKey !== revealKey) {
               handEl.dataset.tilesKey = revealKey;
@@ -753,9 +758,14 @@
         }
 
         if (handEl) {
-          const newTiles    = sortHandTiles(getHandTiles(player));
           const winTile     = state.winning_tile || null;
           const isWinner    = state.winner && player.id === state.winner;
+          // 赢家亮牌时：用后端计算的胡牌结构排列（将+副露，宝牌在被替代位置）
+          // 非赢家或游戏进行中：用普通花色排序
+          const arranged    = state.winning_hand_arranged;
+          const newTiles    = (window._endReveal && isWinner && arranged && arranged.length)
+            ? arranged
+            : sortHandTiles(getHandTiles(player));
           // Include reveal/winning info in the cache key so rebuilds happen when needed.
           const revealSuffix = window._endReveal ? '|reveal|' + (winTile || '') : '';
           const newTilesKey  = newTiles.join(',') + revealSuffix;

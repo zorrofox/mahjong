@@ -422,6 +422,52 @@ def decompose_winning_hand_dalian(concealed_tiles: list[str]) -> 'Optional[dict]
     return None
 
 
+def arrange_winning_hand_dalian(
+    concealed_tiles: list[str],
+    bao_tile: Optional[str] = None,
+) -> list[str]:
+    """
+    胡牌亮牌排列：将暗手按胡牌结构（将 + 各副露升序）排列以供展示。
+
+    若 bao_tile 充当野牌（摸宝），宝牌在展示顺序中占据其所替代张的位置，
+    而非自身的花色/数值位置，使观众能直观看出宝牌替代了哪张。
+
+    Returns: ordered tile list [pair, pair, meld1_t1, meld1_t2, meld1_t3, ...]
+    Fallback（无法分解时）: 按花色/数值排序
+    """
+    hand = [t for t in concealed_tiles if not is_flower_tile(t)]
+
+    def flatten(decomp: dict) -> list:
+        result = [decomp['pair'], decomp['pair']]
+        for g in decomp['groups']:
+            result.extend(sorted(g['tiles'], key=lambda t: (get_number(t) or 99)))
+        return result
+
+    # 1. 直接结构分解（无宝牌野牌或冲宝）
+    decomp = decompose_winning_hand_dalian(hand)
+    if decomp:
+        return flatten(decomp)
+
+    # 2. 宝牌作野牌替代（摸宝）：找出被替代张，将宝牌放在其结构位置
+    if bao_tile and bao_tile in hand:
+        hand_without_bao = list(hand)
+        hand_without_bao.remove(bao_tile)
+        for substitute in _ALL_DALIAN_TILES:
+            if substitute == bao_tile:
+                continue
+            test_hand = hand_without_bao + [substitute]
+            decomp = decompose_winning_hand_dalian(test_hand)
+            if decomp:
+                arranged = flatten(decomp)
+                idx = arranged.index(substitute)
+                arranged[idx] = bao_tile  # 宝牌占据被替代张的位置
+                return arranged
+
+    # 3. Fallback: 花色/数值排序
+    suit_order = {'BAMBOO': 0, 'CIRCLES': 1, 'CHARACTERS': 2}
+    return sorted(hand, key=lambda t: (suit_order.get(get_suit(t) or '', 3), get_number(t) or 99))
+
+
 def _try_extract_melds_dalian(tiles: list[str]) -> bool:
     """Like _try_extract_melds but dragons cannot form pungs."""
     if not tiles:

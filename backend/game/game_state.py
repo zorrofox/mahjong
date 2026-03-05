@@ -26,6 +26,7 @@ from .hand import (
     can_chow,
     calculate_han,
     calculate_han_dalian,
+    arrange_winning_hand_dalian,
 )
 
 logger = logging.getLogger(__name__)
@@ -162,6 +163,7 @@ class GameState:
         self.bao_declared: bool = False            # 是否已触发过宝牌
         self.bao_dice_roll: Optional[int] = None   # 骰子点数（展示用）
         self.tenpai_players: set[int] = set()      # 已进入听牌的玩家索引集合
+        self.winning_hand_arranged: list = []      # 赢家暗手的胡牌结构排列（亮牌展示用）
 
         logger.info("GameState created: room=%s players=%s", room_id, player_ids)
 
@@ -451,6 +453,15 @@ class GameState:
         self.han_total = result['total']
         # Store han total as the round score for display (replaces old _calculate_score)
         player.score = self.han_total
+
+        # 计算赢家暗手的胡牌结构排列（将+副露），供亮牌展示用
+        # 大连：宝牌作野牌时占据被替代张的位置，而非自身花色位置
+        if self.ruleset == "dalian":
+            self.winning_hand_arranged = arrange_winning_hand_dalian(
+                concealed, bao_tile=self._effective_bao(player_idx)
+            )
+        else:
+            self.winning_hand_arranged = []  # HK 使用前端 sortHandTiles
 
     def _record_kong(self, konger_idx: int, kong_type: str) -> None:
         """
@@ -1322,6 +1333,7 @@ class GameState:
             ) else None,
             "bao_revealed_count": self._count_bao_revealed(),
             "tenpai_players": list(self.tenpai_players),
+            "winning_hand_arranged": self.winning_hand_arranged if self.phase == "ended" else [],
             "available_actions": (
                 self.get_available_actions(viewing_player_idx)
                 if viewing_player_idx is not None
