@@ -1258,6 +1258,12 @@ class GameState:
                 if _can_win_claim and _claim_han and _claim_han['total'] >= MIN_HAN:
                     actions.append("win")
 
+                # 大连不换听：听牌玩家声索窗口内只允许胡牌或跳过，禁止碰/吃/杠
+                # （碰/吃/杠会改变手牌结构，违反不换听规则）
+                if self.ruleset == "dalian" and player_idx in self.tenpai_players:
+                    actions.append("skip")
+                    return sorted(set(actions))
+
                 # Check pung (Dalian: cannot pung dragons)
                 if self.ruleset == "dalian" and tile in ('RED', 'GREEN', 'WHITE'):
                     pass  # dragon pung not allowed in Dalian
