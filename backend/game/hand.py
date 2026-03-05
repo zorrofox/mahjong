@@ -685,8 +685,8 @@ def calculate_han_dalian(
       庄家 +1    — is_dealer
       杠上开花 +2 — ling_shang and not ron
       抢杠胡 +2  — rob_kong
-      冲宝 +2    — ron and winning_tile == bao_tile
-      摸宝 +1    — not ron and bao_tile in concealed_tiles (wildcard used)
+      冲宝 +2    — winning_tile == bao_tile AND bao_tile is structural wait (ron or tsumo)
+      摸宝 +1    — not ron and winning_tile == bao_tile (wildcard sub) or bao_tile in hand
 
     Returns: {'breakdown': [...], 'total': int}
     """
