@@ -871,6 +871,7 @@ async def _handle_game_over(room_id: str) -> None:
     # ── 大连杠分：无论胡牌与否，所有玩家的杠均结算 ───────────────────────────
     # 明杠 = 1×底注/家，暗杠 = 2×底注/家，杠牌者从其余三家各收对应筹码
     # （荒庄同样结算，与胡牌结算完全独立）
+    kong_chip_changes: dict[str, int] = {}  # 各玩家本局杠钱专项变动（用于前端展示）
     if gs and gs.ruleset == "dalian" and gs.kong_log:
         from collections import defaultdict
         konger_chips: dict = defaultdict(int)
@@ -886,6 +887,8 @@ async def _handle_game_over(room_id: str) -> None:
                     room.cumulative_scores[p.id] = (
                         room.cumulative_scores.get(p.id, INITIAL_CHIPS) - chips_per_player
                     )
+                    kong_chip_changes[konger_pid] = kong_chip_changes.get(konger_pid, 0) + chips_per_player
+                    kong_chip_changes[p.id] = kong_chip_changes.get(p.id, 0) - chips_per_player
 
     # Compute and persist per-player chip changes for this round.
     room.last_chip_changes = {
@@ -910,6 +913,9 @@ async def _handle_game_over(room_id: str) -> None:
         # 大连宝牌：游戏结束后公开揭示（结算弹窗展示本局宝牌）
         "bao_tile": gs.bao_tile if (gs and gs.bao_declared) else None,
         "bao_dice_roll": gs.bao_dice_roll if (gs and gs.bao_declared) else None,
+        # 大连杠钱：供前端结算弹窗展示
+        "kong_log": gs.kong_log if (gs and gs.ruleset == "dalian") else [],
+        "kong_chip_changes": kong_chip_changes,
     }
     await _broadcast(room_id, payload)
     await _broadcast_room_update()

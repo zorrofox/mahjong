@@ -716,7 +716,9 @@ function handleGameOver(msg) {
     chipChanges,
     dealerId,
     winType,
-    msg.bao_tile || null      // 大连宝牌：胡牌后公开揭示
+    msg.bao_tile || null,         // 大连宝牌：胡牌后公开揭示
+    msg.kong_log || [],           // 大连杠钱明细
+    msg.kong_chip_changes || {}   // 大连各玩家杠钱专项变动
   );
   setStatus(hasWinner ? `Game over! Winner: ${winnerName}` : 'Game over! 流局 Draw', 'success');
   disableAllActionButtons();
@@ -1664,7 +1666,7 @@ function hideClaimOverlay() {
 /* ============================================================
    GAME OVER MODAL
    ============================================================ */
-function showGameOverModal(winnerName, scores, cumulativeScores, roundNumber, hanBreakdown, hanTotal, canRestart = true, chipChanges = {}, dealerId = null, winType = null, baoTile = null) {
+function showGameOverModal(winnerName, scores, cumulativeScores, roundNumber, hanBreakdown, hanTotal, canRestart = true, chipChanges = {}, dealerId = null, winType = null, baoTile = null, kongLog = [], kongChipChanges = {}) {
   const modal     = document.getElementById('game-over-modal');
   const winnerEl  = document.getElementById('winner-name');
   const scoresEl  = document.getElementById('scores-body');
@@ -1724,6 +1726,55 @@ function showGameOverModal(winnerName, scores, cumulativeScores, roundNumber, ha
     baoSection.style.display = 'block';
   } else if (baoSection) {
     baoSection.style.display = 'none';
+  }
+
+  // ── 大连杠钱明细 ────────────────────────────────────────────
+  const kongSection = document.getElementById('kong-result-section');
+  if (kongSection) {
+    kongSection.innerHTML = '';
+    if (kongLog && kongLog.length > 0) {
+      // 按杠牌者汇总：{player_idx: {min: n, an: n}}
+      const kongerMap = {};
+      kongLog.forEach(k => {
+        if (!kongerMap[k.player_idx]) kongerMap[k.player_idx] = { min: 0, an: 0 };
+        kongerMap[k.player_idx][k.type]++;
+      });
+
+      const title = document.createElement('div');
+      title.style.cssText = 'font-size:0.82rem;color:var(--text-muted);margin-bottom:4px;text-align:center;';
+      title.textContent = '杠钱 / Kong Chips';
+      kongSection.appendChild(title);
+
+      const tbl = document.createElement('table');
+      tbl.style.cssText = 'width:100%;border-collapse:collapse;font-size:0.82rem;margin-bottom:4px;';
+
+      // 按玩家顺序展示（先杠牌者，再付钱者）
+      const players = gameState?.players || [];
+      players.forEach((p, idx) => {
+        const delta = kongChipChanges[p.id] ?? 0;
+        if (delta === 0) return;  // 无杠钱变动则跳过
+        const tr = document.createElement('tr');
+        // 杠牌者：显示杠的类型和次数
+        let detail = '';
+        if (kongerMap[idx]) {
+          const parts = [];
+          if (kongerMap[idx].min > 0) parts.push(`明杠×${kongerMap[idx].min}`);
+          if (kongerMap[idx].an  > 0) parts.push(`暗杠×${kongerMap[idx].an}`);
+          detail = parts.join(' ');
+        }
+        const deltaStr = delta > 0 ? `+${delta}` : `${delta}`;
+        const deltaClass = delta > 0 ? 'chip-gain' : 'chip-loss';
+        tr.innerHTML = `<td style="padding:1px 4px">${escapeHtml(p.id)}</td>`
+                     + `<td style="padding:1px 4px;color:var(--text-muted)">${escapeHtml(detail)}</td>`
+                     + `<td style="padding:1px 4px;text-align:right" class="${deltaClass}">${deltaStr}</td>`;
+        tbl.appendChild(tr);
+      });
+
+      kongSection.appendChild(tbl);
+      kongSection.style.display = 'block';
+    } else {
+      kongSection.style.display = 'none';
+    }
   }
 
   // ── Fan (Han) breakdown table ──────────────────────────────
