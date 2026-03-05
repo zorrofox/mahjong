@@ -1264,6 +1264,12 @@ class GameState:
                     actions.append("skip")
                     return sorted(set(actions))
 
+                # 大连禁手把一：已有3副副露，声索碰/吃/杠会凑成第4副 → 永远无法胡牌
+                # 仍允许胡牌（上方已检查），只跳过碰/吃/杠
+                if self.ruleset == "dalian" and len(player.melds) >= 3:
+                    actions.append("skip")
+                    return sorted(set(actions))
+
                 # Check pung (Dalian: cannot pung dragons)
                 if self.ruleset == "dalian" and tile in ('RED', 'GREEN', 'WHITE'):
                     pass  # dragon pung not allowed in Dalian
