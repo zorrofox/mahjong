@@ -471,8 +471,30 @@ async def _run_ai_turn(room_id: str) -> None:
                 try:
                     gs.discard_tile(ai_idx, tile_to_discard)
                 except ValueError as e:
-                    logger.warning("AI discard failed: %s", e)
-                    return
+                    # 大连听牌：AI 选出的牌破坏听牌（不换听），逐一尝试备选牌。
+                    # 安全阀（game_state）保证：若所有牌均无法维持听牌，
+                    # 最后一次 discard_tile 会自动将玩家移出 tenpai_players 并放行出牌。
+                    if gs.ruleset == "dalian" and ai_idx in gs.tenpai_players:
+                        logger.warning("AI tenpai discard rejected, trying alternatives: %s", e)
+                        for alt in player.hand_without_bonus():
+                            if alt == tile_to_discard:
+                                continue
+                            try:
+                                gs.discard_tile(ai_idx, alt)
+                                tile_to_discard = alt
+                                break  # 找到合法出牌
+                            except ValueError:
+                                continue
+                        else:
+                            # 所有备选均失败：安全阀应已移出 tenpai_players，再尝试一次
+                            try:
+                                gs.discard_tile(ai_idx, tile_to_discard)
+                            except ValueError as e2:
+                                logger.warning("AI discard failed: %s", e2)
+                                return
+                    else:
+                        logger.warning("AI discard failed: %s", e)
+                        return
 
                 # 大连：AI 出牌后检测明牌重摇或听牌宝牌
                 if gs.ruleset == "dalian":
