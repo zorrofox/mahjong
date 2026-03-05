@@ -584,7 +584,7 @@
        BAO ANNOUNCE OVERLAY（宝牌揭示弹窗）
   ==================================================== -->
   <div id="bao-announce" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:300;background:rgba(0,0,0,0.88);border:2px solid #ffd700;border-radius:14px;padding:1.2rem 2rem;text-align:center;color:#ffd700;min-width:200px;">
-    <div style="font-size:1.1rem;margin-bottom:0.6rem;">🎲 <span id="bao-dice-text"></span></div>
+    <div id="bao-dice-row" style="font-size:1.1rem;margin-bottom:0.6rem;">🎲 <span id="bao-dice-text"></span></div>
     <div style="font-size:0.9rem;color:#ccc;margin-bottom:0.5rem;" id="bao-who-text"></div>
     <div style="font-size:0.85rem;margin-bottom:0.5rem;">宝牌 / Treasure Tile</div>
     <div id="bao-tile-el" style="display:flex;justify-content:center;margin:0.4rem 0;"></div>
@@ -593,8 +593,8 @@
   <!-- ====================================================
        SCRIPTS
   ==================================================== -->
-  <script src="js/speech.js?v=20260302h"></script>
-  <script src="js/game.js?v=20260302h"></script>
+  <script src="js/speech.js?v=20260305a"></script>
+  <script src="js/game.js?v=20260305a"></script>
   <script>
     /*
      * Patch renderOpponent to use the dedicated DOM elements

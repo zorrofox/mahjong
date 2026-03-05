@@ -556,14 +556,15 @@ function handleBaoDeclared(msg) {
 
   updateBaoBadge(_baoTile);
 
-  // new_tenpai=true：我是刚达到听牌的玩家，静默收到宝牌（不弹窗打扰）
+  // new_tenpai=true：我是刚达到听牌的玩家，宝牌已存在 → 弹窗提示并语音告知
   if (msg.new_tenpai) {
     getSpeech()?.speak('宝牌：' + (tileToDisplay(_baoTile)?.label || _baoTile), 'queue');
+    showBaoAnnounce(msg.player_idx, null, _baoTile, false, true);
     return;
   }
 
   // 正常弹窗（首次揭示或换宝）
-  showBaoAnnounce(msg.player_idx, msg.dice, _baoTile, msg.rerolled);
+  showBaoAnnounce(msg.player_idx, msg.dice, _baoTile, msg.rerolled, false);
   getSpeech()?.speak(msg.rerolled ? '换宝！' : '宝牌！', 'immediate');
 }
 
@@ -581,22 +582,31 @@ function updateBaoBadge(tileStr) {
   }
 }
 
-function showBaoAnnounce(playerIdx, dice, tileStr, rerolled) {
+function showBaoAnnounce(playerIdx, dice, tileStr, rerolled, newTenpai = false) {
   const el       = document.getElementById('bao-announce');
+  const diceRow  = document.getElementById('bao-dice-row');
   const diceEl   = document.getElementById('bao-dice-text');
   const whoEl    = document.getElementById('bao-who-text');
   const tileEl   = document.getElementById('bao-tile-el');
   if (!el) return;
 
-  if (diceEl) diceEl.textContent = '骰子点数: ' + dice;
-  if (whoEl) {
-    if (rerolled) {
-      whoEl.textContent = '宝牌已被打出 3 张，重新选宝！';
-    } else {
-      const playerName = gameState?.players?.[playerIdx]?.id || ('玩家' + (playerIdx + 1));
-      whoEl.textContent = escapeHtml(playerName) + ' 首先听牌';
+  if (newTenpai) {
+    // 后续上听：宝牌已存在，告知玩家当前生效宝牌
+    if (diceRow) diceRow.style.display = 'none';
+    if (whoEl) whoEl.textContent = '你已上听！当前生效宝牌：';
+  } else {
+    if (diceRow) diceRow.style.display = '';
+    if (diceEl) diceEl.textContent = dice ? '骰子点数: ' + dice : '';
+    if (whoEl) {
+      if (rerolled) {
+        whoEl.textContent = '宝牌已被打出 3 张，重新选宝！';
+      } else {
+        const playerName = gameState?.players?.[playerIdx]?.id || ('玩家' + (playerIdx + 1));
+        whoEl.textContent = escapeHtml(playerName) + ' 首先听牌';
+      }
     }
   }
+
   if (tileEl) {
     tileEl.innerHTML = '';
     const t = makeTileEl(tileStr);
@@ -936,10 +946,11 @@ function renderCenterTable(state, discards, players) {
   const lastDiscardEl = document.getElementById('last-discard');
   if (lastDiscardEl) {
     if (state.last_discard) {
-      const existingTile = lastDiscardEl.querySelector('.tile');
+      const existingTile = lastDiscardEl.querySelector('.tile:not(.bao-in-lastdiscard)');
       if (!existingTile) {
         // First appearance — create from scratch.
         lastDiscardEl.innerHTML = 'Last: ';
+        delete lastDiscardEl.dataset.baoKey;  // 清空宝牌缓存，下方重建
         lastDiscardEl.appendChild(makeTileEl(state.last_discard));
       } else if (existingTile.dataset.tile !== state.last_discard) {
         // Tile changed — update img.src in-place (no DOM reconstruction).
@@ -951,12 +962,39 @@ function renderCenterTable(state, discards, players) {
         } else {
           // Fallback text tile (no SVG): rebuild only this element.
           lastDiscardEl.innerHTML = 'Last: ';
+          delete lastDiscardEl.dataset.baoKey;
           lastDiscardEl.appendChild(makeTileEl(state.last_discard));
         }
         existingTile.dataset.tile = state.last_discard;
       }
     } else {
-      if (lastDiscardEl.innerHTML !== '') lastDiscardEl.innerHTML = '';
+      if (lastDiscardEl.innerHTML !== '') {
+        lastDiscardEl.innerHTML = '';
+        delete lastDiscardEl.dataset.baoKey;
+      }
+    }
+
+    // 大连：听牌玩家在 Last 牌旁显示当前生效宝牌（金色高亮小图样）
+    const canSeeBao = !!(state.ruleset === 'dalian' && _baoTile
+                         && (state.tenpai_players || []).includes(myPlayerIdx));
+    const baoKey = canSeeBao ? _baoTile : '';
+    if (lastDiscardEl.dataset.baoKey !== baoKey) {
+      lastDiscardEl.dataset.baoKey = baoKey;
+      // 移除旧的宝牌展示元素
+      lastDiscardEl.querySelectorAll('.bao-in-lastdiscard, .bao-sep-in-lastdiscard')
+                   .forEach(e => e.remove());
+      if (canSeeBao) {
+        const sep = document.createElement('span');
+        sep.className = 'bao-sep-in-lastdiscard';
+        sep.style.cssText = 'color:#ffd700;font-weight:bold;margin-left:10px;font-size:0.78rem;';
+        sep.textContent = '宝:';
+        const bt = makeTileEl(_baoTile);
+        bt.classList.add('bao-in-lastdiscard', 'bao-highlight');
+        bt.style.width = '22px';
+        bt.style.height = '32px';
+        lastDiscardEl.appendChild(sep);
+        lastDiscardEl.appendChild(bt);
+      }
     }
   }
 
