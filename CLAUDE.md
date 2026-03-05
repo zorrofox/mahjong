@@ -206,7 +206,7 @@ unit = min(CHIP_CAP, 2^(总番-1))
 
 #### 宝牌机制（宝牌/野牌）
 
-- **触发**：第一位进入听牌（需至少 1 副副露）的玩家触发骰子（1–6），`bao_tile = wall[(dice-1) % len(wall)]`（只看不取出）
+- **触发**：第一位进入听牌（需至少 1 副副露）的玩家触发骰子（1–6），从牌墙后端取出第 `dice` 摞（每摞2张）处的牌作为宝牌标识并**取出不放回**；牌墙中其余同种牌（最多3张）才是玩家实际能摸到的野牌
 - **效果**：宝牌确定后，任意玩家**自摸到**宝牌可代替所需张完成胡牌（野牌仅限自摸）
 - **冲宝**（+2）：宝牌恰好是结构性等待张，摸到/荣和宝牌**直接**胡牌（不靠野牌替代；自摸和点炮均可）
 - **摸宝**（+1）：**仅自摸**；摸到宝牌后宝牌充当野牌替代结构性等待张胡牌（非直接等待），或宝牌已在手中、摸到实际等待张胡牌
@@ -498,7 +498,7 @@ gcloud run deploy mahjong \
 | 40 | 冲宝概率虚高（摸宝被误计为冲宝+2） | `hand.py` `calculate_han_dalian` | `winning_tile == bao_tile` 同时匹配两种情况：① 宝牌直接是结构性等待张（真冲宝+2）② 摸到宝牌后通过野牌替代胡牌（应为摸宝+1）；修复：新增 `is_winning_hand_dalian(bao_tile=None)` 结构性验证，False 则降为摸宝 |
 | 41 | 别人打出宝牌可声索荣和（违规：宝牌野牌仅限自摸） | `game_state.py` `get_available_actions`/`declare_win` | 声索检查传 `bao_tile=self._effective_bao(player_idx)`，当打出的牌恰好是宝牌时，`is_winning_hand_dalian` 把它当野牌替代，导致非结构性等待也能荣和；修复：新增 `_effective_bao_for_ron(player_idx, winning_tile)` 辅助方法，winning_tile==bao_tile 时返回 None 禁止野牌替代声索；冲宝（宝牌=结构性等待张）自摸/荣和均合法，不受影响 |
 | 42 | 单调（将牌）等待被误判为坎张（夹胡多计 +1） | `hand.py` `_is_kanchan_in_hand` | 手牌含 n-1、n（×2）、n+1 时，函数仅检查双面替代方案，未考虑 n 本身可作将牌（单调等待）；导致如 4条-5条-5条-6条胡第二张5条时被误判为坎张并计夹胡 +1；修复：在双面检查前先判断 winning_tile 是否能作将（full_hand 中 ≥2 张且移除将后剩余牌满足 `_try_extract_melds_dalian`），若能则返回 False（单调非坎张） |
-| 44 | 宝牌取自牌墙前端导致听牌后立即被摸走 | `game_state.py` `check_and_trigger_bao`/`reroll_bao` | `bao_idx = (dice-1) % len(wall)` 将宝牌定在牌墙前端（下一张至第6张），4人游戏中最多2轮内必被摸到；真实规则为「从牌墙后面往前数 dice 摞」；修复：新增 `_bao_wall_idx(dice)` 辅助方法，改为 `max(0, len(wall) - dice*2)`，宝牌位于牌墙后端，正常在游戏中后期才被摸到 |
+| 44 | 宝牌只「看」不「取出」且取自牌墙前端 | `game_state.py` `check_and_trigger_bao`/`reroll_bao` | 原实现 `bao_tile = wall[(dice-1) % len(wall)]` 存在两个错误：① 取自前端导致触发后1-2轮内必被摸到；② 只读不取出，宝牌仍留在墙中等待被摸（若放后端则荒庄前永远摸不到，若放前端则必然被摸走），均导致宝牌机制失常；真实规则「从牌墙后端取出宝牌揭示，不放回」；修复：新增 `_reveal_bao_from_wall(dice)` 用 `wall.pop(max(0, len(wall)-dice*2))` 从后端取出，牌墙中其余同种牌（最多3张）作为实际野牌供玩家摸取 |
 | 43 | 胡牌亮牌时宝牌排在自身花色位置而非替代位置 | `hand.py` `arrange_winning_hand_dalian`（新增）；`game_state.py` `_finalize_win` / `to_dict`；`game.html` 亮牌渲染 | 亮牌用 `sortHandTiles` 按花色/数值排序，宝牌（如 BAMBOO_7 替代 CIRCLES_5）被排到竹子区而非紧邻 CIRCLES_4/6；修复：新增 `arrange_winning_hand_dalian` 按胡牌结构排列（将在前，各副露升序），摸宝场景下宝牌占被替代张的结构位置；`_finalize_win` 计算后存入 `winning_hand_arranged`，`to_dict` 下发；前端赢家亮牌改用服务端排列顺序 |
 
 ---
