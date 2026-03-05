@@ -402,6 +402,20 @@ class GameState:
         self.last_discard_player = None
         self.phase = "discarding"
 
+    def _bao_wall_idx(self, dice: int) -> int:
+        """
+        宝牌在牌墙中的索引。
+
+        真实规则：「从牌墙后面往前数 dice 摞（每摞2张）」
+        宝牌取自牌墙**后端**，而非前端，确保正常游戏中较晚才被摸到。
+
+        dice=1 → 倒数第2张（最后一摞第一张）
+        dice=6 → 倒数第12张
+
+        使用 max(0, ...) 防止牌墙过短时越界。
+        """
+        return max(0, len(self.wall) - dice * 2)
+
     def _effective_bao(self, player_idx: int) -> Optional[str]:
         """宝牌只对已上听（tenpai_players）的玩家生效。"""
         return self.bao_tile if player_idx in self.tenpai_players else None
@@ -533,7 +547,7 @@ class GameState:
             if not self.bao_declared:
                 import random
                 dice = random.randint(1, 6)
-                bao_idx = (dice - 1) % len(self.wall)
+                bao_idx = self._bao_wall_idx(dice)
                 self.bao_tile = self.wall[bao_idx]
                 self.bao_declared = True
                 self.bao_dice_roll = dice
@@ -598,7 +612,7 @@ class GameState:
             return None
         import random
         dice = random.randint(1, 6)
-        bao_idx = (dice - 1) % len(self.wall)
+        bao_idx = self._bao_wall_idx(dice)
         self.bao_tile = self.wall[bao_idx]
         self.bao_dice_roll = dice
         logger.info(
