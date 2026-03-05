@@ -424,6 +424,9 @@
       <span class="conn-indicator connecting" id="conn-dot"></span>
       <span id="conn-text">Connecting</span>
     </div>
+    <!-- 大连专用：不看宝切换按钮（上听前可选择不看宝牌信息） -->
+    <button id="btn-hide-bao" class="btn btn-audio" title="切换是否显示宝牌信息"
+            style="display:none;font-size:0.72rem;padding:2px 8px;">看宝</button>
     <button id="btn-speech" class="btn btn-audio" title="中文语音开关 / Toggle voice">
       <span id="speech-icon">🔊</span>
     </button>
@@ -596,8 +599,8 @@
   <!-- ====================================================
        SCRIPTS
   ==================================================== -->
-  <script src="js/speech.js?v=20260305d"></script>
-  <script src="js/game.js?v=20260305d"></script>
+  <script src="js/speech.js?v=20260305e"></script>
+  <script src="js/game.js?v=20260305e"></script>
   <script>
     /*
      * Patch renderOpponent to use the dedicated DOM elements

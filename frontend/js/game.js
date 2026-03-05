@@ -52,6 +52,7 @@ let _lastDealRound = -1;
 // Bao (宝牌) state — Dalian ruleset treasure tile mechanism.
 let _baoTile = null;          // 当前宝牌，null 表示未揭示
 let _tenpaiPlayers = [];      // 已宣听玩家索引列表
+let _hideBao = false;         // 玩家选择「不看宝」时为 true，屏蔽所有宝牌视觉展示
 
 /* ---------- Speech engine singleton ---------- */
 let _speech = null;
@@ -463,6 +464,10 @@ function handleGameState(state) {
   }
   _tenpaiPlayers = state.tenpai_players || [];
 
+  // 新局开始（phase=drawing 且无宝牌）时重置「不看宝」选项
+  if (!newBao && state.phase === 'drawing') _hideBao = false;
+  updateHideBaoBtn();
+
   renderBoard(state);
   updateActionButtonsForState(state);
 
@@ -558,21 +563,25 @@ function handleBaoDeclared(msg) {
 
   // new_tenpai=true：我是刚达到听牌的玩家，宝牌已存在 → 弹窗提示并语音告知
   if (msg.new_tenpai) {
-    getSpeech()?.speak('宝牌：' + (tileToDisplay(_baoTile)?.label || _baoTile), 'queue');
-    showBaoAnnounce(msg.player_idx, null, _baoTile, false, true);
+    if (!_hideBao) {
+      getSpeech()?.speak('看宝', 'queue');
+      showBaoAnnounce(msg.player_idx, null, _baoTile, false, true);
+    }
     return;
   }
 
   // 正常弹窗（首次揭示或换宝）
-  showBaoAnnounce(msg.player_idx, msg.dice, _baoTile, msg.rerolled, false);
-  getSpeech()?.speak(msg.rerolled ? '换宝！' : '宝牌！', 'immediate');
+  if (!_hideBao) {
+    showBaoAnnounce(msg.player_idx, msg.dice, _baoTile, msg.rerolled, false);
+    getSpeech()?.speak(msg.rerolled ? '换宝！' : '看宝', 'immediate');
+  }
 }
 
 function updateBaoBadge(tileStr) {
   const badge = document.getElementById('bao-badge');
   const text  = document.getElementById('bao-tile-text');
   if (!badge || !text) return;
-  if (tileStr) {
+  if (tileStr && !_hideBao) {
     const info = tileToDisplay(tileStr);
     text.textContent = info ? info.char || info.text || tileStr : tileStr;
     badge.style.display = 'inline-flex';
@@ -580,6 +589,20 @@ function updateBaoBadge(tileStr) {
     badge.style.display = 'none';
     text.textContent = '';
   }
+}
+
+/** 更新「看宝/不看宝」切换按钮的显示状态 */
+function updateHideBaoBtn() {
+  const btn = document.getElementById('btn-hide-bao');
+  if (!btn) return;
+  // 只在大连规则且游戏进行中显示
+  const isDalian = gameState?.ruleset === 'dalian';
+  const inGame   = gameState?.phase && gameState.phase !== 'waiting';
+  btn.style.display = (isDalian && inGame) ? '' : 'none';
+  btn.textContent   = _hideBao ? '不看宝' : '看宝';
+  btn.title         = _hideBao ? '当前：不显示宝牌信息（点击切换为看宝）'
+                               : '当前：显示宝牌信息（点击切换为不看宝）';
+  btn.style.opacity = _hideBao ? '0.6' : '1';
 }
 
 function showBaoAnnounce(playerIdx, dice, tileStr, rerolled, newTenpai = false) {
@@ -788,8 +811,8 @@ function renderMyHand(player, playerIdx, state) {
   const hand = getHandTiles(player);
   sortHandTiles(hand).forEach(tileStr => {
     const el = makeTileEl(tileStr, { clickable: true, selected: tileStr === selectedTile });
-    // 宝牌高亮
-    if (_baoTile && tileStr === _baoTile) {
+    // 宝牌高亮（不看宝模式下不高亮）
+    if (_baoTile && !_hideBao && tileStr === _baoTile) {
       el.classList.add('bao-highlight');
     }
     handEl.appendChild(el);
@@ -991,7 +1014,8 @@ function renderCenterTable(state, discards, players) {
     }
 
     // 大连：听牌玩家在 Last 牌旁显示当前生效宝牌（金色高亮小图样）
-    const canSeeBao = !!(state.ruleset === 'dalian' && _baoTile
+    // _hideBao=true 时隐藏宝牌展示（玩家选择不看宝）
+    const canSeeBao = !!(state.ruleset === 'dalian' && _baoTile && !_hideBao
                          && (state.tenpai_players || []).includes(myPlayerIdx));
     const baoKey = canSeeBao ? _baoTile : '';
     if (lastDiscardEl.dataset.baoKey !== baoKey) {
@@ -1892,6 +1916,18 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Speech toggle button
+  // 「看宝/不看宝」切换按钮
+  const btnHideBao = document.getElementById('btn-hide-bao');
+  if (btnHideBao) {
+    btnHideBao.addEventListener('click', () => {
+      _hideBao = !_hideBao;
+      updateHideBaoBtn();
+      updateBaoBadge(_hideBao ? null : _baoTile);
+      // 重新渲染以刷新 last-discard 宝牌和手牌高亮
+      if (gameState) renderBoard(gameState);
+    });
+  }
+
   const btnSpeech  = document.getElementById('btn-speech');
   const speechIcon = document.getElementById('speech-icon');
   const sp = getSpeech();
