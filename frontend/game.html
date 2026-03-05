@@ -587,6 +587,18 @@
   </div>
 
   <!-- ====================================================
+       看宝确认弹窗（出牌前询问是否查看宝牌，有读秒，超时自动看宝）
+  ==================================================== -->
+  <div id="bao-peek-overlay" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:310;background:rgba(0,0,0,0.92);border:2px solid #ffd700;border-radius:14px;padding:1.2rem 2rem;text-align:center;color:#ffd700;min-width:220px;">
+    <div style="font-size:1rem;margin-bottom:0.6rem;">宝牌已揭示，要查看吗？</div>
+    <div style="font-size:0.82rem;color:#ccc;margin-bottom:0.8rem;">超时将自动查看</div>
+    <div style="display:flex;gap:12px;justify-content:center;">
+      <button id="btn-bao-peek-yes" class="btn btn-primary" style="min-width:70px;">看宝 <span id="bao-peek-countdown"></span></button>
+      <button id="btn-bao-peek-no"  class="btn btn-secondary" style="min-width:70px;">不看</button>
+    </div>
+  </div>
+
+  <!-- ====================================================
        BAO ANNOUNCE OVERLAY（宝牌揭示弹窗）
   ==================================================== -->
   <div id="bao-announce" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:300;background:rgba(0,0,0,0.88);border:2px solid #ffd700;border-radius:14px;padding:1.2rem 2rem;text-align:center;color:#ffd700;min-width:200px;">
@@ -599,8 +611,8 @@
   <!-- ====================================================
        SCRIPTS
   ==================================================== -->
-  <script src="js/speech.js?v=20260305e"></script>
-  <script src="js/game.js?v=20260305e"></script>
+  <script src="js/speech.js?v=20260305f"></script>
+  <script src="js/game.js?v=20260305f"></script>
   <script>
     /*
      * Patch renderOpponent to use the dedicated DOM elements

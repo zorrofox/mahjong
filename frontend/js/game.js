@@ -52,7 +52,9 @@ let _lastDealRound = -1;
 // Bao (宝牌) state — Dalian ruleset treasure tile mechanism.
 let _baoTile = null;          // 当前宝牌，null 表示未揭示
 let _tenpaiPlayers = [];      // 已宣听玩家索引列表
-let _hideBao = false;         // 玩家选择「不看宝」时为 true，屏蔽所有宝牌视觉展示
+let _hideBao = true;          // 默认不看宝；玩家在自己出牌时主动点击「看宝」后才展示
+let _baoPeekOffered = false;  // 是否已弹出过看宝确认窗（每局只弹一次）
+let _baoPeekTimer  = null;    // 看宝倒计时定时器
 
 /* ---------- Speech engine singleton ---------- */
 let _speech = null;
@@ -464,9 +466,19 @@ function handleGameState(state) {
   }
   _tenpaiPlayers = state.tenpai_players || [];
 
-  // 新局开始（phase=drawing 且无宝牌）时重置「不看宝」选项
-  if (!newBao && state.phase === 'drawing') _hideBao = false;
+  // 新局开始（phase=drawing 且无宝牌）时重置为「不看宝」
+  if (!newBao && state.phase === 'drawing') {
+    _hideBao = true;
+    _baoPeekOffered = false;  // 重置：下局可再次弹确认窗
+  }
   updateHideBaoBtn();
+
+  // 不看宝状态：宝牌已揭示 + 轮到自己出牌 + 首次弹窗 → 弹出看宝确认
+  if (_hideBao && newBao && !_baoPeekOffered
+      && state.phase === 'discarding' && state.current_turn === myPlayerIdx) {
+    _baoPeekOffered = true;
+    showBaoPeekPrompt();
+  }
 
   renderBoard(state);
   updateActionButtonsForState(state);
@@ -577,6 +589,55 @@ function handleBaoDeclared(msg) {
   }
 }
 
+/** 看宝确认弹窗：出牌前弹出询问，BAO_PEEK_TIMEOUT 秒后自动看宝 */
+const BAO_PEEK_TIMEOUT = 8;  // 秒
+
+function revealBao() {
+  // 清除倒计时
+  if (_baoPeekTimer) { clearInterval(_baoPeekTimer); _baoPeekTimer = null; }
+  // 隐藏弹窗
+  const overlay = document.getElementById('bao-peek-overlay');
+  if (overlay) overlay.style.display = 'none';
+  // 切换到看宝状态
+  if (!_hideBao) return;  // 已经看了
+  _hideBao = false;
+  updateHideBaoBtn();
+  updateBaoBadge(_baoTile);
+  if (gameState) renderBoard(gameState);
+  getSpeech()?.speak('看宝', 'queue');
+  // 弹出宝牌展示弹窗
+  if (_baoTile) showBaoAnnounce(-1, null, _baoTile, false, true);
+}
+
+function dismissBaoPeek() {
+  if (_baoPeekTimer) { clearInterval(_baoPeekTimer); _baoPeekTimer = null; }
+  const overlay = document.getElementById('bao-peek-overlay');
+  if (overlay) overlay.style.display = 'none';
+  // 不看宝：保持 _hideBao=true，但已弹过（_baoPeekOffered=true）
+  // 玩家可在后续出牌时通过顶栏按钮手动看宝
+}
+
+function showBaoPeekPrompt() {
+  const overlay    = document.getElementById('bao-peek-overlay');
+  const countdown  = document.getElementById('bao-peek-countdown');
+  if (!overlay) return;
+
+  let remaining = BAO_PEEK_TIMEOUT;
+  if (countdown) countdown.textContent = `(${remaining})`;
+  overlay.style.display = 'block';
+
+  if (_baoPeekTimer) clearInterval(_baoPeekTimer);
+  _baoPeekTimer = setInterval(() => {
+    remaining--;
+    if (countdown) countdown.textContent = `(${remaining})`;
+    if (remaining <= 0) {
+      clearInterval(_baoPeekTimer);
+      _baoPeekTimer = null;
+      revealBao();  // 超时自动看宝
+    }
+  }, 1000);
+}
+
 function updateBaoBadge(tileStr) {
   const badge = document.getElementById('bao-badge');
   const text  = document.getElementById('bao-tile-text');
@@ -591,18 +652,35 @@ function updateBaoBadge(tileStr) {
   }
 }
 
-/** 更新「看宝/不看宝」切换按钮的显示状态 */
+/** 更新「看宝」按钮的显示/激活状态
+ *  规则：
+ *  - 默认不看宝（_hideBao=true）
+ *  - 只能从「不看宝」→「看宝」（单向），不能反向
+ *  - 只在自己的出牌阶段（discarding）才能激活点击；其余时候置灰提示
+ */
 function updateHideBaoBtn() {
   const btn = document.getElementById('btn-hide-bao');
   if (!btn) return;
-  // 只在大连规则且游戏进行中显示
+
   const isDalian = gameState?.ruleset === 'dalian';
-  const inGame   = gameState?.phase && gameState.phase !== 'waiting';
-  btn.style.display = (isDalian && inGame) ? '' : 'none';
-  btn.textContent   = _hideBao ? '不看宝' : '看宝';
-  btn.title         = _hideBao ? '当前：不显示宝牌信息（点击切换为看宝）'
-                               : '当前：显示宝牌信息（点击切换为不看宝）';
-  btn.style.opacity = _hideBao ? '0.6' : '1';
+  const phase    = gameState?.phase;
+  const inGame   = phase && phase !== 'waiting' && phase !== 'ended';
+
+  // 已看宝 或 非大连 或 游戏未进行：隐藏按钮
+  if (!_hideBao || !isDalian || !inGame) {
+    btn.style.display = 'none';
+    return;
+  }
+
+  // 不看宝状态：显示按钮；只有自己出牌阶段才可点击
+  const canSwitch = phase === 'discarding' && gameState?.current_turn === myPlayerIdx;
+  btn.style.display   = '';
+  btn.textContent     = '看宝';
+  btn.disabled        = !canSwitch;
+  btn.style.opacity   = canSwitch ? '1' : '0.45';
+  btn.title           = canSwitch
+    ? '点击立即查看当前生效宝牌（出牌前确认）'
+    : '仅在自己出牌时可查看宝牌';
 }
 
 function showBaoAnnounce(playerIdx, dice, tileStr, rerolled, newTenpai = false) {
@@ -1916,14 +1994,22 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Speech toggle button
-  // 「看宝/不看宝」切换按钮
+  // 看宝确认弹窗按钮
+  document.getElementById('btn-bao-peek-yes')?.addEventListener('click', revealBao);
+  document.getElementById('btn-bao-peek-no')?.addEventListener('click',  dismissBaoPeek);
+
+  // 「看宝」按钮（单向：不看宝 → 看宝，仅自己出牌阶段有效）
   const btnHideBao = document.getElementById('btn-hide-bao');
   if (btnHideBao) {
     btnHideBao.addEventListener('click', () => {
-      _hideBao = !_hideBao;
+      // 仅允许 不看宝→看宝 的单向切换，且必须在自己出牌阶段
+      const canSwitch = _hideBao
+        && gameState?.phase === 'discarding'
+        && gameState?.current_turn === myPlayerIdx;
+      if (!canSwitch) return;
+      _hideBao = false;
       updateHideBaoBtn();
-      updateBaoBadge(_hideBao ? null : _baoTile);
-      // 重新渲染以刷新 last-discard 宝牌和手牌高亮
+      updateBaoBadge(_baoTile);
       if (gameState) renderBoard(gameState);
     });
   }
