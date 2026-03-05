@@ -355,11 +355,15 @@ async def _run_ai_turn(room_id: str) -> None:
                             if drawn_tile and drawn_tile in player.hand:
                                 try:
                                     gs.discard_tile(gs.current_turn, drawn_tile)
-                                    # 宝牌重摇广播（discard_tile 内已处理 reroll，需广播）
-                                    if gs.ruleset == "dalian" and not gs.bao_declared:
+                                    # 听牌自动打回后，同样需要检测其他玩家是否新达到听牌
+                                    if gs.ruleset == "dalian":
+                                        await _check_bao_reroll_and_broadcast(room_id, gs)
+                                        _prev_tenpai_tp = set(gs.tenpai_players)
                                         bao_event = gs.check_and_trigger_bao()
                                         if bao_event:
                                             await _broadcast_bao_declared(room_id, bao_event)
+                                        else:
+                                            await _notify_new_tenpai_players_bao(room_id, gs, _prev_tenpai_tp)
                                     await _broadcast_game_state(room_id)
                                     if gs.phase == "claiming":
                                         await _handle_claim_window(room_id)
@@ -409,10 +413,15 @@ async def _run_ai_turn(room_id: str) -> None:
                         if drawn and drawn in player.hand:
                             try:
                                 gs.discard_tile(ai_idx, drawn)
-                                if not gs.bao_declared:
+                                # 听牌 AI 自动打回后，同样需要检测其他玩家是否新达到听牌
+                                if gs.ruleset == "dalian":
+                                    await _check_bao_reroll_and_broadcast(room_id, gs)
+                                    _prev_tenpai_ai_tp = set(gs.tenpai_players)
                                     bao_event = gs.check_and_trigger_bao()
                                     if bao_event:
                                         await _broadcast_bao_declared(room_id, bao_event, gs=gs)
+                                    else:
+                                        await _notify_new_tenpai_players_bao(room_id, gs, _prev_tenpai_ai_tp)
                                 await _broadcast_game_state(room_id)
                                 if gs.phase == "claiming":
                                     await _handle_claim_window(room_id)
