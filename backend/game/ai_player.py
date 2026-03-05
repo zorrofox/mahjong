@@ -297,12 +297,26 @@ class AIPlayer:
             # Dalian: dragons cannot be punged
             if ruleset == "dalian" and tile in ('RED', 'GREEN', 'WHITE'):
                 return False
+            # Dalian 禁手把一：已有3副副露时再碰会凑成第4副 → 永远无法胡牌
+            if ruleset == "dalian" and len(melds) >= 3:
+                return False
             return self._should_claim_pung(hand, melds, tile)
 
         if claim_type == "kong":
+            if ruleset == "dalian" and len(melds) >= 3:
+                # 加杠（把已有的碰转成杠）不新增副露数，可以继续
+                # 其余杠（暗杠/声索杠）会新增副露数 → 手把一，拒绝
+                is_add_to_existing_pung = any(
+                    len(m) == 3 and all(t == tile for t in m) for m in melds
+                )
+                if not is_add_to_existing_pung:
+                    return False
             return self._should_claim_kong(hand, melds, tile)
 
         if claim_type == "chow":
+            # Dalian 禁手把一：已有3副副露时再吃会凑成第4副 → 永远无法胡牌
+            if ruleset == "dalian" and len(melds) >= 3:
+                return False
             return self._should_claim_chow(hand, melds, tile)
 
         return False
