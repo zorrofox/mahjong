@@ -154,8 +154,8 @@ class GameState:
         # Keys are player_id strings; values are net chip deltas (can be negative).
         self.kong_chip_transfers: dict[str, int] = {}
 
-        # 大连专用：杠分记录（无论胡牌与否，局末统一结算）
-        # 明杠(min)=1×底注/家，暗杠(an)=2×底注/家，三家各付给杠牌者
+        # 大连专用：杠分记录（只有胡牌者的杠才结算，荒庄不收）
+        # 明杠(min)=1×底注/家，暗杠(an)=2×底注/家，三家各付给胡牌者
         self.kong_log: list[dict] = []  # [{'player_idx': int, 'type': 'min'|'an'}]
 
         # ── 宝牌状态（大连穷胡专用）─────────────────────────────────
@@ -482,7 +482,7 @@ class GameState:
         """
         统一记录杠牌。
         - HK 规则：任何玩家杠牌立即从其他三家各收 1 筹码（kong_chip_transfers）
-        - 大连规则：记录到 kong_log，局末统一结算（无论胡牌与否）
+        - 大连规则：记录到 kong_log，局末仅对胡牌者结算（荒庄不收）
           明杠(min)=1×底注/家, 暗杠(an)=2×底注/家
 
         Args:

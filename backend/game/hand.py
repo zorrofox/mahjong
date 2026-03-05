@@ -735,7 +735,8 @@ def calculate_han_dalian(
 
     番型:
       基础 1番    — always
-      自摸 +1    — not ron
+      自摸 +1    — not ron (mutually exclusive with 放炮)
+      放炮 +1    — ron (mutually exclusive with 自摸)
       夹胡 +1    — kanchan wait (ron or tsumo, whenever winning_tile qualifies)
       庄家 +1    — is_dealer
       杠上开花 +2 — ling_shang and not ron
@@ -754,6 +755,8 @@ def calculate_han_dalian(
 
     if not ron:
         add('自摸', 'Tsumo (Self-draw)', 1)
+    else:
+        add('放炮', 'Ron (Discard Win)', 1)
 
     if is_dealer:
         add('庄家', 'Dealer Bonus', 1)

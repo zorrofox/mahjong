@@ -790,16 +790,15 @@ async def _handle_game_over(room_id: str) -> None:
             )
             three_clean_bonus = 1 if others_clean else 0
 
-            def _loser_unit(loser_idx: int, is_discarder: bool = False) -> int:
+            def _loser_unit(loser_idx: int) -> int:
+                # 放炮 +1 已包含在赢家 han_total 中（calculate_han_dalian 荣和时加放炮番）
                 extra = (1 if not gs.players[loser_idx].melds else 0)  # 未开门
                 extra += three_clean_bonus                               # 三家门清
-                if is_discarder:
-                    extra += 1                                           # 放炮额外 +1
                 return min(CHIP_CAP, 2 ** (han + extra - 1))
 
             if gs.win_ron and gs.win_discarder_idx is not None:
                 # 荣和：只有放炮者付钱
-                pay = _loser_unit(gs.win_discarder_idx, is_discarder=True)
+                pay = _loser_unit(gs.win_discarder_idx)
                 discarder_id = gs.players[gs.win_discarder_idx].id
                 room.cumulative_scores[winner_id] = (
                     room.cumulative_scores.get(winner_id, INITIAL_CHIPS) + pay
@@ -868,27 +867,27 @@ async def _handle_game_over(room_id: str) -> None:
                             room.cumulative_scores.get(p.id, INITIAL_CHIPS) - pay
                         )
 
-    # ── 大连杠分：无论胡牌与否，所有玩家的杠均结算 ───────────────────────────
-    # 明杠 = 1×底注/家，暗杠 = 2×底注/家，杠牌者从其余三家各收对应筹码
-    # （荒庄同样结算，与胡牌结算完全独立）
+    # ── 大连杠分：只有胡牌者的杠才结算，荒庄不收杠钱 ──────────────────────────
+    # wiki 原文：「只有胡牌者才算杠分。明杠1倍底注/家，暗杠2倍底注/家，三家都给胡牌者。」
+    # 非胡牌者的杠、以及荒庄时的杠均不结算。
     kong_chip_changes: dict[str, int] = {}  # 各玩家本局杠钱专项变动（用于前端展示）
-    if gs and gs.ruleset == "dalian" and gs.kong_log:
-        from collections import defaultdict
-        konger_chips: dict = defaultdict(int)
-        for k in gs.kong_log:
-            konger_chips[k['player_idx']] += 1 if k['type'] == 'min' else 2
-        for konger_idx, chips_per_player in konger_chips.items():
-            konger_pid = gs.players[konger_idx].id
+    if gs and gs.ruleset == "dalian" and winner_idx is not None and gs.kong_log:
+        winner_kongs = [k for k in gs.kong_log if k['player_idx'] == winner_idx]
+        if winner_kongs:
+            kong_chips_per_player = sum(
+                1 if k['type'] == 'min' else 2
+                for k in winner_kongs
+            )
             for i, p in enumerate(gs.players):
-                if i != konger_idx:
-                    room.cumulative_scores[konger_pid] = (
-                        room.cumulative_scores.get(konger_pid, INITIAL_CHIPS) + chips_per_player
+                if i != winner_idx:
+                    room.cumulative_scores[winner_id] = (
+                        room.cumulative_scores.get(winner_id, INITIAL_CHIPS) + kong_chips_per_player
                     )
                     room.cumulative_scores[p.id] = (
-                        room.cumulative_scores.get(p.id, INITIAL_CHIPS) - chips_per_player
+                        room.cumulative_scores.get(p.id, INITIAL_CHIPS) - kong_chips_per_player
                     )
-                    kong_chip_changes[konger_pid] = kong_chip_changes.get(konger_pid, 0) + chips_per_player
-                    kong_chip_changes[p.id] = kong_chip_changes.get(p.id, 0) - chips_per_player
+                    kong_chip_changes[winner_id] = kong_chip_changes.get(winner_id, 0) + kong_chips_per_player
+                    kong_chip_changes[p.id] = kong_chip_changes.get(p.id, 0) - kong_chips_per_player
 
     # Compute and persist per-player chip changes for this round.
     room.last_chip_changes = {

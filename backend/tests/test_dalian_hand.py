@@ -316,10 +316,10 @@ class TestIsKanchanInHand:
         result = calculate_han_dalian(concealed, melds, ron=True, winning_tile='BAMBOO_5')
         names = [x['name_cn'] for x in result['breakdown']]
         assert '夹胡' not in names, f"单调胡不应计夹胡，实际番型：{names}"
-        assert result['total'] == 1
+        assert result['total'] == 2  # 基础 + 放炮
 
     def test_calculate_han_true_kanchan_has_bonus(self):
-        """真正坎张仍正常计夹胡 +1"""
+        """真正坎张荣和计夹胡 +1（基础+放炮+夹胡 = 3番）"""
         melds = [
             ['CIRCLES_2', 'CIRCLES_2', 'CIRCLES_2'],
             ['CIRCLES_8', 'CIRCLES_8', 'CIRCLES_8'],
@@ -329,7 +329,7 @@ class TestIsKanchanInHand:
         result = calculate_han_dalian(concealed, melds, ron=True, winning_tile='BAMBOO_5')
         names = [x['name_cn'] for x in result['breakdown']]
         assert '夹胡' in names, f"坎张荣和应计夹胡，实际番型：{names}"
-        assert result['total'] == 2
+        assert result['total'] == 3  # 基础 + 放炮 + 夹胡
 
     def test_calculate_han_tanki_circles1_screenshot_scenario(self):
         """截图场景：单调一饼，宝牌五条，不计夹胡也不计冲宝"""
@@ -346,7 +346,7 @@ class TestIsKanchanInHand:
         names = [x['name_cn'] for x in result['breakdown']]
         assert '夹胡' not in names
         assert '冲宝' not in names
-        assert result['total'] == 1
+        assert result['total'] == 2  # 基础 + 放炮
 
 
 # ---------------------------------------------------------------------------

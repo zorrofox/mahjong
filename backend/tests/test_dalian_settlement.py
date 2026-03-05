@@ -43,9 +43,11 @@ class TestDalianHanCalculation:
         return calculate_han_dalian(**defaults)
 
     def test_base_total_non_dealer_ron(self):
-        """非庄家、荣和：基础 1 番"""
+        """非庄家、荣和：基础 1 + 放炮 1 = 2 番"""
         result = self._call(ron=True)
-        assert result['total'] == 1
+        names = [x['name_cn'] for x in result['breakdown']]
+        assert '放炮' in names
+        assert result['total'] == 2
 
     def test_base_total_non_dealer_tsumo(self):
         """非庄家、自摸：基础 1 + 自摸 1 = 2 番"""
@@ -53,9 +55,9 @@ class TestDalianHanCalculation:
         assert result['total'] == 2
 
     def test_dealer_ron(self):
-        """庄家、荣和：基础 1 + 庄家 1 = 2 番"""
+        """庄家、荣和：基础 1 + 放炮 1 + 庄家 1 = 3 番"""
         result = self._call(ron=True, is_dealer=True)
-        assert result['total'] == 2
+        assert result['total'] == 3
 
     def test_dealer_tsumo(self):
         """庄家、自摸：基础 1 + 自摸 1 + 庄家 1 = 3 番"""
@@ -68,9 +70,9 @@ class TestDalianHanCalculation:
         assert result['total'] == 4
 
     def test_rob_kong_ron(self):
-        """抢杠胡荣和：基础 1 + 抢杠胡 2 = 3 番"""
+        """抢杠胡荣和：基础 1 + 放炮 1 + 抢杠胡 2 = 4 番"""
         result = self._call(ron=True, rob_kong=True)
-        assert result['total'] == 3
+        assert result['total'] == 4
 
 
 # ---------------------------------------------------------------------------
@@ -95,12 +97,11 @@ def _simulate_dalian_settlement(
     others_clean = all(not has_meld for has_meld in losers_melds)
     three_clean_bonus = 1 if others_clean else 0
 
-    def loser_unit(loser_idx: int, is_discarder: bool = False) -> int:
+    def loser_unit(loser_idx: int) -> int:
         # loser_idx is index into the 3-element losers list (not player idx)
+        # 放炮 +1 已包含在 han 中（荣和时 calculate_han_dalian 已加放炮番）
         extra = (1 if not losers_melds[loser_idx] else 0)
         extra += three_clean_bonus
-        if is_discarder:
-            extra += 1
         return min(CHIP_CAP, 2 ** (han + extra - 1))
 
     # Map loser indices: players other than winner_idx in order
@@ -108,7 +109,7 @@ def _simulate_dalian_settlement(
 
     if win_ron and discarder_idx is not None:
         discarder_local = loser_player_idxs.index(discarder_idx)
-        pay = loser_unit(discarder_local, is_discarder=True)
+        pay = loser_unit(discarder_local)
         scores[winner_idx] += pay
         scores[discarder_idx] -= pay
     else:
@@ -134,12 +135,12 @@ class TestDalianSettlement:
         assert deltas[2] == -4
         assert deltas[3] == -4
 
-    def test_ron_2_fan_discarder_pays_han_plus1(self):
-        """荣和 2 番：放炮者按 han+1=3 番付（有副露时无未开门加成）"""
-        # 三家均有副露，放炮为 player 2
-        # 荣和只有放炮者付：extra=0（有副露）+ 1（放炮）= 1 → han+1=3 → unit=4
+    def test_ron_3_fan_discarder_pays(self):
+        """荣和 3 番（含放炮 +1）：三家均有副露，放炮者按 3 番付 → unit=4"""
+        # han=3（基础1+放炮1+其他1），三家均有副露，放炮为 player 2
+        # 荣和只有放炮者付：extra=0（有副露+无三家门清）→ unit=2^(3-1)=4
         deltas = _simulate_dalian_settlement(
-            han=2, win_ron=True, winner_idx=0, discarder_idx=2,
+            han=3, win_ron=True, winner_idx=0, discarder_idx=2,
             losers_melds=[True, True, True],
         )
         assert deltas[2] == -4   # 放炮者付 4
@@ -176,11 +177,11 @@ class TestDalianSettlement:
         assert deltas[0] == 24
 
     def test_three_clean_bonus_with_ron(self):
-        """三家门清 + 放炮：放炮者 extra=2+1=3 → han+3=5 → unit=16"""
-        # han=2, 荣和, 三家均无副露, 放炮 player2
-        # extra for discarder: 1（无副露）+1（三家门清）+1（放炮）=3 → han+3=5 → unit=16
+        """三家门清 + 放炮（已在 han 中）：放炮者 extra=1（无副露）+1（三家门清）→ han+2=5 → unit=16"""
+        # han=3（含放炮番），三家均无副露，放炮 player2
+        # extra for discarder: 1（无副露）+1（三家门清）=2 → han+2=5 → unit=2^4=16
         deltas = _simulate_dalian_settlement(
-            han=2, win_ron=True, winner_idx=0, discarder_idx=2,
+            han=3, win_ron=True, winner_idx=0, discarder_idx=2,
             losers_melds=[False, False, False],
         )
         assert deltas[2] == -16
@@ -189,15 +190,16 @@ class TestDalianSettlement:
         assert deltas[3] == 0
 
     def test_dealer_han_includes_dealer_bonus(self):
-        """庄家胡 han_total 包含庄家番"""
+        """庄家荣和 han_total 包含庄家番和放炮番"""
         result = calculate_han_dalian(
             concealed_tiles=[], declared_melds=[], ron=True,
             is_dealer=True, winning_tile=None,
         )
-        # 基础 1 + 庄家 1 = 2
-        assert result['total'] == 2
+        # 基础 1 + 放炮 1 + 庄家 1 = 3
+        assert result['total'] == 3
         dealer_names = [x['name_cn'] for x in result['breakdown']]
         assert '庄家' in dealer_names
+        assert '放炮' in dealer_names
 
     def test_chip_cap_applied(self):
         """7+ 番封顶 CHIP_CAP=64"""
