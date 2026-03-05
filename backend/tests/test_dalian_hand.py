@@ -269,6 +269,87 @@ class TestIsKanchan:
 
 
 # ---------------------------------------------------------------------------
+# _is_kanchan_in_hand — 精确坎张检测（单调误判回归测试）
+# ---------------------------------------------------------------------------
+
+class TestIsKanchanInHand:
+    """
+    Bug#42 修复验证：单调（单张将牌）等待不得被误判为坎张。
+
+    场景：手牌有 n-1、n、n+1 且 n 在手中出现 ≥2 次（其中一张是将），
+    应识别为单调等待，不计夹胡。
+    """
+
+    def test_tanki_middle_tile_not_kanchan(self):
+        """
+        单调五条：手有 4条5条5条6条，胡 5条（第二张凑将）
+        结构：4-5-6（顺子）+ 5-5（将），是单调而非坎张
+        """
+        from game.hand import _is_kanchan_in_hand
+        # hand_without_win = 胡牌后去掉一张胡牌张
+        hand_without_win = ['BAMBOO_4', 'BAMBOO_5', 'BAMBOO_5', 'BAMBOO_6']
+        assert not _is_kanchan_in_hand('BAMBOO_5', hand_without_win)
+
+    def test_true_kanchan_still_detected(self):
+        """真正坎张：手有 4条6条，胡 5条（4-5-6 中间张）"""
+        from game.hand import _is_kanchan_in_hand
+        hand_without_win = ['BAMBOO_4', 'BAMBOO_6', 'EAST', 'EAST']
+        assert _is_kanchan_in_hand('BAMBOO_5', hand_without_win)
+
+    def test_tanki_on_circles_1_not_kanchan(self):
+        """单调一饼：num=1<2 直接返回 False（截图场景回归）"""
+        from game.hand import _is_kanchan_in_hand
+        hand_without_win = ['BAMBOO_3', 'BAMBOO_4', 'BAMBOO_5', 'CIRCLES_1']
+        assert not _is_kanchan_in_hand('CIRCLES_1', hand_without_win)
+
+    def test_calculate_han_tanki_middle_no_kanchan_bonus(self):
+        """
+        Bug#42 核心回归：单调五条番型不得出现夹胡 +1
+        手牌：4条5条5条5条6条（顺子4-5-6 + 将5-5，单调胡五条）
+        """
+        melds = [
+            ['CIRCLES_2', 'CIRCLES_2', 'CIRCLES_2'],
+            ['CIRCLES_8', 'CIRCLES_8', 'CIRCLES_8'],
+            ['CHARACTERS_7', 'CHARACTERS_7', 'CHARACTERS_7'],
+        ]
+        concealed = ['BAMBOO_4', 'BAMBOO_5', 'BAMBOO_5', 'BAMBOO_5', 'BAMBOO_6']
+        result = calculate_han_dalian(concealed, melds, ron=True, winning_tile='BAMBOO_5')
+        names = [x['name_cn'] for x in result['breakdown']]
+        assert '夹胡' not in names, f"单调胡不应计夹胡，实际番型：{names}"
+        assert result['total'] == 1
+
+    def test_calculate_han_true_kanchan_has_bonus(self):
+        """真正坎张仍正常计夹胡 +1"""
+        melds = [
+            ['CIRCLES_2', 'CIRCLES_2', 'CIRCLES_2'],
+            ['CIRCLES_8', 'CIRCLES_8', 'CIRCLES_8'],
+            ['CHARACTERS_7', 'CHARACTERS_7', 'CHARACTERS_7'],
+        ]
+        concealed = ['BAMBOO_4', 'BAMBOO_5', 'BAMBOO_6', 'EAST', 'EAST']
+        result = calculate_han_dalian(concealed, melds, ron=True, winning_tile='BAMBOO_5')
+        names = [x['name_cn'] for x in result['breakdown']]
+        assert '夹胡' in names, f"坎张荣和应计夹胡，实际番型：{names}"
+        assert result['total'] == 2
+
+    def test_calculate_han_tanki_circles1_screenshot_scenario(self):
+        """截图场景：单调一饼，宝牌五条，不计夹胡也不计冲宝"""
+        melds = [
+            ['CIRCLES_3', 'CIRCLES_3', 'CIRCLES_3'],
+            ['CIRCLES_6', 'CIRCLES_6', 'CIRCLES_6'],
+            ['CHARACTERS_7', 'CHARACTERS_7', 'CHARACTERS_7'],
+        ]
+        concealed = ['BAMBOO_3', 'BAMBOO_4', 'BAMBOO_5', 'CIRCLES_1', 'CIRCLES_1']
+        result = calculate_han_dalian(
+            concealed, melds, ron=True,
+            winning_tile='CIRCLES_1', bao_tile='BAMBOO_5',
+        )
+        names = [x['name_cn'] for x in result['breakdown']]
+        assert '夹胡' not in names
+        assert '冲宝' not in names
+        assert result['total'] == 1
+
+
+# ---------------------------------------------------------------------------
 # calculate_han_dalian — 番型计算
 # ---------------------------------------------------------------------------
 

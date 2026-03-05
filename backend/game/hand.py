@@ -646,6 +646,15 @@ def _is_kanchan_in_hand(winning_tile: str, concealed_without_winning: list[str])
                 return True
         return False
 
+    # 单调（单张/将牌）优先检测：若 winning_tile 在全手中有 ≥2 张，
+    # 可能是将牌等待（单调）而非坎张。
+    # 尝试把 winning_tile 作为将（移除一对），看剩余牌能否组成完整副露。
+    # 若能，则此等待为单调，不计夹胡。
+    if full_hand.count(winning_tile) >= 2:
+        remaining_tanki = _remove_tiles(full_hand, [winning_tile, winning_tile])
+        if _try_extract_melds_dalian(remaining_tanki):
+            return False  # 单调等待（将牌），非坎张
+
     # 检验 winning 作为低端（需要 winning+1, winning+2）
     t1, t2 = f"{suit}_{num + 1}", f"{suit}_{num + 2}"
     if num <= 7 and full_hand.count(t1) >= 1 and full_hand.count(t2) >= 1:

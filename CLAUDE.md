@@ -497,6 +497,7 @@ gcloud run deploy mahjong \
 | 39 | 未上听玩家可用宝牌野牌胡牌（规则违反） | `game_state.py` 所有胡牌判断 | 所有玩家无差别传入 `bao_tile=self.bao_tile`；规则为「听牌后」方可用宝牌替代；修复：新增 `_effective_bao(player_idx)` 辅助方法，仅对 `tenpai_players` 成员返回宝牌 |
 | 40 | 冲宝概率虚高（摸宝被误计为冲宝+2） | `hand.py` `calculate_han_dalian` | `winning_tile == bao_tile` 同时匹配两种情况：① 宝牌直接是结构性等待张（真冲宝+2）② 摸到宝牌后通过野牌替代胡牌（应为摸宝+1）；修复：新增 `is_winning_hand_dalian(bao_tile=None)` 结构性验证，False 则降为摸宝 |
 | 41 | 别人打出宝牌可声索荣和（违规：宝牌野牌仅限自摸） | `game_state.py` `get_available_actions`/`declare_win` | 声索检查传 `bao_tile=self._effective_bao(player_idx)`，当打出的牌恰好是宝牌时，`is_winning_hand_dalian` 把它当野牌替代，导致非结构性等待也能荣和；修复：新增 `_effective_bao_for_ron(player_idx, winning_tile)` 辅助方法，winning_tile==bao_tile 时返回 None 禁止野牌替代声索；冲宝（宝牌=结构性等待张）自摸/荣和均合法，不受影响 |
+| 42 | 单调（将牌）等待被误判为坎张（夹胡多计 +1） | `hand.py` `_is_kanchan_in_hand` | 手牌含 n-1、n（×2）、n+1 时，函数仅检查双面替代方案，未考虑 n 本身可作将牌（单调等待）；导致如 4条-5条-5条-6条胡第二张5条时被误判为坎张并计夹胡 +1；修复：在双面检查前先判断 winning_tile 是否能作将（full_hand 中 ≥2 张且移除将后剩余牌满足 `_try_extract_melds_dalian`），若能则返回 False（单调非坎张） |
 
 ---
 
