@@ -404,6 +404,16 @@ class GameState:
         """宝牌只对已上听（tenpai_players）的玩家生效。"""
         return self.bao_tile if player_idx in self.tenpai_players else None
 
+    def _effective_bao_for_ron(self, player_idx: int, winning_tile: str) -> Optional[str]:
+        """
+        点炮（荣和）时的宝牌效果：
+        - 打出的牌不是宝牌 → 正常返回宝牌（手中已有宝牌可充当野牌）
+        - 打出的牌是宝牌  → 返回 None（禁止把别人打出的宝牌当野牌来声索胡；
+                            只允许冲宝：即宝牌恰好是结构性等待张，直接荣和）
+        """
+        bao = self._effective_bao(player_idx)
+        return None if winning_tile == bao else bao
+
     def _finalize_win(self, player_idx: int, winning_tile: str, ron: bool = False, rob_kong: bool = False) -> None:
         """Mark the game as ended with the given player as winner."""
         self.winner = self.players[player_idx].id
@@ -1036,7 +1046,7 @@ class GameState:
             effective_hand = player.hand_without_bonus() + [tile]
             if self.ruleset == "dalian":
                 if not is_winning_hand_dalian(effective_hand, len(player.melds), player.melds,
-                                               bao_tile=self._effective_bao(player_idx)):
+                                               bao_tile=self._effective_bao_for_ron(player_idx, tile)):
                     raise ValueError(f"Player {player_idx}'s hand + '{tile}' is not a winning hand.")
                 _pre_han = calculate_han_dalian(effective_hand, player.melds, ron=True,
                                                 winning_tile=tile,
@@ -1197,7 +1207,7 @@ class GameState:
                     # Rob-the-kong window (搶杠胡): ONLY win or skip allowed
                     if self.ruleset == "dalian":
                         _can_win_rob = is_winning_hand_dalian(effective_hand + [tile], len(player.melds), player.melds,
-                                                              bao_tile=self._effective_bao(player_idx))
+                                                              bao_tile=self._effective_bao_for_ron(player_idx, tile))
                         _rob_han = calculate_han_dalian(effective_hand + [tile], player.melds, ron=True,
                                                         winning_tile=tile, rob_kong=True,
                                                         bao_tile=self._effective_bao(player_idx)) if _can_win_rob else None
@@ -1214,7 +1224,7 @@ class GameState:
                 # Check win (declared melds are fixed — do NOT mix them back).
                 if self.ruleset == "dalian":
                     _can_win_claim = is_winning_hand_dalian(effective_hand + [tile], len(player.melds), player.melds,
-                                                             bao_tile=self._effective_bao(player_idx))
+                                                             bao_tile=self._effective_bao_for_ron(player_idx, tile))
                     _claim_han = calculate_han_dalian(effective_hand + [tile], player.melds, ron=True,
                                                       winning_tile=tile,
                                                       bao_tile=self._effective_bao(player_idx)) if _can_win_claim else None

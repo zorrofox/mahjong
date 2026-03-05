@@ -10,6 +10,7 @@ test_dalian_game_state.py - 大连穷胡 GameState 专项测试
   - 听牌检测：check_and_trigger_bao 后续玩家也能加入 tenpai_players
   - 不换听：discard_tile 在听牌状态下拒绝破坏听牌的出牌
   - 大连结算：to_dict 对非听牌玩家隐藏 bao_tile
+  - 点炮宝牌规则：_effective_bao_for_ron 禁止野牌替代声索荣和
 """
 
 import pytest
@@ -383,3 +384,122 @@ class TestDalianTenpaiDetection:
         # 打出 NORTH：不影响听牌结构 → 应成功
         gs.discard_tile(0, 'NORTH')
         assert gs.phase == "claiming"
+
+
+# ---------------------------------------------------------------------------
+# 点炮宝牌规则：_effective_bao_for_ron
+# ---------------------------------------------------------------------------
+
+class TestEffectiveBaoForRon:
+    """
+    规则：点炮时别人打出宝牌，只能以冲宝（结构性等待张恰好是宝牌）方式胡，
+    不能把打出的宝牌当野牌替代来声索荣和。
+    """
+
+    def _make_gs_with_bao(self, bao_tile: str):
+        """创建一个已设置宝牌的大连 GameState（跳过正常流程直接注入状态）。"""
+        gs = GameState(
+            room_id="test-bao-ron",
+            player_ids=["p0", "p1", "p2", "p3"],
+            ruleset="dalian",
+        )
+        gs.deal_initial_tiles()
+        gs.bao_tile = bao_tile
+        gs.bao_declared = True
+        gs.tenpai_players.add(1)   # p1 已听牌，可见宝牌
+        return gs
+
+    def test_effective_bao_for_ron_non_bao_tile(self):
+        """打出的牌不是宝牌 → 返回宝牌（手中宝牌仍可充当野牌）"""
+        gs = self._make_gs_with_bao('BAMBOO_5')
+        result = gs._effective_bao_for_ron(1, 'CIRCLES_3')
+        assert result == 'BAMBOO_5'
+
+    def test_effective_bao_for_ron_is_bao_tile(self):
+        """打出的牌是宝牌 → 返回 None（禁止野牌替代声索）"""
+        gs = self._make_gs_with_bao('BAMBOO_5')
+        result = gs._effective_bao_for_ron(1, 'BAMBOO_5')
+        assert result is None
+
+    def test_effective_bao_for_ron_non_tenpai_player(self):
+        """非听牌玩家：_effective_bao 本就是 None，_effective_bao_for_ron 也是 None"""
+        gs = self._make_gs_with_bao('BAMBOO_5')
+        result = gs._effective_bao_for_ron(0, 'BAMBOO_5')   # p0 不在 tenpai_players
+        assert result is None
+
+    def test_get_available_actions_cannot_claim_discard_bao_as_wildcard(self):
+        """
+        Bug#41 修复验证：
+        玩家等待 CHARACTERS_3，宝牌是 BAMBOO_5（野牌）。
+        别人打出 BAMBOO_5（宝牌），不能声索荣和（野牌只限自摸）。
+        """
+        gs = GameState(
+            room_id="test-bao-ron-claim",
+            player_ids=["p0", "p1", "p2", "p3"],
+            ruleset="dalian",
+        )
+        gs.deal_initial_tiles()
+
+        # p1 的手牌：听 CHARACTERS_3（结构性等待），宝牌是 BAMBOO_5（不是等待张）
+        gs.players[1].melds = [['BAMBOO_1', 'BAMBOO_1', 'BAMBOO_1']]
+        gs.players[1].hand = [
+            'EAST', 'EAST',
+            'CIRCLES_1', 'CIRCLES_2', 'CIRCLES_3',
+            'BAMBOO_7', 'BAMBOO_8', 'BAMBOO_9',
+            'CHARACTERS_1', 'CHARACTERS_2',
+            'CHARACTERS_3',   # 多一张凑成 14 张（声索窗口下手牌不含胡牌张）
+        ]
+        # 手牌调整为 10 张（1 副副露 → 13-3=10 张等待前；声索时手中 10 张）
+        gs.players[1].hand = [
+            'EAST', 'EAST',
+            'CIRCLES_1', 'CIRCLES_2', 'CIRCLES_3',
+            'BAMBOO_7', 'BAMBOO_8', 'BAMBOO_9',
+            'CHARACTERS_1', 'CHARACTERS_2',
+        ]
+
+        gs.bao_tile = 'BAMBOO_5'
+        gs.bao_declared = True
+        gs.tenpai_players.add(1)
+
+        # 模拟 p0 打出宝牌 BAMBOO_5，进入声索窗口
+        gs.phase = "claiming"
+        gs.last_discard = 'BAMBOO_5'
+        gs.last_discard_player = 0
+        gs._pending_claims = {1, 2, 3}
+
+        actions = gs.get_available_actions(1)
+        # BAMBOO_5 是宝牌，但不是 p1 的结构性等待张 CHARACTERS_3
+        # → 不能以野牌替代声索荣和
+        assert 'win' not in actions
+
+    def test_get_available_actions_can_claim_discard_bao_as_chongbao(self):
+        """
+        冲宝合法：宝牌 == 结构性等待张，别人打出宝牌可以声索荣和（冲宝 +2）。
+        """
+        gs = GameState(
+            room_id="test-chongbao-ron",
+            player_ids=["p0", "p1", "p2", "p3"],
+            ruleset="dalian",
+        )
+        gs.deal_initial_tiles()
+
+        # p1 听 CHARACTERS_3，宝牌恰好也是 CHARACTERS_3（冲宝）
+        gs.players[1].melds = [['BAMBOO_1', 'BAMBOO_1', 'BAMBOO_1']]
+        gs.players[1].hand = [
+            'EAST', 'EAST',
+            'CIRCLES_1', 'CIRCLES_2', 'CIRCLES_3',
+            'BAMBOO_7', 'BAMBOO_8', 'BAMBOO_9',
+            'CHARACTERS_1', 'CHARACTERS_2',
+        ]
+
+        gs.bao_tile = 'CHARACTERS_3'   # 宝牌 == 等待张 → 冲宝
+        gs.bao_declared = True
+        gs.tenpai_players.add(1)
+
+        gs.phase = "claiming"
+        gs.last_discard = 'CHARACTERS_3'
+        gs.last_discard_player = 0
+        gs._pending_claims = {1, 2, 3}
+
+        actions = gs.get_available_actions(1)
+        assert 'win' in actions
